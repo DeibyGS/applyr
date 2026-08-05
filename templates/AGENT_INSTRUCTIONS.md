@@ -159,3 +159,19 @@ When the user asks about their job search, use these commands:
 6. **Salary**: if the offer says "competitive" or doesn't specify, omit salary fields
 7. **Follow-ups**: applyr auto-schedules follow-ups when status is set to `applied` or `waiting`
 8. **Config**: scoring weights and topic names can be customized in `~/.applyr/applyr.toml`
+
+## ATS CV rules (when generating HTML CVs)
+
+When creating or editing an HTML CV for ATS submission, follow these rules strictly:
+
+1. **Single column only** — never use CSS columns, flexbox, grid, or tables
+2. **Standard fonts** — Arial, Calibri, or Georgia only. Size: 11-12pt body, 14-16pt headings
+3. **No images, icons, or decorative elements** — ATS parsers see zero text from these
+4. **No header/footer content** — contact info must be in the body
+5. **Standard section headers** — use: Professional Summary, Work Experience, Education, Projects, Certifications, Technical Skills, Languages
+6. **Standard bullets** — use `<ul><li>` only, no custom symbols or checkmarks
+7. **Include measurable results** — numbers (%, $, Nx, years) in at least 70% of bullets
+8. **Match keywords** — use both acronyms and full terms from the job description (e.g., "Artificial Intelligence (AI)")
+9. **Use `|` as separator** in contact info, not `·` or special characters
+10. **Date format** — use `MM/YYYY` or `Month YYYY` consistently
+11. **Plain text test** — the CV must read correctly when copy-pasted into a plain text editor

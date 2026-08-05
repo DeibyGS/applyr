@@ -5,44 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CV — [Your Name]</title>
     <style>
-        /* ATS-optimized: no columns, no tables, no images, simple fonts */
+        /*
+         * ATS-optimized template — applyr
+         *
+         * Rules followed (2026 best practices):
+         * - Single column only (no CSS columns, no flexbox, no grid, no tables)
+         * - Standard web-safe fonts (Arial, Calibri, Georgia)
+         * - 10-12pt body text, 14-16pt headings
+         * - No images, icons, or decorative elements
+         * - Standard section headers (Work Experience, Education, Skills, etc.)
+         * - Contact info in body, not in header/footer
+         * - Standard bullet characters only (disc)
+         * - Clean text when copy-pasted to plain text editor
+         *
+         * Sources:
+         * - https://www.jobscan.co/blog/20-ats-friendly-resume-templates/
+         * - https://resumeoptimizerpro.com/blog/ats-friendly-resume-tips
+         * - https://www.jobscan.co/blog/resume-tables-columns-ats/
+         */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-family: Arial, Calibri, sans-serif;
             font-size: 11pt;
-            line-height: 1.45;
+            line-height: 1.5;
             color: #1a1a1a;
             max-width: 21cm;
             margin: 0 auto;
             padding: 1.5cm 2cm;
         }
-        h1 { font-size: 18pt; margin-bottom: 4px; color: #111; }
+        h1 { font-size: 16pt; margin-bottom: 4px; color: #111; }
         h2 {
             font-size: 12pt;
             text-transform: uppercase;
             letter-spacing: 1px;
             border-bottom: 1.5px solid #333;
             padding-bottom: 3px;
-            margin: 16px 0 8px;
+            margin: 14px 0 8px;
             color: #222;
         }
         h3 { font-size: 11pt; margin-bottom: 2px; }
-        .contact { font-size: 10pt; color: #444; margin-bottom: 12px; }
-        .contact a { color: #444; text-decoration: none; }
-        .job-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            margin-bottom: 2px;
-        }
-        .job-header .company { font-weight: normal; color: #555; }
-        .job-header .dates { font-size: 10pt; color: #666; white-space: nowrap; }
+        .contact { font-size: 10pt; color: #333; margin-bottom: 12px; }
+        .contact a { color: #333; text-decoration: none; }
+        .dates { font-size: 10pt; color: #555; }
+        .company { font-weight: normal; color: #555; }
+        .summary { margin-bottom: 10px; color: #333; }
         ul { padding-left: 18px; margin: 4px 0 10px; }
         li { margin-bottom: 3px; }
-        .skills-grid { columns: 2; column-gap: 20px; }
-        .skills-grid p { margin-bottom: 4px; break-inside: avoid; }
-        .skills-grid strong { display: inline; }
-        .summary { margin-bottom: 10px; color: #333; }
+        p { margin-bottom: 4px; }
         @media print {
             body { padding: 1cm 1.5cm; }
             h2 { page-break-after: avoid; }
@@ -53,6 +62,7 @@
 
 <!-- ============================================================
      ATS CV Template — applyr
+     https://github.com/DeibyGS/applyr
 
      Instructions for AI agents:
      1. Read the user's cv-master.md for all content
@@ -60,49 +70,47 @@
      3. Prioritize skills and projects relevant to the target offer
      4. Keep to 1 page (remove less relevant sections if needed)
      5. NEVER invent content not in cv-master.md
+     6. Match keywords from the job description naturally
+     7. Include measurable results in bullet points where possible
      ============================================================ -->
 
 <h1>[FULL NAME]</h1>
 <p class="contact">
-    [City, Country] &middot;
-    <a href="mailto:[EMAIL]">[EMAIL]</a> &middot;
-    [PHONE] &middot;
-    <a href="https://linkedin.com/in/[PROFILE]">LinkedIn</a> &middot;
-    <a href="https://github.com/[USERNAME]">GitHub</a> &middot;
+    [City, Country] |
+    <a href="mailto:[EMAIL]">[EMAIL]</a> |
+    [PHONE] |
+    <a href="https://linkedin.com/in/[PROFILE]">LinkedIn</a> |
+    <a href="https://github.com/[USERNAME]">GitHub</a> |
     <a href="[WEBSITE]">[WEBSITE]</a>
 </p>
 
 <h2>Professional Summary</h2>
 <p class="summary">
     [2-3 sentences tailored to the target position. Highlight relevant skills,
-    experience, and availability. Match keywords from the job description.]
+    experience, and availability. Match keywords from the job description.
+    Include both acronyms and full terms, e.g. "Search Engine Optimization (SEO)".]
 </p>
 
 <h2>Work Experience</h2>
 
-<div class="job-header">
-    <h3>[Job Title] <span class="company">— [Company] · [Location] · [Mode]</span></h3>
-    <span class="dates">[MM/YYYY – MM/YYYY]</span>
-</div>
+<h3>[Job Title] - [Company], [Location], [Mode]</h3>
+<p class="dates">[MM/YYYY - MM/YYYY]</p>
 <ul>
-    <li>[Achievement with measurable impact]</li>
-    <li>[Technology or methodology used]</li>
+    <li>[Achievement with measurable impact — use numbers: %, $, Nx, years]</li>
+    <li>[Technology or methodology used with concrete result]</li>
 </ul>
 
 <!-- Repeat for each relevant position -->
 
 <h2>Education</h2>
 
-<div class="job-header">
-    <h3>[Degree]</h3>
-    <span class="dates">[MM/YYYY – MM/YYYY]</span>
-</div>
-<p>[Institution]</p>
+<h3>[Degree]</h3>
+<p>[Institution] | <span class="dates">[MM/YYYY - MM/YYYY]</span></p>
 
 <h2>Projects</h2>
 
 <h3>[Project Name]</h3>
-<p><strong>Stack:</strong> [Technologies] &middot; <a href="[GITHUB_URL]">GitHub</a></p>
+<p><strong>Stack:</strong> [Technologies] | <a href="[GITHUB_URL]">GitHub</a></p>
 <ul>
     <li>[What it does and key technical decisions]</li>
 </ul>
@@ -111,22 +119,20 @@
 
 <h2>Certifications</h2>
 <ul>
-    <li>[Certification] — [Issuer] ([Date])</li>
+    <li>[Certification] - [Issuer] ([Date])</li>
 </ul>
 
 <h2>Technical Skills</h2>
-<div class="skills-grid">
-    <p><strong>Languages:</strong> [list]</p>
-    <p><strong>Frontend:</strong> [list]</p>
-    <p><strong>Backend:</strong> [list]</p>
-    <p><strong>Databases:</strong> [list]</p>
-    <p><strong>DevOps:</strong> [list]</p>
-    <p><strong>Other:</strong> [list]</p>
-</div>
+<p><strong>Languages:</strong> [list]</p>
+<p><strong>Frontend:</strong> [list]</p>
+<p><strong>Backend:</strong> [list]</p>
+<p><strong>Databases:</strong> [list]</p>
+<p><strong>DevOps:</strong> [list]</p>
+<p><strong>Other:</strong> [list]</p>
 
 <h2>Languages</h2>
 <ul>
-    <li>[Language] — [Level]</li>
+    <li>[Language] - [Level]</li>
 </ul>
 
 </body>
