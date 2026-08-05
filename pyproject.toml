@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "applyr"
+version = "0.1.0"
+description = "CLI job application tracker designed for AI coding agents"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Deiby Gorrin", email = "deibygorrin@gmail.com" },
+]
+keywords = ["job", "tracker", "cli", "ai", "career", "applications"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+    "Topic :: Utilities",
+]
+
+[project.scripts]
+applyr = "applyr.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/DeibyGS/applyr"
+Repository = "https://github.com/DeibyGS/applyr"
+Issues = "https://github.com/DeibyGS/applyr/issues"
+
+[tool.setuptools.packages.find]
+include = ["applyr*"]
+
+[tool.setuptools.package-data]
+applyr = ["templates/*"]

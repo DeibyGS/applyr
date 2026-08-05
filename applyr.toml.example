@@ -1,0 +1,31 @@
+# applyr configuration — copy to ~/.applyr/applyr.toml
+# Docs: https://github.com/DeibyGS/applyr
+
+[general]
+threshold = 65          # Minimum compatibility % to recommend applying
+followup_days = 10      # Days before follow-up reminder
+# db_path = "~/.applyr/jobs.db"
+# list_limit = 50       # Default limit for 'list' command
+
+[weights]
+# Scoring weights — must sum to 1.0
+tech_stack = 0.30
+education = 0.15
+english = 0.10
+experience = 0.15
+projects = 0.20
+cultural_fit = 0.10
+
+[topics]
+# Display names for each scoring topic (add/remove/rename as needed)
+tech_stack = "Tech Stack"
+education = "Education"
+english = "English"
+experience = "Experience"
+projects = "Own Projects"
+cultural_fit = "Cultural Fit"
+
+[cv]
+# chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# cv_master = "~/.applyr/cv-master.md"
+# output_dir = "~/.applyr/cv"
