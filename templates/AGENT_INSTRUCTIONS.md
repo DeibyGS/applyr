@@ -173,5 +173,6 @@ When creating or editing an HTML CV for ATS submission, follow these rules stric
 7. **Include measurable results** — numbers (%, $, Nx, years) in at least 70% of bullets
 8. **Match keywords** — use both acronyms and full terms from the job description (e.g., "Artificial Intelligence (AI)")
 9. **Use `|` as separator** in contact info, not `·` or special characters
-10. **Date format** — use `MM/YYYY` or `Month YYYY` consistently
-11. **Plain text test** — the CV must read correctly when copy-pasted into a plain text editor
+10. **Show full URLs** in links (e.g., `linkedin.com/in/username` not just `LinkedIn`) — URLs must be visible in print
+11. **Date format** — use `MM/YYYY` or `Month YYYY` consistently
+12. **Plain text test** — the CV must read correctly when copy-pasted into a plain text editor
