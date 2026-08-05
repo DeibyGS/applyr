@@ -1,0 +1,60 @@
+name: Python Package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Verify import
+        run: python -c "from applyr.cli import main; print('Import OK')"
+
+      - name: Verify version
+        run: applyr version
+
+      - name: Verify init
+        run: applyr init
+
+      - name: Verify add + show
+        run: |
+          applyr add '{"title": "Test Job", "company": "TestCorp", "work_mode": "remote", "status": "applied", "tech_stack": "Python", "topics": {"tech_stack": {"score": 80, "detail": "OK"}}}'
+          applyr show 1
+          applyr list
+          applyr pipeline
+          applyr stats
+          applyr gaps
+          applyr trends
+          applyr summary --json
+
+      - name: Verify export
+        run: applyr export --format json --file /tmp/test-export.json
+
+      - name: Verify error handling
+        run: |
+          applyr add '{}' 2>&1 | grep -q "title"
+          applyr show 999 2>&1 | grep -q "not found"
+
+      - name: Build package
+        run: |
+          pip install build
+          python -m build
