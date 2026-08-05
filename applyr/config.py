@@ -42,7 +42,10 @@ cultural_fit = "Cultural Fit"
 
 
 def _detect_chrome() -> str:
-    """Find Chrome/Chromium binary path."""
+    """Find Chrome/Chromium binary path. Checks $CHROME_BIN env var first."""
+    env_chrome = os.environ.get("CHROME_BIN", "")
+    if env_chrome and os.path.isfile(env_chrome):
+        return env_chrome
     candidates = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/usr/bin/google-chrome",

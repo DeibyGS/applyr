@@ -91,7 +91,12 @@ def main():
 
     # Commands that need DB initialized
     if cmd != "init":
-        init_db()
+        try:
+            init_db()
+        except Exception as e:
+            print(f"Error: could not initialize database: {e}")
+            print("  Try running: applyr init")
+            sys.exit(1)
 
     if cmd == "init":
         cmd_init()

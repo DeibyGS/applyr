@@ -157,8 +157,11 @@ def cmd_add(raw: str) -> None:
     try:
         data: dict = json.loads(raw)
     except json.JSONDecodeError as exc:
-        print(f"Error: invalid JSON — {exc}")
-        sys.exit(1)
+        print(f"Error: invalid JSON — {exc.msg} at line {exc.lineno}, column {exc.colno}")
+        if exc.pos is not None:
+            snippet = raw[max(0, exc.pos - 20):exc.pos + 20]
+            print(f"  Around: ...{snippet}...")
+        return
 
     config = load_config()
     threshold: int = config["general"]["threshold"]
@@ -181,6 +184,9 @@ def cmd_add(raw: str) -> None:
     location: str | None = data.get("location")
     salary_min: int | None = data.get("salary_min")
     salary_max: int | None = data.get("salary_max")
+    if salary_min and salary_max and salary_min > salary_max:
+        print("Error: salary_min cannot be greater than salary_max")
+        return
     salary_period: str = data.get("salary_period", "annual")
     seniority_level: str | None = data.get("seniority_level")
     role_category: str | None = data.get("role_category")

@@ -1,10 +1,52 @@
-"""CV system — HTML generation helpers and Chrome headless PDF export."""
+"""CV system — HTML skeleton generation and Chrome headless PDF export."""
 
 import os
 import subprocess
 from pathlib import Path
 
 from applyr.config import load_config, APPLYR_DIR
+
+# ATS-safe CSS — embedded in every generated CV
+# Rules: single column, no flex/grid/tables, standard fonts, no images
+_ATS_CSS = """\
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: Arial, Calibri, sans-serif;
+    font-size: 11pt;
+    line-height: 1.5;
+    color: #1a1a1a;
+    max-width: 21cm;
+    margin: 0 auto;
+    padding: 1.5cm 2cm;
+}
+h1 { font-size: 16pt; margin-bottom: 4px; color: #111; }
+h2 {
+    font-size: 12pt;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1.5px solid #333;
+    padding-bottom: 3px;
+    margin: 14px 0 8px;
+    color: #222;
+}
+h3 { font-size: 11pt; margin-bottom: 2px; }
+.contact { font-size: 10pt; color: #333; margin-bottom: 12px; }
+.contact a { color: #333; text-decoration: none; }
+.dates { font-size: 10pt; color: #555; }
+.summary { margin-bottom: 10px; color: #333; }
+ul { padding-left: 18px; margin: 4px 0 10px; }
+li { margin-bottom: 3px; }
+p { margin-bottom: 4px; }
+@media print {
+    body { padding: 1cm 1.5cm; }
+    h2 { page-break-after: avoid; }
+}"""
+
+
+def _make_slug(company: str | None, title: str) -> str:
+    """Create a filesystem-safe slug from company and title."""
+    raw = f"{company or 'unknown'}-{title}".lower()
+    return raw.replace(" ", "-").replace("/", "-")[:40]
 
 
 def get_cv_master_path() -> Path:
@@ -66,10 +108,15 @@ def cmd_cv_pdf(html_file: str, output: str | None = None) -> None:
 
 
 def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
-    """Show instructions for generating a tailored CV for an offer.
+    """Generate an ATS-safe HTML CV skeleton for a specific offer.
 
-    The actual CV tailoring is done by the AI agent using cv-master.md
-    as source. This command provides the context and instructions.
+    The HTML includes:
+    - ATS-safe CSS (locked, never modify)
+    - Offer context as HTML comments (company, title, tech_stack, etc.)
+    - Placeholder sections for the AI agent to fill from cv-master.md
+
+    The AI agent reads cv-master.md and replaces [PLACEHOLDER] values.
+    The CSS and HTML structure must NOT be modified.
     """
     from applyr.db import get_conn
 
@@ -80,34 +127,152 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
             print(f"Error: offer #{offer_id} not found.")
             return
 
-        cv_master = get_cv_master_path()
-        output_dir = get_output_dir()
-
-        print(f"\n--- CV Generation for Offer #{offer_id} ---")
-        print(f"  Position  : {row['title']}")
-        print(f"  Company   : {row['company'] or '?'}")
-        print(f"  Tech Stack: {row['tech_stack'] or 'not specified'}")
-        print(f"  Seniority : {row['seniority_level'] or 'not specified'}")
-        print(f"  Template  : {template}")
-        print()
-        print(f"  CV Master : {cv_master}")
-        print(f"  Output Dir: {output_dir}")
-        print()
-
-        if not cv_master.exists():
-            print("  Warning: cv-master.md not found. Create it first:")
-            print(f"    Edit {cv_master}")
-            print()
-
-        slug = f"{row['company'] or 'unknown'}-{row['title']}".lower()
-        slug = slug.replace(" ", "-")[:40]
-        html_name = f"cv-{slug}.html"
-        pdf_name = f"cv-{slug}.pdf"
-
-        print("  To generate:")
-        print(f"    1. AI agent reads {cv_master} + this offer's details")
-        print(f"    2. AI agent creates {output_dir / html_name}")
-        print(f"    3. Run: applyr cv pdf {output_dir / html_name}")
-        print(f"    4. Output: {output_dir / pdf_name}")
+        # Load topic scores if any
+        topics = conn.execute(
+            "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ? ORDER BY score DESC",
+            (offer_id,),
+        ).fetchall()
     finally:
         conn.close()
+
+    cv_master = get_cv_master_path()
+    if not cv_master.exists():
+        print(f"Error: cv-master.md not found at {cv_master}")
+        print("  Run 'applyr init' to create a template, then edit it with your profile.")
+        return
+    output_dir = get_output_dir()
+    slug = _make_slug(row["company"], row["title"])
+    html_path = output_dir / f"cv-{slug}.html"
+
+    # Build offer context block for the AI agent
+    context_lines = [
+        f"    Target Position  : {row['title']}",
+        f"    Company          : {row['company'] or 'Not specified'}",
+        f"    Work Mode        : {row['work_mode'] or 'Not specified'}",
+        f"    Location         : {row['location'] or 'Not specified'}",
+        f"    Seniority        : {row['seniority_level'] or 'Not specified'}",
+        f"    Role Category    : {row['role_category'] or 'Not specified'}",
+        f"    Tech Stack Req.  : {row['tech_stack'] or 'Not specified'}",
+        f"    Compatibility    : {row['compatibility_pct']}%",
+    ]
+    if row["summary"]:
+        context_lines.append(f"    Job Summary      : {row['summary']}")
+    if topics:
+        context_lines.append("")
+        context_lines.append("    Topic Scores:")
+        for t in topics:
+            context_lines.append(f"      {t['topic']}: {t['score']}% — {t['detail'] or ''}")
+
+    context_block = "\n".join(context_lines)
+
+    html = f"""\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CV for {row['company'] or 'Company'} - {row['title']}</title>
+    <style>
+{_ATS_CSS}
+    </style>
+</head>
+<body>
+
+<!--
+    ================================================================
+    ATS CV generated by applyr — Offer #{offer_id}
+    https://github.com/DeibyGS/applyr
+
+    OFFER CONTEXT (for AI agent reference):
+{context_block}
+
+    INSTRUCTIONS FOR AI AGENT:
+    1. Read {cv_master} for all content
+    2. Replace every [PLACEHOLDER] below with content from cv-master.md
+    3. Prioritize skills and projects relevant to: {row['tech_stack'] or row['title']}
+    4. Match keywords from the job description naturally
+    5. Keep to 1 page — remove less relevant sections if needed
+    6. Include measurable results (%, numbers, scale) in bullet points
+    7. NEVER invent content not in cv-master.md
+    8. DO NOT modify the CSS or HTML structure above
+    9. Show full URLs in links (linkedin.com/in/x, not just "LinkedIn")
+    ================================================================
+-->
+
+<h1>[FULL NAME]</h1>
+<p class="contact">
+    [City, Country] |
+    <a href="mailto:[EMAIL]">[EMAIL]</a> |
+    [PHONE] |
+    <a href="https://linkedin.com/in/[PROFILE]">linkedin.com/in/[PROFILE]</a> |
+    <a href="https://github.com/[USERNAME]">github.com/[USERNAME]</a> |
+    <a href="https://[WEBSITE]">[WEBSITE]</a>
+</p>
+
+<h2>Professional Summary</h2>
+<p class="summary">
+    [2-3 sentences tailored to {row['title']} at {row['company'] or 'this company'}.
+    Highlight relevant skills for: {row['tech_stack'] or 'the role'}.
+    Match keywords from the job description.
+    Include both acronyms and full terms.]
+</p>
+
+<h2>Work Experience</h2>
+
+<h3>[Job Title] - [Company], [Location], [Mode]</h3>
+<p class="dates">[MM/YYYY - MM/YYYY]</p>
+<ul>
+    <li>[Achievement with measurable impact]</li>
+    <li>[Technology or methodology used with concrete result]</li>
+</ul>
+
+<!-- Add more positions from cv-master.md if relevant to {row['title']} -->
+
+<h2>Projects</h2>
+
+<h3>[Project Name]</h3>
+<p><strong>Stack:</strong> [Technologies] | <a href="[REPO_URL]">[REPO_URL]</a></p>
+<ul>
+    <li>[What it does and key technical decisions relevant to {row['tech_stack'] or 'the role'}]</li>
+</ul>
+
+<!-- Add more projects from cv-master.md if relevant -->
+
+<h2>Education</h2>
+
+<h3>[Degree]</h3>
+<p>[Institution] | <span class="dates">[MM/YYYY - MM/YYYY]</span></p>
+
+<h2>Certifications</h2>
+<ul>
+    <li>[Certification] - [Issuer] ([MM/YYYY])</li>
+</ul>
+
+<!-- Include only certifications relevant to {row['role_category'] or 'the role'} -->
+
+<h2>Technical Skills</h2>
+<p><strong>Backend:</strong> [list — prioritize skills matching: {row['tech_stack'] or 'job requirements'}]</p>
+<p><strong>Frontend:</strong> [list]</p>
+<p><strong>Databases:</strong> [list]</p>
+<p><strong>DevOps:</strong> [list]</p>
+<p><strong>Other:</strong> [list]</p>
+
+<h2>Languages</h2>
+<ul>
+    <li>[Language] - [Level]</li>
+</ul>
+
+</body>
+</html>"""
+
+    html_path.write_text(html)
+
+    print(f"CV skeleton generated: {html_path}")
+    print(f"  Offer    : #{offer_id} — {row['title']} @ {row['company'] or '?'}")
+    print(f"  Template : {template} (ATS-safe)")
+    print(f"  CV Master: {cv_master}")
+    print()
+    print("  Next steps:")
+    print(f"    1. AI agent reads {cv_master}")
+    print(f"    2. AI agent fills [PLACEHOLDER] values in {html_path}")
+    print(f"    3. Run: applyr cv pdf {html_path}")
