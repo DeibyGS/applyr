@@ -117,7 +117,34 @@ def cmd_init() -> None:
     else:
         print(f"  {cv_master_path} already exists — skipped")
 
-    print("\napplyr is ready.  Run 'applyr add <json>' to log your first offer.")
+    # Copy AGENT_INSTRUCTIONS.md
+    agent_instructions_dst = APPLYR_DIR / "AGENT_INSTRUCTIONS.md"
+    if not agent_instructions_dst.exists():
+        # Try to find the template bundled with the package or in templates/
+        src_candidates = [
+            Path(__file__).parent.parent / "templates" / "AGENT_INSTRUCTIONS.md",
+            Path(__file__).parent / "templates" / "AGENT_INSTRUCTIONS.md",
+        ]
+        for src in src_candidates:
+            if src.exists():
+                agent_instructions_dst.write_text(src.read_text())
+                break
+        else:
+            # Fallback: create a minimal pointer
+            agent_instructions_dst.write_text(
+                "# applyr — Agent Instructions\n\n"
+                "Download the full instructions from:\n"
+                "https://github.com/DeibyGS/applyr/blob/main/templates/AGENT_INSTRUCTIONS.md\n"
+            )
+        print(f"  Created {agent_instructions_dst}")
+    else:
+        print(f"  {agent_instructions_dst} already exists — skipped")
+
+    print("\napplyr is ready.")
+    print("  1. Edit ~/.applyr/cv-master.md with your professional profile")
+    print("  2. Copy ~/.applyr/AGENT_INSTRUCTIONS.md into your AI agent config")
+    print("     (CLAUDE.md, .cursorrules, AGENTS.md, or equivalent)")
+    print("  3. Run 'applyr add <json>' to log your first offer")
 
 
 # ---------------------------------------------------------------------------

@@ -30,13 +30,16 @@ pip install .
 ## Quick Start
 
 ```bash
-# 1. Initialize (creates ~/.applyr/ with config and database)
+# 1. Initialize (creates ~/.applyr/ with config, database, and agent instructions)
 applyr init
 
 # 2. Edit your CV master (source of truth for all CVs)
 #    Open ~/.applyr/cv-master.md in your editor
 
-# 3. Add your first offer
+# 3. Copy agent instructions into your AI tool's config
+#    cp ~/.applyr/AGENT_INSTRUCTIONS.md into CLAUDE.md, .cursorrules, etc.
+
+# 4. Add your first offer
 applyr add '{"title": "Backend Developer", "company": "Acme", "work_mode": "remote", "salary_min": 35000, "salary_max": 45000, "seniority_level": "junior", "tech_stack": "Python, FastAPI, PostgreSQL"}'
 
 # 4. Check your pipeline
@@ -152,17 +155,25 @@ Agent: Runs: applyr summary --json
        Output: structured JSON with metrics, trends, and recommendations
 ```
 
-### CLAUDE.md Integration
+### Agent Instructions
 
-Add this to your project's `CLAUDE.md` for automatic agent behavior:
+`applyr init` creates `~/.applyr/AGENT_INSTRUCTIONS.md` — a complete step-by-step guide for any AI agent (Claude Code, Cursor, Aider, OpenCode, etc.). It covers:
 
-```markdown
-## Job Application Tracking
-- Use `applyr` CLI for all job tracking operations
-- Read `~/.applyr/cv-master.md` as source of truth for CV content — never invent
-- When analyzing an offer: evaluate all topics, calculate score, register with `applyr add`
-- When applying: generate ATS CV with `applyr cv generate <id>`, create PDF
-- Threshold to apply: >= 65% compatibility
+- How to read `cv-master.md` and evaluate offers
+- How to build the JSON for `applyr add` with all valid values
+- Rules: never invent content, be honest with scores, leave unknown fields empty
+- Which command to run for each type of user question
+
+**Setup:** Copy the instructions into your agent's config file:
+
+```bash
+# Claude Code
+cat ~/.applyr/AGENT_INSTRUCTIONS.md >> ~/.claude/CLAUDE.md
+
+# Cursor
+cat ~/.applyr/AGENT_INSTRUCTIONS.md >> .cursorrules
+
+# Or just include the path in your project's agent config
 ```
 
 ## Configuration
