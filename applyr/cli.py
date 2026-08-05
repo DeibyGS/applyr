@@ -1,11 +1,13 @@
 """CLI entry point — argparse setup, command routing, error handling."""
 
+import os
 import sys
 
 from applyr import __version__
 from applyr.commands import (
     cmd_add,
     cmd_delete,
+    cmd_doctor,
     cmd_export,
     cmd_followups,
     cmd_gaps,
@@ -41,9 +43,12 @@ Commands:
   followups                     Pending/overdue follow-ups
   trends [--period week|month]  Application trends over time
   summary [--json]              Weekly summary (LLM-optimized)
-  export [--format csv|json]    Export all data
+  export [--format csv|json|md]  Export all data
+  doctor                        Check configuration and database health
   version                       Show version
   help                          Show this help
+
+Aliases: ls=list, st=stats, fu=followups
 
 Statuses: {' | '.join(VALID_STATUSES)}
 
@@ -102,8 +107,10 @@ def main():
         cmd_init()
 
     elif cmd == "add":
-        if len(args) < 2:
+        if len(args) < 2 and sys.stdin.isatty():
             print("Usage: applyr add '<json>'")
+            print("       applyr add offer.json")
+            print("       cat offer.json | applyr add -")
             print("  Required: title")
             print("  Optional: company, summary, date_received, date_applied,")
             print("            compatibility_pct, status, canal, work_mode,")
@@ -111,7 +118,16 @@ def main():
             print("            role_category, tech_stack, cover_letter, job_url,")
             print("            contact_name, contact_role, topics, notes")
             return
-        cmd_add(args[1])
+        if len(args) >= 2 and args[1] == "-":
+            raw = sys.stdin.read()
+        elif len(args) >= 2 and os.path.isfile(args[1]):
+            with open(args[1], encoding="utf-8") as f:
+                raw = f.read()
+        elif len(args) >= 2:
+            raw = args[1]
+        else:
+            raw = sys.stdin.read()
+        cmd_add(raw)
 
     elif cmd == "list":
         status = _get_flag(args, "--status")
@@ -206,11 +222,16 @@ def main():
         as_json = _has_flag(args, "--json")
         cmd_summary(as_json=as_json)
 
+    elif cmd == "doctor":
+        cmd_doctor()
+
     elif cmd == "export":
         fmt = _get_flag(args, "--format") or "csv"
-        if fmt not in ("csv", "json"):
-            print(f"Error: format must be 'csv' or 'json', got: {fmt}")
+        if fmt not in ("csv", "json", "md", "markdown"):
+            print(f"Error: format must be 'csv', 'json', or 'md', got: {fmt}")
             return
+        if fmt == "markdown":
+            fmt = "md"
         filepath = _get_flag(args, "--file")
         cmd_export(fmt=fmt, filepath=filepath)
 
@@ -241,9 +262,18 @@ def main():
             print(f"Unknown cv subcommand: '{subcmd}'")
             print("  Available: generate, pdf")
 
+    elif cmd == "ls":
+        cmd_list()
+
+    elif cmd == "st":
+        cmd_stats()
+
+    elif cmd == "fu":
+        cmd_followups()
+
     else:
         print(f"Unknown command: '{cmd}'")
-        print(f"Run 'applyr help' to see available commands.")
+        print("Run 'applyr help' to see available commands.")
 
 
 if __name__ == "__main__":
