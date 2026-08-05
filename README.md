@@ -11,7 +11,7 @@ I built this while applying to **200+ jobs**. Most job trackers are web apps tha
 - **CLI-first** — runs in your terminal, pipes into anything
 - **AI-agent native** — your coding agent analyzes offers, scores compatibility, and generates CVs
 - **ATS-safe CVs** — locked CSS template that passes Applicant Tracking Systems. Your agent fills content, never touches the structure
-- **Zero dependencies** — Python 3.10+ stdlib only. No frameworks, no API keys, no subscriptions
+- **Zero dependencies** — Python 3.12+ stdlib only. No frameworks, no API keys, no subscriptions
 - **Local and private** — your data stays in a SQLite file on your machine
 
 ## How it works
