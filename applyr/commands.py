@@ -143,9 +143,96 @@ def cmd_init() -> None:
 
     print("\napplyr is ready.")
     print("  1. Edit ~/.applyr/cv-master.md with your professional profile")
-    print("  2. Copy ~/.applyr/AGENT_INSTRUCTIONS.md into your AI agent config")
-    print("     (CLAUDE.md, .cursorrules, AGENTS.md, or equivalent)")
+    print("  2. Run 'applyr setup-agent' in your project directory")
+    print("     to configure your AI agent (Claude, Cursor, OpenCode, etc.)")
     print("  3. Run 'applyr add <json>' to log your first offer")
+
+
+# ---------------------------------------------------------------------------
+# cmd_setup_agent
+# ---------------------------------------------------------------------------
+
+# Maps agent name → (file path relative to CWD, append vs overwrite)
+_AGENT_TARGETS = {
+    "claude":   ("CLAUDE.md",),
+    "cursor":   (".cursorrules",),
+    "opencode": (".opencode/instructions.md",),
+    "generic":  ("AGENTS.md",),
+}
+
+_AGENT_DETECT_ORDER = [
+    ("claude",   "CLAUDE.md"),
+    ("claude",   ".claude/CLAUDE.md"),
+    ("cursor",   ".cursorrules"),
+    ("cursor",   ".cursor/rules"),
+    ("opencode", ".opencode/instructions.md"),
+    ("generic",  "AGENTS.md"),
+]
+
+
+def _get_agent_instructions() -> str:
+    """Read AGENT_INSTRUCTIONS.md content from ~/.applyr/ or bundled template."""
+    local = APPLYR_DIR / "AGENT_INSTRUCTIONS.md"
+    if local.exists():
+        return local.read_text()
+    for src in [
+        Path(__file__).parent.parent / "templates" / "AGENT_INSTRUCTIONS.md",
+        Path(__file__).parent / "templates" / "AGENT_INSTRUCTIONS.md",
+    ]:
+        if src.exists():
+            return src.read_text()
+    return ""
+
+
+def cmd_setup_agent(agent: str | None = None) -> None:
+    """Write applyr agent instructions into the current project's AI config file."""
+    cwd = Path.cwd()
+    instructions = _get_agent_instructions()
+    if not instructions:
+        print("Error: could not find AGENT_INSTRUCTIONS.md")
+        print("  Run 'applyr init' first.")
+        return
+
+    # Auto-detect if no agent specified
+    if not agent:
+        for name, path in _AGENT_DETECT_ORDER:
+            if (cwd / path).exists():
+                agent = name
+                print(f"  Detected {name} config ({path})")
+                break
+
+    if not agent:
+        print("No AI agent config detected in this directory.")
+        print("  Supported: --agent claude | cursor | opencode | generic")
+        print("  Example: applyr setup-agent --agent claude")
+        return
+
+    if agent not in _AGENT_TARGETS:
+        print(f"Error: unknown agent '{agent}'")
+        print(f"  Supported: {', '.join(_AGENT_TARGETS.keys())}")
+        return
+
+    rel_path = _AGENT_TARGETS[agent][0]
+    target = cwd / rel_path
+
+    # Create parent dirs if needed (e.g. .opencode/)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    # If file exists, append (don't overwrite user content)
+    if target.exists():
+        existing = target.read_text()
+        if "applyr" in existing.lower() and "agent instructions" in existing.lower():
+            print(f"  {rel_path} already contains applyr instructions — skipped.")
+            return
+        separator = "\n\n---\n\n"
+        target.write_text(existing.rstrip() + separator + instructions)
+        print(f"  Appended applyr instructions to {rel_path}")
+    else:
+        target.write_text(instructions)
+        print(f"  Created {rel_path} with applyr instructions")
+
+    print(f"\n  Your AI agent will now use applyr automatically.")
+    print(f"  Make sure ~/.applyr/cv-master.md has your professional profile.")
 
 
 # ---------------------------------------------------------------------------
@@ -1111,3 +1198,237 @@ def cmd_doctor() -> None:
         print("  All checks passed.")
     else:
         print(f"  {issues} issue(s) found.")
+
+
+# ---------------------------------------------------------------------------
+# cmd_compare
+# ---------------------------------------------------------------------------
+
+_COMPARE_FIELDS = [
+    ("Company", "company"),
+    ("Title", "title"),
+    ("Score", "compatibility_pct"),
+    ("Status", "status"),
+    ("Seniority", "seniority_level"),
+    ("Work Mode", "work_mode"),
+    ("Salary", None),  # computed
+    ("Tech Stack", "tech_stack"),
+]
+
+
+def cmd_compare(ids: list[int]) -> None:
+    """Compare 2-10 offers side by side in a vertical table."""
+    if len(ids) < 2:
+        print("Error: need at least 2 IDs to compare.")
+        return
+    if len(ids) > 10:
+        print("Error: maximum 10 offers to compare.")
+        return
+
+    conn = get_conn()
+    try:
+        placeholders = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT * FROM offers WHERE id IN ({placeholders})", ids
+        ).fetchall()
+    finally:
+        conn.close()
+
+    found_ids = {r["id"] for r in rows}
+    for oid in ids:
+        if oid not in found_ids:
+            print(f"Error: offer {oid} not found.")
+            return
+
+    # Keep original order
+    by_id = {r["id"]: r for r in rows}
+    offers = [by_id[oid] for oid in ids]
+
+    # Build vertical comparison table
+    label_width = 12
+    col_width = max(15, min(25, 80 // len(offers)))
+
+    # Header row
+    header = f"{'Field':<{label_width}}"
+    for o in offers:
+        header += f"  {'#' + str(o['id']):<{col_width}}"
+    print()
+    print(header)
+    print("-" * len(header))
+
+    for field_label, field_key in _COMPARE_FIELDS:
+        line = f"{field_label:<{label_width}}"
+        for o in offers:
+            if field_key is None:  # salary
+                s_min = o["salary_min"]
+                s_max = o["salary_max"]
+                period = o["salary_period"] or "annual"
+                if s_min and s_max:
+                    val = f"{s_min}-{s_max}/{period[:3]}"
+                elif s_min:
+                    val = f"{s_min}+/{period[:3]}"
+                elif s_max:
+                    val = f"<={s_max}/{period[:3]}"
+                else:
+                    val = "—"
+            elif field_key == "compatibility_pct":
+                val = f"{o[field_key]}%"
+            elif field_key == "status":
+                val = STATUS_LABELS.get(o[field_key], o[field_key])
+            else:
+                val = str(o[field_key] or "—")
+            line += f"  {_truncate(val, col_width):<{col_width}}"
+        print(line)
+    print()
+
+
+# ---------------------------------------------------------------------------
+# cmd_plan
+# ---------------------------------------------------------------------------
+
+def cmd_plan(limit: int = 10) -> None:
+    """Show a prioritized learning plan based on skill gaps."""
+    topic_labels: dict = TOPIC_LABELS
+
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT skill, frequency, total_gap FROM skill_gaps ORDER BY frequency DESC, total_gap DESC",
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        print("No skill gaps recorded yet.")
+        return
+
+    # Score each skill: frequency * avg_gap (higher = more urgent)
+    scored = []
+    for r in rows:
+        freq = r["frequency"]
+        avg_gap = round(r["total_gap"] / freq) if freq else 0
+        priority_score = freq * avg_gap
+        scored.append((r["skill"], freq, avg_gap, priority_score))
+
+    scored.sort(key=lambda x: x[3], reverse=True)
+    scored = scored[:limit]
+
+    print("\n--- Learning Plan ---\n")
+    print(f"  {'#':<4}  {'Skill':<22}  {'Seen':>4}  {'Avg Gap':>7}  {'Priority':<8}")
+    print(f"  {'—'*4}  {'—'*22}  {'—'*4}  {'—'*7}  {'—'*8}")
+
+    for rank, (skill, freq, avg_gap, score) in enumerate(scored, 1):
+        label = topic_labels.get(skill, skill)
+        if score >= 200:
+            priority = "CRITICAL"
+        elif score >= 100:
+            priority = "HIGH"
+        elif score >= 40:
+            priority = "MEDIUM"
+        else:
+            priority = "LOW"
+        print(f"  {rank:<4}  {label:<22}  {freq:>4}x  {avg_gap:>6}%  {priority:<8}")
+
+    print(f"\n  Focus on CRITICAL and HIGH items first.")
+    print(f"  Skill gaps update automatically when you add scored offers.\n")
+
+
+# ---------------------------------------------------------------------------
+# cmd_salary
+# ---------------------------------------------------------------------------
+
+def _median(values: list[int]) -> int:
+    """Return the median of a sorted list of integers."""
+    n = len(values)
+    if n == 0:
+        return 0
+    mid = n // 2
+    if n % 2 == 0:
+        return (values[mid - 1] + values[mid]) // 2
+    return values[mid]
+
+
+def _salary_stats(entries: list[dict]) -> tuple[int, int, int, int] | None:
+    """Extract salary values from entries and return (min, max, avg, median).
+
+    Returns None if no valid salary data found.
+    """
+    all_values = []
+    for e in entries:
+        if e["salary_min"]:
+            all_values.append(e["salary_min"])
+        if e["salary_max"]:
+            all_values.append(e["salary_max"])
+
+    if not all_values:
+        return None
+
+    all_values.sort()
+    s_min = min(all_values)
+    s_max = max(all_values)
+    s_avg = sum(all_values) // len(all_values)
+    s_med = _median(all_values)
+    return s_min, s_max, s_avg, s_med
+
+
+def cmd_salary(seniority: str | None = None, category: str | None = None) -> None:
+    """Show salary statistics grouped by seniority and/or role category."""
+    conn = get_conn()
+    try:
+        query = "SELECT seniority_level, role_category, salary_min, salary_max, salary_period FROM offers WHERE salary_min IS NOT NULL OR salary_max IS NOT NULL"
+        params: list = []
+        if seniority:
+            query += " AND seniority_level = ?"
+            params.append(seniority)
+        if category:
+            query += " AND role_category = ?"
+            params.append(category)
+
+        rows = conn.execute(query, params).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        print("No salary data available.")
+        return
+
+    # Group by seniority
+    from collections import defaultdict
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        key = r["seniority_level"] or "unspecified"
+        groups[key].append(dict(r))
+
+    print("\n--- Salary Insights ---\n")
+    print(f"  {'Seniority':<14}  {'Count':>5}  {'Min':>8}  {'Max':>8}  {'Avg':>8}  {'Median':>8}  {'Period':<6}")
+    print(f"  {'—'*14}  {'—'*5}  {'—'*8}  {'—'*8}  {'—'*8}  {'—'*8}  {'—'*6}")
+
+    for level in sorted(groups.keys()):
+        entries = groups[level]
+        stats = _salary_stats(entries)
+        if not stats:
+            continue
+
+        periods = set(e["salary_period"] or "annual" for e in entries)
+        s_min, s_max, s_avg, s_med = stats
+        period = "/".join(sorted(periods))
+        print(f"  {level:<14}  {len(entries):>5}  {s_min:>8,}  {s_max:>8,}  {s_avg:>8,}  {s_med:>8,}  {period:<6}")
+
+    # Category breakdown if data has categories
+    cat_groups: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        key = r["role_category"] or "unspecified"
+        cat_groups[key].append(dict(r))
+
+    if len(cat_groups) > 1:
+        print(f"\n  {'Category':<14}  {'Count':>5}  {'Min':>8}  {'Max':>8}  {'Avg':>8}  {'Median':>8}")
+        print(f"  {'—'*14}  {'—'*5}  {'—'*8}  {'—'*8}  {'—'*8}  {'—'*8}")
+
+        for cat in sorted(cat_groups.keys()):
+            stats = _salary_stats(cat_groups[cat])
+            if not stats:
+                continue
+            s_min, s_max, s_avg, s_med = stats
+            print(f"  {cat:<14}  {len(cat_groups[cat]):>5}  {s_min:>8,}  {s_max:>8,}  {s_avg:>8,}  {s_med:>8,}")
+
+    print()
