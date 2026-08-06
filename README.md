@@ -66,17 +66,19 @@ Open `~/.applyr/cv-master.md` and fill it with your **complete** professional pr
 
 ### Step 3 — Connect your AI agent
 
-Copy the agent instructions into your AI tool's config:
+Run `setup-agent` in your project directory:
 
 ```bash
-# Claude Code
-cat ~/.applyr/AGENT_INSTRUCTIONS.md >> ~/.claude/CLAUDE.md
+applyr setup-agent --agent claude     # Claude Code → CLAUDE.md
+applyr setup-agent --agent cursor     # Cursor → .cursorrules
+applyr setup-agent --agent opencode   # OpenCode → .opencode/instructions.md
+applyr setup-agent --agent generic    # Any agent → AGENTS.md
+```
 
-# Cursor
-cat ~/.applyr/AGENT_INSTRUCTIONS.md >> .cursorrules
+If your project already has an agent config file, `setup-agent` auto-detects it:
 
-# Aider / OpenCode / others
-# Add the content to whatever file your agent reads for instructions
+```bash
+applyr setup-agent                    # Auto-detects and appends instructions
 ```
 
 This tells your AI agent:
@@ -137,6 +139,57 @@ applyr trends                  # Applications per week + growth rate
 applyr summary --json          # Weekly summary as structured JSON
 ```
 
+### Compare, plan, and analyze salaries
+
+```bash
+applyr compare 1 3 4           # Side-by-side comparison
+applyr plan                    # Prioritized learning plan from skill gaps
+applyr salary                  # Salary stats by seniority + category
+applyr salary --seniority mid  # Filter by seniority level
+```
+
+Example output — `applyr compare`:
+
+```
+Field         #1                    #3                    #4
+----------------------------------------------------------------------
+Company       Acme Corp             DataCo                CloudNet
+Title         AI Engineer           Junior Python Dev     Backend Engineer
+Score         78%                   92%                   65%
+Status        Applied               Applied               In Process
+Seniority     mid                   junior                mid
+Work Mode     remote                onsite                remote
+Salary        35000-45000/ann       22000-28000/ann       38000-48000/ann
+Tech Stack    Python, LangChain     Python, Django        Go, Kubernetes
+```
+
+Example output — `applyr salary`:
+
+```
+--- Salary Insights ---
+
+  Seniority       Count       Min       Max       Avg    Median  Period
+  ——————————————  —————  ————————  ————————  ————————  ————————  ——————
+  junior              1    22,000    28,000    25,000    25,000  annual
+  mid                 2    35,000    48,000    41,500    41,500  annual
+  senior              1    40,000    55,000    47,500    47,500  annual
+  trainee             1    18,000    22,000    20,000    20,000  annual
+```
+
+Example output — `applyr plan`:
+
+```
+--- Learning Plan ---
+
+  #     Skill                   Seen  Avg Gap  Priority
+  ————  ——————————————————————  ————  ———————  ————————
+  1     Experience                 4x      25%  CRITICAL
+  2     Tech Stack                 3x      17%  HIGH
+  3     English                    4x      10%  MEDIUM
+
+  Focus on CRITICAL and HIGH items first.
+```
+
 ### Update and manage
 
 ```bash
@@ -173,6 +226,7 @@ The PDF is generated with Chrome headless, no headers or footers.
 | Command | Description |
 |---------|-------------|
 | `applyr init` | Set up ~/.applyr/ (config, database, agent instructions) |
+| `applyr setup-agent [--agent NAME]` | Configure AI agent (claude, cursor, opencode, generic) |
 | `applyr add '<json>'` | Register a new job offer |
 | `applyr list [--status S] [--sort F]` | List offers (default: last 50) |
 | `applyr pipeline [--min-score N]` | View offers grouped by status |
@@ -185,6 +239,9 @@ The PDF is generated with Chrome headless, no headers or footers.
 | `applyr followups` | Pending/overdue follow-ups with contact info |
 | `applyr trends [--period week\|month]` | Application trends over time |
 | `applyr summary [--json]` | Weekly summary (JSON for LLM consumption) |
+| `applyr compare <id1> <id2> [...]` | Compare offers side by side |
+| `applyr plan [--limit N]` | Prioritized learning plan from skill gaps |
+| `applyr salary [--seniority S] [--category C]` | Salary insights by seniority/category |
 | `applyr export [--format csv\|json]` | Export all data |
 | `applyr cv generate <id>` | Generate ATS-safe HTML CV skeleton |
 | `applyr cv pdf <file.html> [--output f.pdf]` | HTML to PDF via Chrome |
@@ -209,7 +266,7 @@ The PDF is generated with Chrome headless, no headers or footers.
 | `salary_min` | integer | Annual EUR | No |
 | `salary_max` | integer | Annual EUR | No |
 | `salary_period` | string | `annual`, `monthly` | No |
-| `seniority_level` | string | `junior`, `mid`, `senior`, `lead`, `director` | No |
+| `seniority_level` | string | `trainee`, `entry_level`, `junior`, `mid`, `senior`, `lead`, `director` | No |
 | `role_category` | string | `backend`, `frontend`, `fullstack`, `ai`, `devops`, `data`, `mobile`, `qa`, `other` | No |
 | `tech_stack` | string | Comma-separated | No |
 | `cover_letter` | integer | `0` or `1` | No |
