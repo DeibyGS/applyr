@@ -10,6 +10,7 @@ from pathlib import Path
 from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, load_config
 from applyr.db import (
     VALID_CHANNELS,
+    VALID_ROLE_CATEGORIES,
     VALID_SENIORITY,
     VALID_STATUSES,
     VALID_WORK_MODES,
@@ -304,7 +305,11 @@ def cmd_add(raw: str) -> None:
     # --- Date fields -------------------------------------------------------
     date_received: str = data.get("date_received") or _today()
     date_applied: str | None = _parse_date(data.get("date_applied"))
+    if data.get("date_applied") and date_applied is None:
+        print(f"Warning: invalid date_applied format '{data['date_applied']}' — ignored. Use YYYY-MM-DD.")
     date_responded: str | None = _parse_date(data.get("date_responded"))
+    if data.get("date_responded") and date_responded is None:
+        print(f"Warning: invalid date_responded format '{data['date_responded']}' — ignored. Use YYYY-MM-DD.")
 
     # --- Validate enums ----------------------------------------------------
     if status not in VALID_STATUSES:
@@ -321,6 +326,32 @@ def cmd_add(raw: str) -> None:
 
     if seniority_level and seniority_level not in VALID_SENIORITY:
         print(f"Error: invalid seniority_level '{seniority_level}'. Valid: {', '.join(VALID_SENIORITY)}")
+        sys.exit(1)
+
+    if role_category and role_category not in VALID_ROLE_CATEGORIES:
+        print(f"Error: invalid role_category '{role_category}'. Valid: {', '.join(VALID_ROLE_CATEGORIES)}")
+        sys.exit(1)
+
+    # --- Duplicate detection -----------------------------------------------
+    conn = get_conn()
+    try:
+        dup = conn.execute(
+            """SELECT id, status, date_received, compatibility_pct
+               FROM offers
+               WHERE LOWER(title) = LOWER(?) AND LOWER(COALESCE(company,'')) = LOWER(COALESCE(?,''))""",
+            (title, company),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if dup:
+        dup_label = STATUS_LABELS.get(dup["status"], dup["status"])
+        print(f"\nDuplicate detected — this offer already exists in your database.")
+        print(f"  ID          : {dup['id']}")
+        print(f"  Status      : {dup_label}")
+        print(f"  Received    : {dup['date_received']}")
+        print(f"  Compat.     : {dup['compatibility_pct']}%")
+        print(f"\nUse 'applyr show {dup['id']}' to review or 'applyr update {dup['id']} <status>' to change it.")
         sys.exit(1)
 
     # --- Compatibility score -----------------------------------------------
@@ -432,6 +463,14 @@ def cmd_add(raw: str) -> None:
         gap_labels = TOPIC_LABELS
         gap_names = [gap_labels.get(s, s) for s, _ in skill_gaps]
         print(f"  Skill gaps  : {', '.join(gap_names)}")
+
+    # --- Threshold recommendation ------------------------------------------
+    if compatibility_pct >= threshold:
+        print(f"\n  >> RECOMMENDATION: APPLY (score {compatibility_pct}% >= {threshold}% threshold)")
+        print(f"     Next: 'applyr cv generate {offer_id}' to create a tailored CV")
+    else:
+        print(f"\n  >> RECOMMENDATION: SKIP (score {compatibility_pct}% < {threshold}% threshold)")
+        print(f"     Consider: 'applyr update {offer_id} discarded' to archive this offer")
 
 
 # ---------------------------------------------------------------------------
