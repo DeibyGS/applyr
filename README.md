@@ -4,6 +4,11 @@ CLI job application tracker designed for AI coding agents.
 
 Track applications, measure your conversion funnel, spot skill gaps, and generate ATS-optimized CVs — all from your terminal. Built to work with [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [Aider](https://aider.chat), [OpenCode](https://opencode.ai), or any AI coding agent.
 
+### Requirements
+
+- **Python 3.12+**
+- **An AI coding agent** — [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [OpenCode](https://opencode.ai), or any agent that reads instruction files. applyr provides the storage and structure; the agent does the analysis.
+
 ### Quick start
 
 ```bash
@@ -22,18 +27,21 @@ I built this while applying to **200+ jobs**. Most job trackers are web apps tha
 - **CLI-first** — runs in your terminal, pipes into anything
 - **AI-agent native** — your coding agent analyzes offers, scores compatibility, and generates CVs
 - **ATS-safe CVs** — locked CSS template that passes Applicant Tracking Systems. Your agent fills content, never touches the structure
-- **Zero dependencies** — Python 3.12+ stdlib only. No frameworks, no API keys, no subscriptions
+- **Duplicate detection** — prevents re-applying to the same company+role
+- **Threshold-based recommendations** — automatic APPLY/SKIP based on your configured minimum score
+- **Zero dependencies** — Python 3.12+ stdlib + colorama. No frameworks, no API keys, no subscriptions
 - **Local and private** — your data stays in a SQLite file on your machine
 
 ## How it works
 
 ```
 1. You paste a job offer into your AI agent
-2. The agent reads your cv-master.md (your complete professional profile)
-3. The agent evaluates your compatibility per topic (tech stack, experience, etc.)
-4. The agent runs `applyr add` to register the offer with all data
-5. If you want to apply, the agent generates an ATS-safe CV tailored to the offer
-6. You track everything: pipeline, stats, follow-ups, skill gaps, trends
+2. The agent checks for duplicates — if you already applied, it tells you
+3. The agent reads your cv-master.md and evaluates compatibility per topic
+4. The agent runs `applyr add` — applyr prints APPLY or SKIP based on your threshold
+5. If score >= threshold and you confirm, the agent generates a tailored ATS-safe CV
+6. The agent runs a recruiter review, iterates if needed, and delivers the final CV
+7. You track everything: pipeline, stats, follow-ups, skill gaps, trends
 ```
 
 applyr is the **storage and structure layer**. Your AI agent is the **brain** that analyzes and decides.
@@ -170,6 +178,20 @@ Offer added successfully.
   Status      : Applied
   Follow-up   : 2026-08-16
   Skill gaps  : English, Experience
+
+  >> RECOMMENDATION: APPLY (score 74% >= 65% threshold)
+     Next: 'applyr cv generate 1' to create a tailored CV
+```
+
+If you try to add the same offer again:
+```
+Duplicate detected — this offer already exists in your database.
+  ID          : 1
+  Status      : Applied
+  Received    : 2026-08-07
+  Compat.     : 74%
+
+Use 'applyr show 1' to review or 'applyr update 1 <status>' to change it.
 ```
 
 All fields are optional except `title`. The agent fills what it can from the posting.
@@ -338,7 +360,7 @@ The PDF is generated with Chrome headless, no headers or footers.
 | `location` | string | Any | No |
 | `salary_min` | integer | Annual EUR | No |
 | `salary_max` | integer | Annual EUR | No |
-| `salary_period` | string | `annual`, `monthly` | No |
+| `salary_period` | string | `annual`, `monthly`, `hourly` | No |
 | `seniority_level` | string | `trainee`, `entry_level`, `junior`, `mid`, `senior`, `lead`, `director` | No |
 | `role_category` | string | `backend`, `frontend`, `fullstack`, `ai`, `devops`, `data`, `mobile`, `qa`, `other` | No |
 | `tech_stack` | string | Comma-separated | No |
@@ -418,6 +440,51 @@ cultural_fit = 10
 
 ---
 
+## Project structure
+
+```
+applyr/
+  __init__.py           # Version
+  cli.py                # Entry point, argparse routing
+  config.py             # applyr.toml management
+  constants.py          # Thresholds, widths, defaults
+  colors.py             # Colorama wrapper (NO_COLOR support)
+  db.py                 # SQLite schema (28 columns), migrations
+  scoring.py            # Weighted compatibility scoring
+  cv.py                 # ATS CV generation + Chrome PDF + recruiter review
+  commands/
+    __init__.py          # Re-exports all cmd_* functions
+    _helpers.py          # Shared utilities (_today, _bar, _truncate)
+    core.py              # init, add, list, show, update, delete, search, setup-agent
+    analytics.py         # pipeline, stats, gaps, followups, trends, summary, compare, plan, salary
+    workflow.py          # export, doctor
+  templates/
+    AGENT_INSTRUCTIONS.md  # Step-by-step guide for AI agents
+    cv-ats.html            # ATS-safe HTML template
+    cv-master-template.md  # Empty CV master template
+tests/
+  conftest.py            # Shared fixtures (tmp db, tmp config)
+  test_scoring.py        # Scoring engine tests
+  test_config.py         # Config loading tests
+  test_db.py             # Database schema tests
+  test_validators.py     # Input validation tests
+```
+
+---
+
+## Testing
+
+```bash
+pip install applyr[dev]   # Install with pytest
+pytest                    # Run all 54 tests
+pytest -v                 # Verbose output
+pytest -m unit            # Only unit tests
+```
+
+Tests use isolated temporary directories — they never touch `~/.applyr/`.
+
+---
+
 ## Data storage
 
 All data is stored locally in `~/.applyr/jobs.db` (SQLite). Nothing leaves your machine.
@@ -435,29 +502,29 @@ applyr export --format csv --file my-applications.csv
 
 ```
 You:   "Analyze this job posting for AI Engineer at Acme"
-Agent: Reads the posting + your cv-master.md
-       Evaluates compatibility per topic
-       Runs: applyr add '<json with all fields>'
-       → "Registered as #42 — 78% match. Gaps: English, Experience"
+Agent: Checks for duplicates → none found
+       Reads cv-master.md + evaluates compatibility
+       Runs: applyr add '<json>'
+       → "Registered as #42 — 78% match (above 65% threshold). APPLY recommended."
+       → "Gaps: English, Experience. Want me to generate a tailored CV?"
 
-You:   "Apply to it"
+You:   "Yes, apply"
 Agent: Runs: applyr update 42 applied --canal linkedin_easy
        Runs: applyr cv generate 42
        Fills placeholders from cv-master.md
+       Runs: applyr cv review → evaluates as recruiter → ATS score: 82/100
+       Applies suggested improvements → re-reviews → READY TO SEND
        Runs: applyr cv pdf ~/.applyr/cv/cv-acme-ai-engineer.html
-       → "CV generated. PDF ready at ~/.applyr/cv/cv-acme-ai-engineer.pdf"
+       → "CV ready. ATS score: 87/100. PDF at ~/.applyr/cv/cv-acme-ai-engineer.pdf"
 
-You:   "What skills should I focus on improving?"
+You:   "Analyze this other posting for Data Analyst at SmallCo"
+Agent: Runs: applyr add '<json>'
+       → "Registered as #43 — 42% match (below 65% threshold). SKIP recommended."
+       → "Main gaps: Tech Stack (no R/Tableau), Experience (0 data roles)."
+
+You:   "What skills should I focus on?"
 Agent: Runs: applyr gaps
-       → "Experience appears in 15 offers (avg gap 20%). English in 12 offers."
-
-You:   "How am I doing this month?"
-Agent: Runs: applyr summary --json
-       → Structured JSON with applications sent, response rate, trends
-
-You:   "Any follow-ups due?"
-Agent: Runs: applyr followups
-       → "3 overdue: Acme (#42, 5 days ago), Beta (#38, 3 days ago)..."
+       → "Experience: 15 offers, avg gap 20%. English: 12 offers, avg gap 15%."
 ```
 
 ---
