@@ -26,7 +26,7 @@ from applyr.commands import (
     cmd_trends,
     cmd_update,
 )
-from applyr.cv import cmd_cv_generate, cmd_cv_pdf
+from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review
 from applyr.db import init_db, VALID_STATUSES
 
 USAGE = f"""\
@@ -310,6 +310,7 @@ def main():
         if len(args) < 2:
             print("Usage:")
             print("  applyr cv generate <id> [--template ats]  Generate CV for offer")
+            print("  applyr cv review <html-file>              Recruiter review prompt")
             print("  applyr cv pdf <html-file> [--output f.pdf] HTML to PDF via Chrome")
             return
         subcmd = args[1]
@@ -322,6 +323,11 @@ def main():
                 return
             template = _get_flag(args, "--template") or "ats"
             cmd_cv_generate(offer_id, template=template)
+        elif subcmd == "review":
+            if len(args) < 3:
+                print("Usage: applyr cv review <html-file>")
+                return
+            cmd_cv_review(args[2], as_json=as_json)
         elif subcmd == "pdf":
             if len(args) < 3:
                 print("Usage: applyr cv pdf <html-file> [--output file.pdf]")
@@ -331,7 +337,7 @@ def main():
             cmd_cv_pdf(html_file, output=output)
         else:
             print(f"Unknown cv subcommand: '{subcmd}'")
-            print("  Available: generate, pdf")
+            print("  Available: generate, review, pdf")
 
     elif cmd == "ls":
         cmd_list(as_json=as_json)

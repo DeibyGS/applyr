@@ -298,6 +298,7 @@ The PDF is generated with Chrome headless, no headers or footers.
 | `applyr salary [--seniority S] [--category C]` | Salary insights by seniority/category |
 | `applyr export [--format csv\|json\|md]` | Export all data |
 | `applyr cv generate <id>` | Generate ATS-safe HTML CV skeleton |
+| `applyr cv review <file.html>` | Generate recruiter review prompt (ATS score + feedback) |
 | `applyr cv pdf <file.html> [--output f.pdf]` | HTML to PDF via Chrome |
 | `applyr doctor` | Check configuration and database health |
 | `applyr version` | Show version |

@@ -33,18 +33,27 @@ cat ~/.applyr/cv-master.md
 
 ### Step 2 — Evaluate compatibility
 
-Score each topic from 0 to 100 by comparing the offer requirements against cv-master.md:
+Score each topic from 0 to 100 by comparing the offer requirements against cv-master.md.
+Use the rubric below for consistent scoring across offers.
 
-| Topic key | What to evaluate |
-|-----------|-----------------|
-| `tech_stack` | How much of the required tech stack does the user know? |
-| `education` | Does the user's education match what they ask for? |
-| `english` | Does the user's language level meet the requirement? |
-| `experience` | Does the user's experience (years, seniority, industry) match? |
-| `projects` | Are the user's projects relevant to this role? |
-| `cultural_fit` | Does the work mode, company culture, and location match the user's preferences? |
+#### Scoring rubric
 
-These are the default topics. The user may have customized them in `~/.applyr/applyr.toml` under `[topics]`.
+| Topic key | 0 (no match) | 50 (partial) | 100 (full match) |
+|-----------|-------------|--------------|-------------------|
+| `tech_stack` | Knows none of the required technologies | Knows ~50% of the stack; missing some key ones | Expert in all required technologies |
+| `education` | No relevant education at all | Related field but different level/specialization | Exact degree and level requested |
+| `english` | Cannot hold a conversation | B1/B2 — functional but not fluent | C1+ or native level |
+| `experience` | Zero relevant experience | Some experience but wrong seniority or industry | Exact years, seniority, and industry match |
+| `projects` | No relevant projects | Has projects in related area but not direct match | Portfolio directly demonstrates required skills |
+| `cultural_fit` | Work mode, location, and culture are incompatible | Partial match (e.g., hybrid when remote preferred) | Perfect alignment on mode, location, and values |
+
+These are the default topics. The user may have customized them in `~/.applyr/applyr.toml` under `[topics]`. If custom topics exist, use those keys instead.
+
+**Rules for scoring:**
+- Be honest — inflated scores lead to wasted applications
+- Always explain WHY you gave that score in the `detail` field
+- If the offer doesn't mention a requirement (e.g., no education requirement), score 100 for that topic
+- Apply the same rubric consistently across all offers
 
 ### Step 3 — Register the offer
 
@@ -53,6 +62,8 @@ Build a JSON object and run:
 ```bash
 applyr add '<json>'
 ```
+
+You can also save to a file and run `applyr add offer.json` or pipe via `cat offer.json | applyr add -`.
 
 **Required field:** `title`
 **All other fields are optional** — fill in everything you can extract from the offer:
@@ -82,12 +93,12 @@ applyr add '<json>'
   "rejection_reason": "Reason if discarded",
   "notes": "Any additional context",
   "topics": {
-    "tech_stack": {"score": 80, "detail": "Why this score"},
-    "education": {"score": 70, "detail": "Why this score"},
-    "english": {"score": 60, "detail": "Why this score"},
-    "experience": {"score": 40, "detail": "Why this score"},
-    "projects": {"score": 85, "detail": "Why this score"},
-    "cultural_fit": {"score": 75, "detail": "Why this score"}
+    "tech_stack": {"score": 80, "detail": "Knows Python and FastAPI, missing AWS experience"},
+    "education": {"score": 70, "detail": "CS degree, they prefer Master's"},
+    "english": {"score": 90, "detail": "B2+, offer requires fluent English"},
+    "experience": {"score": 40, "detail": "1 year exp, they ask for 3+"},
+    "projects": {"score": 85, "detail": "3 relevant backend projects on GitHub"},
+    "cultural_fit": {"score": 75, "detail": "Hybrid ok, user prefers remote"}
   }
 }
 ```
@@ -101,35 +112,70 @@ applyr add '<json>'
 | `work_mode` | `remote`, `hybrid`, `onsite` |
 | `seniority_level` | `trainee`, `entry_level`, `junior`, `mid`, `senior`, `lead`, `director` |
 | `role_category` | `backend`, `frontend`, `fullstack`, `ai`, `devops`, `data`, `mobile`, `qa`, `other` |
-| `salary_period` | `annual`, `monthly` |
+| `salary_period` | `annual`, `monthly`, `hourly` |
 
 ### Step 4 — Decide
 
 The default threshold is 65% (configurable in `~/.applyr/applyr.toml`).
 
-- Score **>= threshold** → recommend applying. Ask the user to confirm.
-- Score **< threshold** → recommend discarding. Explain the main gaps. Let the user decide.
+- Score **>= threshold** -> recommend applying. Ask the user to confirm.
+- Score **< threshold** -> recommend discarding. Explain the main gaps. Let the user decide.
 
 ### Step 5 — If applying
 
-1. Update the offer status:
-   ```bash
-   applyr update <id> applied --canal linkedin_easy
-   ```
+#### 5.1 Update status
 
-2. If the user wants a CV, generate one:
-   ```bash
-   applyr cv generate <id>
-   ```
-   Then read cv-master.md, create an HTML CV tailored to the offer, and convert to PDF:
-   ```bash
-   applyr cv pdf <path-to-html> --output <path-to-pdf>
-   ```
+```bash
+applyr update <id> applied --canal linkedin_easy
+```
 
-3. If the user wants a cover letter, create it and note it:
-   ```bash
-   applyr update <id> applied --notes "Cover letter sent"
-   ```
+#### 5.2 CV generation flow (4 steps)
+
+If the user wants a CV tailored to this offer, follow this exact sequence:
+
+**1. Generate the skeleton:**
+```bash
+applyr cv generate <id>
+```
+This creates an HTML file at `~/.applyr/cv/cv-<company>-<title>.html` with:
+- Locked ATS-safe CSS (NEVER modify)
+- Offer context in HTML comments (company, tech stack, scores)
+- Placeholder sections (`[PLACEHOLDER]`) for you to fill
+
+**2. Fill the placeholders:**
+- Read `~/.applyr/cv-master.md` for all content
+- Replace every `[PLACEHOLDER]` with real content from cv-master.md
+- Prioritize skills and projects relevant to the target role
+- Match keywords from the job description naturally
+- Include measurable results (%, numbers, scale) in bullet points
+- Keep to 1 page — remove less relevant sections if needed
+- NEVER invent content not in cv-master.md
+- DO NOT modify the CSS or HTML structure
+
+**3. Review the CV:**
+```bash
+applyr cv review <path-to-html>
+```
+This outputs a recruiter-review prompt. Execute it to get:
+- ATS Score (0-100)
+- Keyword match analysis
+- Strengths and weaknesses
+- Specific improvements ordered by impact
+- Verdict: READY TO SEND / NEEDS EDITS / NEEDS REVISION
+
+If the verdict is not READY TO SEND, apply the suggested improvements and review again.
+
+**4. Generate PDF:**
+```bash
+applyr cv pdf <path-to-html> --output <path-to-pdf>
+```
+
+#### 5.3 Cover letter (optional)
+
+If the user wants a cover letter, create it and note it:
+```bash
+applyr update <id> applied --notes "Cover letter sent"
+```
 
 ## Querying data
 
@@ -137,7 +183,7 @@ When the user asks about their job search, use these commands:
 
 | User asks | Command to run |
 |-----------|---------------|
-| "Show me my applications" | `applyr list` |
+| "Show me my applications" | `applyr list` or `applyr list --json` |
 | "What's my pipeline?" | `applyr pipeline` |
 | "Show offer #5" | `applyr show 5` |
 | "What are my stats?" | `applyr stats` |
@@ -152,21 +198,49 @@ When the user asks about their job search, use these commands:
 | "What should I learn?" | `applyr plan` |
 | "Salary stats" | `applyr salary` |
 | "Salary for seniors" | `applyr salary --seniority senior` |
+| "Review my CV" | `applyr cv review <file.html>` |
+| "Check system health" | `applyr doctor` |
+
+**Tip:** Add `--json` to any data command for structured JSON output.
+
+## If a command fails
+
+Do NOT ignore errors. Follow this recovery procedure:
+
+### `applyr add` fails
+- Read the error message — it names the **exact field** and valid values
+- Fix that specific field in your JSON and retry
+- Do NOT invent data to bypass validation
+
+### `applyr cv pdf` fails
+- "Chrome not found" -> tell the user to install Chrome or set `chrome_path` in `~/.applyr/applyr.toml`
+- "Chrome timed out" -> the HTML may be too complex. Simplify and retry
+- Do NOT silently skip PDF generation
+
+### `applyr cv generate` fails
+- "cv-master.md not found" -> tell the user to run `applyr init` and fill in their profile
+- Do NOT generate a CV without cv-master.md
+
+### Any "offer not found" error
+- Run `applyr list` to check available IDs
+- The user may have deleted or never created the offer
 
 ## Rules
 
 1. **NEVER invent content** — only use what is in cv-master.md
-2. **NEVER guess scores** — evaluate honestly against the offer requirements
+2. **NEVER guess scores** — evaluate honestly using the rubric above
 3. **Be specific in topic details** — explain WHY you gave that score, not just a number
 4. **If information is missing from the offer** (salary, work mode, etc.), leave the field out rather than guessing
 5. **If the user's cv-master.md is empty**, tell them to fill it in before analyzing offers
 6. **Salary**: if the offer says "competitive" or doesn't specify, omit salary fields
 7. **Follow-ups**: applyr auto-schedules follow-ups when status is set to `applied` or `waiting`
 8. **Config**: scoring weights and topic names can be customized in `~/.applyr/applyr.toml`
+9. **Topic keys**: use only keys defined in your config. If you get a "topic not in config" warning, check `~/.applyr/applyr.toml` for the correct keys
 
 ## ATS CV rules (when generating HTML CVs)
 
-When creating or editing an HTML CV for ATS submission, follow these rules strictly:
+When creating or editing an HTML CV for ATS submission, follow these rules strictly.
+Reference: `templates/cv-ats.html` is the only permitted HTML structure.
 
 1. **Single column only** — never use CSS columns, flexbox, grid, or tables
 2. **Standard fonts** — Arial, Calibri, or Georgia only. Size: 11-12pt body, 14-16pt headings
@@ -176,7 +250,7 @@ When creating or editing an HTML CV for ATS submission, follow these rules stric
 6. **Standard bullets** — use `<ul><li>` only, no custom symbols or checkmarks
 7. **Include measurable results** — numbers (%, $, Nx, years) in at least 70% of bullets
 8. **Match keywords** — use both acronyms and full terms from the job description (e.g., "Artificial Intelligence (AI)")
-9. **Use `|` as separator** in contact info, not `·` or special characters
+9. **Use `|` as separator** in contact info, not special characters
 10. **Show full URLs** in links (e.g., `linkedin.com/in/username` not just `LinkedIn`) — URLs must be visible in print
 11. **Date format** — use `MM/YYYY` or `Month YYYY` consistently
 12. **Plain text test** — the CV must read correctly when copy-pasted into a plain text editor
