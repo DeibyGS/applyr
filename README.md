@@ -2,7 +2,18 @@
 
 CLI job application tracker designed for AI coding agents.
 
-Track applications, measure your conversion funnel, spot skill gaps, and generate ATS-optimized CVs — all from your terminal. Built to work with [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [Aider](https://aider.chat), or any AI coding agent.
+Track applications, measure your conversion funnel, spot skill gaps, and generate ATS-optimized CVs — all from your terminal. Built to work with [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [Aider](https://aider.chat), [OpenCode](https://opencode.ai), or any AI coding agent.
+
+### Quick start
+
+```bash
+pip install applyr                        # Install
+applyr init                               # Set up config, database, templates
+# Edit ~/.applyr/cv-master.md             # Fill in your professional profile
+applyr setup-agent --agent claude         # Connect your AI agent
+```
+
+Then paste a job offer into your AI agent — it handles the rest.
 
 ## Why applyr?
 
