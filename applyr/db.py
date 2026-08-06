@@ -7,6 +7,11 @@ from applyr.config import load_config
 
 SCHEMA_VERSION = 1
 
+# Migration registry: maps (from_version, to_version) -> list of SQL statements
+# Add entries here when schema changes in future versions.
+# Example: MIGRATIONS[(1, 2)] = ["ALTER TABLE offers ADD COLUMN new_col TEXT;"]
+MIGRATIONS: dict[tuple[int, int], list[str]] = {}
+
 SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS offers (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,15 +107,40 @@ def get_conn(db_path: str | None = None) -> sqlite3.Connection:
     return conn
 
 
+def _run_migrations(conn: sqlite3.Connection, current: int, target: int) -> None:
+    """Run sequential migrations from current version to target version."""
+    version = current
+    while version < target:
+        next_version = version + 1
+        steps = MIGRATIONS.get((version, next_version))
+        if steps is None:
+            raise RuntimeError(
+                f"No migration path from schema v{version} to v{next_version}. "
+                f"Database may need manual intervention."
+            )
+        for sql in steps:
+            conn.execute(sql)
+        version = next_version
+    conn.execute("UPDATE schema_version SET version = ?", (target,))
+
+
 def init_db(db_path: str | None = None):
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist, and run pending migrations."""
     conn = get_conn(db_path)
     try:
         conn.executescript(SCHEMA_SQL)
-        # Set schema version if not present
         existing = conn.execute("SELECT version FROM schema_version").fetchone()
         if not existing:
             conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+        else:
+            db_version = existing["version"]
+            if db_version < SCHEMA_VERSION:
+                _run_migrations(conn, db_version, SCHEMA_VERSION)
+            elif db_version > SCHEMA_VERSION:
+                print(
+                    f"Warning: database schema v{db_version} is newer than "
+                    f"applyr v{SCHEMA_VERSION}. Consider upgrading applyr."
+                )
         conn.commit()
     finally:
         conn.close()

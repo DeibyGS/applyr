@@ -19,6 +19,16 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score
+from applyr.colors import color
+from applyr.constants import (
+    LIST_COL_WIDTHS, LIST_HEADERS, COMPARE_LABEL_WIDTH, COMPARE_COL_MIN,
+    COMPARE_COL_MAX, COMPARE_TERMINAL_WIDTH, COMPARE_MAX_OFFERS, COMPARE_MIN_OFFERS,
+    PROGRESS_BAR_WIDTH, TREND_BAR_WIDTH, PIPELINE_COMPANY_WIDTH, PIPELINE_TITLE_WIDTH,
+    TRUNCATE_COMPANY, TRUNCATE_TITLE, FOLLOWUP_COMPANY_WIDTH, FOLLOWUP_TITLE_WIDTH,
+    FOLLOWUP_UPCOMING_DAYS, HIGH_PRIORITY_FREQ_THRESHOLD, TREND_HISTORY_LIMIT,
+    CV_MASTER_MIN_SIZE, PRIORITY_CRITICAL_SCORE, PRIORITY_HIGH_SCORE, PRIORITY_MEDIUM_SCORE,
+    VALID_SALARY_PERIODS, JSON_ERROR_CONTEXT,
+)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -52,8 +62,8 @@ def _make_display_row(r) -> dict:
     """Convert a sqlite3.Row from offers into a table-ready display dict."""
     return {
         "ID": str(r["id"]),
-        "COMPANY": _truncate(r["company"] or "—", 18),
-        "TITLE": _truncate(r["title"], 28),
+        "COMPANY": _truncate(r["company"] or "—", TRUNCATE_COMPANY),
+        "TITLE": _truncate(r["title"], TRUNCATE_TITLE),
         "%": str(r["compatibility_pct"]),
         "STATUS": STATUS_LABELS.get(r["status"], r["status"]),
         "MODE": r["work_mode"] or "—",
@@ -61,7 +71,7 @@ def _make_display_row(r) -> dict:
     }
 
 
-def _bar(score: int, width: int = 20) -> str:
+def _bar(score: int, width: int = PROGRESS_BAR_WIDTH) -> str:
     """Render a simple ASCII progress bar for a 0-100 score."""
     filled = round(score * width / 100)
     return "[" + "#" * filled + "-" * (width - filled) + "]"
@@ -247,9 +257,10 @@ def cmd_add(raw: str) -> None:
     except json.JSONDecodeError as exc:
         print(f"Error: invalid JSON — {exc.msg} at line {exc.lineno}, column {exc.colno}")
         if exc.pos is not None:
-            snippet = raw[max(0, exc.pos - 20):exc.pos + 20]
+            snippet = raw[max(0, exc.pos - JSON_ERROR_CONTEXT):exc.pos + JSON_ERROR_CONTEXT]
             print(f"  Around: ...{snippet}...")
-        return
+        print('  Example: applyr add \'{"title": "Backend Dev", "company": "Acme"}\'')
+        sys.exit(1)
 
     config = load_config()
     threshold: int = config["general"]["threshold"]
@@ -273,9 +284,13 @@ def cmd_add(raw: str) -> None:
     salary_min: int | None = data.get("salary_min")
     salary_max: int | None = data.get("salary_max")
     if salary_min and salary_max and salary_min > salary_max:
-        print("Error: salary_min cannot be greater than salary_max")
-        return
+        print(f"Error: salary_min ({salary_min}) cannot be greater than salary_max ({salary_max}).")
+        print("  Hint: swap the values or correct the input.")
+        sys.exit(1)
     salary_period: str = data.get("salary_period", "annual")
+    if salary_period not in VALID_SALARY_PERIODS:
+        print(f"Error: invalid salary_period '{salary_period}'. Valid: {', '.join(VALID_SALARY_PERIODS)}")
+        sys.exit(1)
     seniority_level: str | None = data.get("seniority_level")
     role_category: str | None = data.get("role_category")
     tech_stack: str | None = data.get("tech_stack")
@@ -417,7 +432,7 @@ def cmd_add(raw: str) -> None:
 # cmd_list
 # ---------------------------------------------------------------------------
 
-def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", limit: int | None = None) -> None:
+def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", limit: int | None = None, as_json: bool = False) -> None:
     """List job offers as a summary table."""
     config = load_config()
     effective_limit = limit if limit is not None else config["general"]["list_limit"]
@@ -453,11 +468,13 @@ def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", li
         print(msg + ".")
         return
 
+    if as_json:
+        print(json.dumps([dict(r) for r in rows], indent=2, ensure_ascii=False))
+        return
+
     # Build display rows
     display = [_make_display_row(r) for r in rows]
-    headers = ["ID", "COMPANY", "TITLE", "%", "STATUS", "MODE", "DATE"]
-    widths =  [4,    18,        28,      4,   16,       8,      10   ]
-    _print_table(display, headers, widths)
+    _print_table(display, LIST_HEADERS, LIST_COL_WIDTHS)
     print(f"  {len(rows)} offer(s) shown.")
 
 
@@ -465,7 +482,7 @@ def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", li
 # cmd_pipeline
 # ---------------------------------------------------------------------------
 
-def cmd_pipeline(min_score: int = 0) -> None:
+def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
     """Show offers grouped by status in funnel order."""
     conn = get_conn()
     try:
@@ -487,15 +504,25 @@ def cmd_pipeline(min_score: int = 0) -> None:
         bucket = r["status"] if r["status"] in groups else "pending"
         groups[bucket].append(r)
 
-    print("\n--- Pipeline ---\n")
+    if as_json:
+        payload = {}
+        for status in _STATUS_ORDER:
+            payload[status] = [{"id": i["id"], "compatibility_pct": i["compatibility_pct"],
+                                "company": i["company"], "title": i["title"]} for i in groups[status]]
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    print(f"\n{color('--- Pipeline ---', 'bold')}\n")
     for status in _STATUS_ORDER:
         items = groups[status]
         label = STATUS_LABELS.get(status, status)
-        print(f"  {label:<20} ({len(items)})")
+        status_color = {"offer": "green", "in_process": "cyan", "applied": "blue",
+                        "waiting": "yellow", "rejected": "red", "discarded": "dim"}.get(status, "white")
+        print(f"  {color(f'{label:<20}', status_color)} ({len(items)})")
         for item in items:
             pct = item["compatibility_pct"]
             company = item["company"] or "—"
-            print(f"    #{item['id']:>4}  {pct:>3}%  {_truncate(company, 16):<16}  {_truncate(item['title'], 30)}")
+            print(f"    #{item['id']:>4}  {pct:>3}%  {_truncate(company, PIPELINE_COMPANY_WIDTH):<{PIPELINE_COMPANY_WIDTH}}  {_truncate(item['title'], PIPELINE_TITLE_WIDTH)}")
     print()
 
 
@@ -503,20 +530,27 @@ def cmd_pipeline(min_score: int = 0) -> None:
 # cmd_show
 # ---------------------------------------------------------------------------
 
-def cmd_show(offer_id: int) -> None:
+def cmd_show(offer_id: int, as_json: bool = False) -> None:
     """Display all fields for a single offer."""
     conn = get_conn()
     try:
         row = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
             print(f"Error: offer #{offer_id} not found.")
-            return
+            print("  Hint: run 'applyr list' to see available offers.")
+            sys.exit(1)
 
         topics = conn.execute(
             "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ?", (offer_id,)
         ).fetchall()
     finally:
         conn.close()
+
+    if as_json:
+        data = dict(row)
+        data["topics"] = [{"topic": t["topic"], "score": t["score"], "detail": t["detail"]} for t in topics]
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        return
 
     config = load_config()
     topic_labels: dict = TOPIC_LABELS
@@ -580,7 +614,7 @@ def cmd_show(offer_id: int) -> None:
             fu_status = "Done"
         elif fu_date < today_str:
             fu_status = f"OVERDUE (was {fu_date})"
-        elif fu_date <= (date.today() + timedelta(days=5)).isoformat():
+        elif fu_date <= (date.today() + timedelta(days=FOLLOWUP_UPCOMING_DAYS)).isoformat():
             fu_status = f"Upcoming ({fu_date})"
         else:
             fu_status = fu_date
@@ -630,7 +664,8 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None, canal: str 
         row = conn.execute("SELECT id, title, company FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
             print(f"Error: offer #{offer_id} not found.")
-            return
+            print("  Hint: run 'applyr list' to see available offers.")
+            sys.exit(1)
 
         # Build dynamic update
         fields: list[str] = ["status = ?"]
@@ -677,7 +712,8 @@ def cmd_delete(offer_id: int) -> None:
         row = conn.execute("SELECT id, title, company, status FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
             print(f"Error: offer #{offer_id} not found.")
-            return
+            print("  Hint: run 'applyr list' to see available offers.")
+            sys.exit(1)
 
         print(f"About to delete:")
         print(f"  #{row['id']}  {row['title']}  ({row['company'] or '—'})  [{STATUS_LABELS.get(row['status'], row['status'])}]")
@@ -698,7 +734,7 @@ def cmd_delete(offer_id: int) -> None:
 # cmd_search
 # ---------------------------------------------------------------------------
 
-def cmd_search(keyword: str, status_filter: str | None = None) -> None:
+def cmd_search(keyword: str, status_filter: str | None = None, as_json: bool = False) -> None:
     """Search offers by keyword across title, company, summary, notes, tech_stack."""
     pattern = f"%{keyword}%"
     base_query = """
@@ -733,10 +769,12 @@ def cmd_search(keyword: str, status_filter: str | None = None) -> None:
         print(f"No offers found matching '{keyword}'.")
         return
 
+    if as_json:
+        print(json.dumps([dict(r) for r in rows], indent=2, ensure_ascii=False))
+        return
+
     display = [_make_display_row(r) for r in rows]
-    headers = ["ID", "COMPANY", "TITLE", "%", "STATUS", "MODE", "DATE"]
-    widths =  [4,    18,        28,      4,   16,       8,      10   ]
-    _print_table(display, headers, widths)
+    _print_table(display, LIST_HEADERS, LIST_COL_WIDTHS)
     print(f"  {len(rows)} result(s) for '{keyword}'.")
 
 
@@ -744,7 +782,7 @@ def cmd_search(keyword: str, status_filter: str | None = None) -> None:
 # cmd_stats
 # ---------------------------------------------------------------------------
 
-def cmd_stats() -> None:
+def cmd_stats(as_json: bool = False) -> None:
     """Print aggregate statistics for the offer database."""
     conn = get_conn()
     try:
@@ -779,6 +817,19 @@ def cmd_stats() -> None:
         ).fetchone()
     finally:
         conn.close()
+
+    if as_json:
+        payload = {
+            "total": total, "pending": pending, "discarded": discarded,
+            "avg_compatibility_pct": round(avg_compat, 1),
+            "funnel": {"applied": applied, "responded": responded, "interview": interview, "offer": offers_cnt},
+            "channels": {ch["canal"]: ch["cnt"] for ch in channels},
+            "work_modes": {m["work_mode"]: m["cnt"] for m in modes},
+        }
+        if sal and sal[0] is not None:
+            payload["salary"] = {"min": sal[0], "max": sal[1], "avg": round(sal[2])}
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
 
     def _pct(num, denom):
         return f"{round(num / denom * 100)}%" if denom else "—"
@@ -818,7 +869,7 @@ def cmd_stats() -> None:
 # cmd_gaps
 # ---------------------------------------------------------------------------
 
-def cmd_gaps(limit: int = 10) -> None:
+def cmd_gaps(limit: int = 10, as_json: bool = False) -> None:
     """Show recurring skill gaps sorted by frequency."""
     config = load_config()
     topic_labels: dict = TOPIC_LABELS
@@ -836,18 +887,35 @@ def cmd_gaps(limit: int = 10) -> None:
         print("No skill gaps recorded yet.")
         return
 
+    if as_json:
+        payload = []
+        for r in rows:
+            freq = r["frequency"]
+            avg_gap = round(r["total_gap"] / freq) if freq else 0
+            if freq >= HIGH_PRIORITY_FREQ_THRESHOLD:
+                priority = "HIGH"
+            elif freq == 2:
+                priority = "MEDIUM"
+            else:
+                priority = "LOW"
+            payload.append({"skill": r["skill"], "label": topic_labels.get(r["skill"], r["skill"]),
+                            "frequency": freq, "avg_gap": avg_gap, "priority": priority})
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
     print("\n--- Skill Gaps ---\n")
     for r in rows:
         label = topic_labels.get(r["skill"], r["skill"])
         freq  = r["frequency"]
-        if freq >= 3:
-            priority = "HIGH  "
+        if freq >= HIGH_PRIORITY_FREQ_THRESHOLD:
+            priority = "HIGH"
         elif freq == 2:
             priority = "MEDIUM"
         else:
-            priority = "LOW   "
+            priority = "LOW"
+        priority_color = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}.get(priority, "white")
         avg_gap = round(r["total_gap"] / freq) if freq else 0
-        print(f"  [{priority}]  {label:<20}  seen {freq}x  avg gap {avg_gap}%")
+        print(f"  [{color(f'{priority:<6}', priority_color)}]  {label:<20}  seen {freq}x  avg gap {avg_gap}%")
     print()
 
 
@@ -855,10 +923,10 @@ def cmd_gaps(limit: int = 10) -> None:
 # cmd_followups
 # ---------------------------------------------------------------------------
 
-def cmd_followups() -> None:
+def cmd_followups(as_json: bool = False) -> None:
     """Show overdue and upcoming (next 5 days) follow-ups."""
     today = _today()
-    upcoming_limit = (date.today() + timedelta(days=5)).isoformat()
+    upcoming_limit = (date.today() + timedelta(days=FOLLOWUP_UPCOMING_DAYS)).isoformat()
 
     conn = get_conn()
     try:
@@ -890,19 +958,29 @@ def cmd_followups() -> None:
             contact = f"  Contact: {r['contact_name']}"
             if r["contact_role"]:
                 contact += f" ({r['contact_role']})"
-        print(f"    #{r['id']:>4}  {r['follow_up_date']}  {_truncate(r['company'] or '—', 16):<16}  {_truncate(r['title'], 28)}{contact}")
+        print(f"    #{r['id']:>4}  {r['follow_up_date']}  {_truncate(r['company'] or '—', FOLLOWUP_COMPANY_WIDTH):<{FOLLOWUP_COMPANY_WIDTH}}  {_truncate(r['title'], FOLLOWUP_TITLE_WIDTH)}{contact}")
 
     if not overdue and not upcoming:
         print("No pending follow-ups.")
         return
 
+    if as_json:
+        payload = {
+            "overdue": [{"id": r["id"], "title": r["title"], "company": r["company"],
+                         "follow_up_date": r["follow_up_date"]} for r in overdue],
+            "upcoming": [{"id": r["id"], "title": r["title"], "company": r["company"],
+                          "follow_up_date": r["follow_up_date"]} for r in upcoming],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
     if overdue:
-        print(f"\n  OVERDUE ({len(overdue)}):")
+        print(f"\n  {color('OVERDUE', 'red')} ({len(overdue)}):")
         for r in overdue:
             _print_followup_row(r)
 
     if upcoming:
-        print(f"\n  Upcoming — next 5 days ({len(upcoming)}):")
+        print(f"\n  Upcoming — next {FOLLOWUP_UPCOMING_DAYS} days ({len(upcoming)}):")
         for r in upcoming:
             _print_followup_row(r)
 
@@ -913,7 +991,7 @@ def cmd_followups() -> None:
 # cmd_trends
 # ---------------------------------------------------------------------------
 
-def cmd_trends(period: str = "week") -> None:
+def cmd_trends(period: str = "week", as_json: bool = False) -> None:
     """Group applications by week or month and show growth vs previous period."""
     if period not in ("week", "month"):
         print("Error: period must be 'week' or 'month'.")
@@ -932,7 +1010,7 @@ def cmd_trends(period: str = "week") -> None:
             WHERE COALESCE(date_applied, date_received) IS NOT NULL
             GROUP BY period
             ORDER BY period DESC
-            LIMIT 12
+            LIMIT {TREND_HISTORY_LIMIT}
             """,
         ).fetchall()
     finally:
@@ -940,6 +1018,18 @@ def cmd_trends(period: str = "week") -> None:
 
     if not rows:
         print("No dated offers found.")
+        return
+
+    if as_json:
+        payload = []
+        for i, r in enumerate(rows):
+            cnt = r["cnt"]
+            prev_cnt = rows[i + 1]["cnt"] if i + 1 < len(rows) else None
+            growth = None
+            if prev_cnt is not None and prev_cnt > 0:
+                growth = round((cnt - prev_cnt) / prev_cnt * 100)
+            payload.append({"period": r["period"], "count": cnt, "growth_pct": growth})
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
     print(f"\n--- Trends by {period.capitalize()} ---\n")
@@ -951,7 +1041,7 @@ def cmd_trends(period: str = "week") -> None:
             growth_str = f"  ({'+' if growth >= 0 else ''}{growth}% vs prev)"
         else:
             growth_str = ""
-        bar = _bar(cnt, width=15)
+        bar = _bar(cnt, width=TREND_BAR_WIDTH)
         print(f"  {r['period']}  {bar}  {cnt:>3}{growth_str}")
     print()
 
@@ -1089,7 +1179,7 @@ def cmd_export(fmt: str = "csv", filepath: str | None = None) -> None:
                 f.write(_export_markdown(records))
     except OSError as exc:
         print(f"Error writing file: {exc}")
-        return
+        sys.exit(1)
 
     print(f"Exported {len(records)} offer(s) to {out_path}")
 
@@ -1157,7 +1247,7 @@ def cmd_doctor() -> None:
     cv_master = get_cv_master_path()
     if cv_master.exists():
         size = cv_master.stat().st_size
-        if size < 100:
+        if size < CV_MASTER_MIN_SIZE:
             print(f"  CV Master    : WARNING — file exists but looks empty ({size} bytes)")
             print(f"                 Edit {cv_master} with your professional profile.")
             issues += 1
@@ -1216,12 +1306,12 @@ _COMPARE_FIELDS = [
 ]
 
 
-def cmd_compare(ids: list[int]) -> None:
+def cmd_compare(ids: list[int], as_json: bool = False) -> None:
     """Compare 2-10 offers side by side in a vertical table."""
-    if len(ids) < 2:
+    if len(ids) < COMPARE_MIN_OFFERS:
         print("Error: need at least 2 IDs to compare.")
         return
-    if len(ids) > 10:
+    if len(ids) > COMPARE_MAX_OFFERS:
         print("Error: maximum 10 offers to compare.")
         return
 
@@ -1245,8 +1335,34 @@ def cmd_compare(ids: list[int]) -> None:
     offers = [by_id[oid] for oid in ids]
 
     # Build vertical comparison table
-    label_width = 12
-    col_width = max(15, min(25, 80 // len(offers)))
+    label_width = COMPARE_LABEL_WIDTH
+    col_width = max(COMPARE_COL_MIN, min(COMPARE_COL_MAX, COMPARE_TERMINAL_WIDTH // len(offers)))
+
+    if as_json:
+        payload = []
+        for o in offers:
+            entry = {"id": o["id"]}
+            for field_label, field_key in _COMPARE_FIELDS:
+                if field_key is None:  # salary
+                    s_min = o["salary_min"]
+                    s_max = o["salary_max"]
+                    period = o["salary_period"] or "annual"
+                    if s_min and s_max:
+                        val = f"{s_min}-{s_max}/{period[:3]}"
+                    elif s_min:
+                        val = f"{s_min}+/{period[:3]}"
+                    elif s_max:
+                        val = f"<={s_max}/{period[:3]}"
+                    else:
+                        val = None
+                elif field_key == "status":
+                    val = STATUS_LABELS.get(o[field_key], o[field_key])
+                else:
+                    val = o[field_key]
+                entry[field_label.lower().replace(" ", "_")] = val
+            payload.append(entry)
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
 
     # Header row
     header = f"{'Field':<{label_width}}"
@@ -1286,7 +1402,7 @@ def cmd_compare(ids: list[int]) -> None:
 # cmd_plan
 # ---------------------------------------------------------------------------
 
-def cmd_plan(limit: int = 10) -> None:
+def cmd_plan(limit: int = 10, as_json: bool = False) -> None:
     """Show a prioritized learning plan based on skill gaps."""
     topic_labels: dict = TOPIC_LABELS
 
@@ -1313,21 +1429,42 @@ def cmd_plan(limit: int = 10) -> None:
     scored.sort(key=lambda x: x[3], reverse=True)
     scored = scored[:limit]
 
+    if as_json:
+        payload = []
+        for rank, (skill, freq, avg_gap, score) in enumerate(scored, 1):
+            label = topic_labels.get(skill, skill)
+            if score >= PRIORITY_CRITICAL_SCORE:
+                priority = "CRITICAL"
+            elif score >= PRIORITY_HIGH_SCORE:
+                priority = "HIGH"
+            elif score >= PRIORITY_MEDIUM_SCORE:
+                priority = "MEDIUM"
+            else:
+                priority = "LOW"
+            payload.append({"rank": rank, "skill": skill, "label": label,
+                            "frequency": freq, "avg_gap": avg_gap, "priority": priority})
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
     print("\n--- Learning Plan ---\n")
     print(f"  {'#':<4}  {'Skill':<22}  {'Seen':>4}  {'Avg Gap':>7}  {'Priority':<8}")
     print(f"  {'—'*4}  {'—'*22}  {'—'*4}  {'—'*7}  {'—'*8}")
 
     for rank, (skill, freq, avg_gap, score) in enumerate(scored, 1):
         label = topic_labels.get(skill, skill)
-        if score >= 200:
+        if score >= PRIORITY_CRITICAL_SCORE:
             priority = "CRITICAL"
-        elif score >= 100:
+            priority_color = "red"
+        elif score >= PRIORITY_HIGH_SCORE:
             priority = "HIGH"
-        elif score >= 40:
+            priority_color = "yellow"
+        elif score >= PRIORITY_MEDIUM_SCORE:
             priority = "MEDIUM"
+            priority_color = "cyan"
         else:
             priority = "LOW"
-        print(f"  {rank:<4}  {label:<22}  {freq:>4}x  {avg_gap:>6}%  {priority:<8}")
+            priority_color = "dim"
+        print(f"  {rank:<4}  {label:<22}  {freq:>4}x  {avg_gap:>6}%  {color(f'{priority:<8}', priority_color)}")
 
     print(f"\n  Focus on CRITICAL and HIGH items first.")
     print(f"  Skill gaps update automatically when you add scored offers.\n")
@@ -1366,12 +1503,12 @@ def _salary_stats(entries: list[dict]) -> tuple[int, int, int, int] | None:
     all_values.sort()
     s_min = min(all_values)
     s_max = max(all_values)
-    s_avg = sum(all_values) // len(all_values)
+    s_avg = round(sum(all_values) / len(all_values))
     s_med = _median(all_values)
     return s_min, s_max, s_avg, s_med
 
 
-def cmd_salary(seniority: str | None = None, category: str | None = None) -> None:
+def cmd_salary(seniority: str | None = None, category: str | None = None, as_json: bool = False) -> None:
     """Show salary statistics grouped by seniority and/or role category."""
     conn = get_conn()
     try:
@@ -1398,6 +1535,36 @@ def cmd_salary(seniority: str | None = None, category: str | None = None) -> Non
     for r in rows:
         key = r["seniority_level"] or "unspecified"
         groups[key].append(dict(r))
+
+    if as_json:
+        payload = {"by_seniority": [], "by_category": []}
+        for level in sorted(groups.keys()):
+            entries = groups[level]
+            stats = _salary_stats(entries)
+            if not stats:
+                continue
+            s_min, s_max, s_avg, s_med = stats
+            periods = set(e["salary_period"] or "annual" for e in entries)
+            payload["by_seniority"].append({
+                "seniority": level, "count": len(entries),
+                "min": s_min, "max": s_max, "avg": s_avg, "median": s_med,
+                "period": "/".join(sorted(periods)),
+            })
+        cat_groups: dict[str, list[dict]] = defaultdict(list)
+        for r in rows:
+            key = r["role_category"] or "unspecified"
+            cat_groups[key].append(dict(r))
+        for cat in sorted(cat_groups.keys()):
+            stats = _salary_stats(cat_groups[cat])
+            if not stats:
+                continue
+            s_min, s_max, s_avg, s_med = stats
+            payload["by_category"].append({
+                "category": cat, "count": len(cat_groups[cat]),
+                "min": s_min, "max": s_max, "avg": s_avg, "median": s_med,
+            })
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
 
     print("\n--- Salary Insights ---\n")
     print(f"  {'Seniority':<14}  {'Count':>5}  {'Min':>8}  {'Max':>8}  {'Avg':>8}  {'Median':>8}  {'Period':<6}")

@@ -1,6 +1,7 @@
 """Scoring engine — configurable weighted compatibility calculation."""
 
 from applyr.config import load_config
+from applyr.constants import DEFAULT_TOPIC_WEIGHT
 
 
 def calculate_score(topics: dict) -> int:
@@ -17,7 +18,6 @@ def calculate_score(topics: dict) -> int:
 
     config = load_config()
     weights = config["weights"]
-    default_weight = 0.10
 
     weighted_sum = 0.0
     total_weight = 0.0
@@ -26,7 +26,7 @@ def calculate_score(topics: dict) -> int:
         score = values.get("score", 0)
         if not isinstance(score, (int, float)) or not 0 <= score <= 100:
             continue
-        weight = weights.get(topic, default_weight)
+        weight = weights.get(topic, DEFAULT_TOPIC_WEIGHT)
         weighted_sum += score * weight
         total_weight += weight
 

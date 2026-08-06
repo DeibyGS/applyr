@@ -4,6 +4,7 @@ import os
 import sys
 
 from applyr import __version__
+from applyr.colors import init_colors
 from applyr.commands import (
     cmd_add,
     cmd_compare,
@@ -112,6 +113,16 @@ def _is_initialized() -> bool:
 def main():
     args = sys.argv[1:]
 
+    # Global flags — extract before command routing
+    no_color = _has_flag(args, "--no-color")
+    if no_color and "--no-color" in args:
+        args.remove("--no-color")
+    as_json = _has_flag(args, "--json")
+    if as_json and "--json" in args:
+        args.remove("--json")
+
+    init_colors(no_color=no_color or as_json)
+
     if not args or args[0] in ("help", "--help", "-h"):
         if not args and not _is_initialized():
             print(_GETTING_STARTED)
@@ -174,7 +185,7 @@ def main():
             limit = _safe_int(_get_flag(args, "--limit"), "--limit")
             if limit is None:
                 return
-        cmd_list(status_filter=status, sort_by=sort_by, limit=limit)
+        cmd_list(status_filter=status, sort_by=sort_by, limit=limit, as_json=as_json)
 
     elif cmd == "pipeline":
         min_score = 0
@@ -183,7 +194,7 @@ def main():
             min_score = _safe_int(raw, "--min-score")
             if min_score is None:
                 return
-        cmd_pipeline(min_score=min_score)
+        cmd_pipeline(min_score=min_score, as_json=as_json)
 
     elif cmd == "show":
         if len(args) < 2:
@@ -191,7 +202,7 @@ def main():
             return
         offer_id = _safe_int(args[1])
         if offer_id is not None:
-            cmd_show(offer_id)
+            cmd_show(offer_id, as_json=as_json)
 
     elif cmd == "update":
         if len(args) < 3:
@@ -224,15 +235,15 @@ def main():
         i = 1
         while i < len(args):
             if args[i].startswith("--"):
-                i += 2  # skip flag and its value
+                i += 2 if (i + 1 < len(args)) else 1
                 continue
             keyword_parts.append(args[i])
             i += 1
         keyword = " ".join(keyword_parts)
-        cmd_search(keyword, status_filter=status)
+        cmd_search(keyword, status_filter=status, as_json=as_json)
 
     elif cmd == "stats":
-        cmd_stats()
+        cmd_stats(as_json=as_json)
 
     elif cmd == "gaps":
         limit = 10
@@ -241,20 +252,19 @@ def main():
             limit = _safe_int(raw, "--limit")
             if limit is None:
                 return
-        cmd_gaps(limit=limit)
+        cmd_gaps(limit=limit, as_json=as_json)
 
     elif cmd == "followups":
-        cmd_followups()
+        cmd_followups(as_json=as_json)
 
     elif cmd == "trends":
         period = _get_flag(args, "--period") or "week"
         if period not in ("week", "month"):
             print(f"Error: period must be 'week' or 'month', got: {period}")
             return
-        cmd_trends(period=period)
+        cmd_trends(period=period, as_json=as_json)
 
     elif cmd == "summary":
-        as_json = _has_flag(args, "--json")
         cmd_summary(as_json=as_json)
 
     elif cmd in ("compare", "cmp"):
@@ -267,7 +277,7 @@ def main():
             if oid is None:
                 return
             ids.append(oid)
-        cmd_compare(ids)
+        cmd_compare(ids, as_json=as_json)
 
     elif cmd == "plan":
         limit = 10
@@ -276,12 +286,12 @@ def main():
             limit = _safe_int(raw, "--limit")
             if limit is None:
                 return
-        cmd_plan(limit=limit)
+        cmd_plan(limit=limit, as_json=as_json)
 
     elif cmd in ("salary", "sal"):
         seniority = _get_flag(args, "--seniority")
         category = _get_flag(args, "--category")
-        cmd_salary(seniority=seniority, category=category)
+        cmd_salary(seniority=seniority, category=category, as_json=as_json)
 
     elif cmd == "doctor":
         cmd_doctor()
@@ -324,13 +334,13 @@ def main():
             print("  Available: generate, pdf")
 
     elif cmd == "ls":
-        cmd_list()
+        cmd_list(as_json=as_json)
 
     elif cmd == "st":
-        cmd_stats()
+        cmd_stats(as_json=as_json)
 
     elif cmd == "fu":
-        cmd_followups()
+        cmd_followups(as_json=as_json)
 
     else:
         print(f"Unknown command: '{cmd}'")
