@@ -1,8 +1,16 @@
 # applyr
 
-CLI job application tracker designed for AI coding agents.
+[![PyPI version](https://img.shields.io/pypi/v/applyr)](https://pypi.org/project/applyr/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/applyr)](https://pypi.org/project/applyr/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/DeibyGS/applyr/pulls)
+[![GitHub Issues](https://img.shields.io/github/issues/DeibyGS/applyr)](https://github.com/DeibyGS/applyr/issues)
 
-Track applications, measure your conversion funnel, spot skill gaps, and generate ATS-optimized CVs — all from your terminal. Built to work with [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [Aider](https://aider.chat), [OpenCode](https://opencode.ai), or any AI coding agent.
+**CLI job application tracker designed for AI coding agents.**
+
+Track applications, measure your conversion funnel, spot skill gaps, and generate ATS-optimized CVs — all from your terminal. Built to work with [Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [OpenCode](https://opencode.ai), or any AI coding agent.
 
 ### Requirements
 
@@ -54,25 +62,25 @@ applyr was designed to work **for** AI coding agents — it made sense to build 
 
 ### How we worked together
 
-| Human-owned | AI implemented, always human-reviewed |
-|-------------|-------------------------------------|
-| Product design & data model (28-column schema) | Python logic generation |
-| Atomic QoL commands design | CLI command scaffolding |
-| ATS CV template structure | Refactoring, test scaffolding |
-| Config (TOML) design | Auxiliary docs, type checking |
-| Code review & final acceptance | Documentation, auxiliary scripts |
+| Human-owned | AI-assisted (human-reviewed) |
+|-------------|------------------------------|
+| Product design & domain model (28-column schema) | Python implementation & refactoring |
+| Scoring engine design (weighted topics) | CLI command scaffolding |
+| ATS CV template & locked CSS | Test suite (54 pytest tests) |
+| Config system (TOML) & threshold logic | Module split (commands/ package) |
+| Architecture decisions & code review | Documentation & CI workflows |
 
-**Workflow:** `Idea → Spec → AI implementation → Human review → Test → Refine → Merge`
+**Workflow:** `Idea → Spec (SDD) → AI implementation → Human review → Test → Merge`
 
 The 200+ jobs this tool manages were tracked *by* an AI agent; the code beneath them was built with the same human-in-the-loop discipline.
 
 ### AI Development Principles
 
-- AI never made product decisions.
-- Every implementation started from a written specification.
-- Documentation was treated as executable context for AI.
-- All generated code required human review.
-- Architecture was preserved over implementation speed.
+1. **AI never made product decisions** — domain model, scoring weights, and UX flow are human-designed.
+2. **Every feature started from a written spec** — using Spec-Driven Development (SDD) before any code.
+3. **Documentation is executable context** — `AGENT_INSTRUCTIONS.md` is a step-by-step contract, not a suggestion.
+4. **All generated code required human review** — PRs follow a 400-line budget with work-unit commits.
+5. **Architecture over speed** — commands/ split, scoring engine, and config system were designed for maintainability.
 
 <details>
 <summary><strong>Supporting metrics</strong></summary>
@@ -80,12 +88,14 @@ The 200+ jobs this tool manages were tracked *by* an AI agent; the code beneath 
 
 | Metric | Value |
 |--------|-------|
-| AI sessions | 12 logged (11 on predecessor + applyr) |
-| Measured development time | ~2 h tracked; earlier work pre-dates session logs |
+| Total PRs | 16 (all human-reviewed) |
+| Test coverage | 54 unit tests (scoring, config, db, validators) |
+| Commands | 21 CLI commands + 5 aliases |
+| Schema | 28 columns, 3 tables, migration system |
 | Primary model | Claude Opus 4.6 |
 | Secondary | DeepSeek V4 Flash (OpenCode) |
 
-_Measured with [ClaudeStat](https://github.com/DeibyGS/claudestat). Approximate values; early work was built before exhaustive session logging._
+_Measured with [ClaudeStat](https://github.com/DeibyGS/claudestat)._
 
 </details>
 
