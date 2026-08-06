@@ -4,6 +4,8 @@ import os
 import tomllib
 from pathlib import Path
 
+from applyr.constants import DEFAULT_WEIGHTS, DEFAULT_THRESHOLD, DEFAULT_FOLLOWUP_DAYS, DEFAULT_LIST_LIMIT
+
 APPLYR_DIR = Path(os.environ.get("APPLYR_HOME", Path.home() / ".applyr"))
 
 # Topic display names — hardcoded, not configurable
@@ -80,19 +82,12 @@ def _build_defaults() -> dict:
     """Build default config dict with runtime values."""
     return {
         "general": {
-            "threshold": 65,
-            "followup_days": 10,
+            "threshold": DEFAULT_THRESHOLD,
+            "followup_days": DEFAULT_FOLLOWUP_DAYS,
             "db_path": str(APPLYR_DIR / "jobs.db"),
-            "list_limit": 50,
+            "list_limit": DEFAULT_LIST_LIMIT,
         },
-        "weights": {
-            "tech_stack": 30,
-            "education": 15,
-            "english": 10,
-            "experience": 15,
-            "projects": 20,
-            "cultural_fit": 10,
-        },
+        "weights": dict(DEFAULT_WEIGHTS),
         "cv": {
             "chrome_path": _detect_chrome(),
             "cv_master": str(APPLYR_DIR / "cv-master.md"),

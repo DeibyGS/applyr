@@ -2,9 +2,11 @@
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from applyr.config import load_config, APPLYR_DIR
+from applyr.constants import CHROME_TIMEOUT_SECONDS
 
 # ATS-safe CSS — embedded in every generated CV
 # Rules: single column, no flex/grid/tables, standard fonts, no images
@@ -94,17 +96,25 @@ def cmd_cv_pdf(html_file: str, output: str | None = None) -> None:
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=CHROME_TIMEOUT_SECONDS)
+        if result.returncode != 0:
+            print("Error: Chrome exited with an error.")
+            if result.stderr:
+                print(f"  Chrome stderr: {result.stderr[:200]}")
+            sys.exit(1)
         if pdf_path.exists():
             print(f"PDF generated: {pdf_path}")
         else:
             print("Error: PDF was not generated.")
             if result.stderr:
                 print(f"  Chrome stderr: {result.stderr[:200]}")
+            sys.exit(1)
     except subprocess.TimeoutExpired:
-        print("Error: Chrome timed out after 30 seconds.")
+        print(f"Error: Chrome timed out after {CHROME_TIMEOUT_SECONDS} seconds.")
+        sys.exit(1)
     except FileNotFoundError:
         print(f"Error: Chrome not found at: {chrome_path}")
+        sys.exit(1)
 
 
 def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:

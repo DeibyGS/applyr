@@ -296,11 +296,29 @@ The PDF is generated with Chrome headless, no headers or footers.
 | `applyr compare <id1> <id2> [...]` | Compare offers side by side |
 | `applyr plan [--limit N]` | Prioritized learning plan from skill gaps |
 | `applyr salary [--seniority S] [--category C]` | Salary insights by seniority/category |
-| `applyr export [--format csv\|json]` | Export all data |
+| `applyr export [--format csv\|json\|md]` | Export all data |
 | `applyr cv generate <id>` | Generate ATS-safe HTML CV skeleton |
 | `applyr cv pdf <file.html> [--output f.pdf]` | HTML to PDF via Chrome |
+| `applyr doctor` | Check configuration and database health |
 | `applyr version` | Show version |
 | `applyr help` | Show help |
+
+### Aliases
+
+| Alias | Command |
+|-------|---------|
+| `ls` | `list` |
+| `st` | `stats` |
+| `fu` | `followups` |
+| `cmp` | `compare` |
+| `sal` | `salary` |
+
+### Global flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output structured JSON (available on all data commands) |
+| `--no-color` | Disable colored output (also respects `NO_COLOR` env var) |
 
 ---
 
