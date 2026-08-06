@@ -89,11 +89,34 @@ def _has_flag(args: list[str], flag: str) -> bool:
     return flag in args
 
 
+_GETTING_STARTED = f"""\
+applyr v{__version__} — CLI job application tracker for AI coding agents
+
+Getting started:
+
+  1. applyr init                        Set up config, database, and templates
+  2. Edit ~/.applyr/cv-master.md        Fill in your professional profile
+  3. applyr setup-agent --agent claude  Connect your AI agent (claude, cursor, opencode, generic)
+
+Then paste a job offer into your AI agent — it handles the rest.
+Docs: https://github.com/DeibyGS/applyr
+"""
+
+
+def _is_initialized() -> bool:
+    """Check if applyr has been initialized."""
+    from applyr.config import APPLYR_DIR
+    return (APPLYR_DIR / "jobs.db").exists() or (APPLYR_DIR / "applyr.toml").exists()
+
+
 def main():
     args = sys.argv[1:]
 
     if not args or args[0] in ("help", "--help", "-h"):
-        print(USAGE)
+        if not args and not _is_initialized():
+            print(_GETTING_STARTED)
+        else:
+            print(USAGE)
         return
 
     cmd = args[0]
