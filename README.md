@@ -29,6 +29,49 @@ applyr is the **storage and structure layer**. Your AI agent is the **brain** th
 
 ---
 
+## AI Development Benchmark
+
+applyr was designed to work **for** AI coding agents — it made sense to build it *with* them, as a **pair programming partner**. A human engineer defined the domain model and architecture; AI accelerated implementation, always behind human review.
+
+### How we worked together
+
+| Human-owned | AI implemented, always human-reviewed |
+|-------------|-------------------------------------|
+| Product design & data model (28-column schema) | Python logic generation |
+| Atomic QoL commands design | CLI command scaffolding |
+| ATS CV template structure | Refactoring, test scaffolding |
+| Config (TOML) design | Auxiliary docs, type checking |
+| Code review & final acceptance | Documentation, auxiliary scripts |
+
+**Workflow:** `Idea → Spec → AI implementation → Human review → Test → Refine → Merge`
+
+The 200+ jobs this tool manages were tracked *by* an AI agent; the code beneath them was built with the same human-in-the-loop discipline.
+
+### AI Development Principles
+
+- AI never made product decisions.
+- Every implementation started from a written specification.
+- Documentation was treated as executable context for AI.
+- All generated code required human review.
+- Architecture was preserved over implementation speed.
+
+<details>
+<summary><strong>Supporting metrics</strong></summary>
+<br>
+
+| Metric | Value |
+|--------|-------|
+| AI sessions | 12 logged (11 on predecessor + applyr) |
+| Measured development time | ~2 h tracked; earlier work pre-dates session logs |
+| Primary model | Claude Opus 4.6 |
+| Secondary | DeepSeek V4 Flash (OpenCode) |
+
+_Measured with [ClaudeStat](https://github.com/DeibyGS/claudestat). Approximate values; early work was built before exhaustive session logging._
+
+</details>
+
+---
+
 ## Install
 
 ```bash
