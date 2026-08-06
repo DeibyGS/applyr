@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 VALID_STATUSES = ("pending", "applied", "waiting", "in_process", "rejected", "discarded", "offer")
 VALID_CHANNELS = ("linkedin_easy", "linkedin_direct", "email", "portal", "referral", "other")
 VALID_WORK_MODES = ("remote", "hybrid", "onsite")
-VALID_SENIORITY = ("junior", "mid", "senior", "lead", "director")
+VALID_SENIORITY = ("trainee", "entry_level", "junior", "mid", "senior", "lead", "director")
 VALID_ROLE_CATEGORIES = ("backend", "frontend", "fullstack", "ai", "devops", "data", "mobile", "qa", "other")
 
 STATUS_LABELS = {

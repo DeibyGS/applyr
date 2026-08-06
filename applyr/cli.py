@@ -6,6 +6,7 @@ import sys
 from applyr import __version__
 from applyr.commands import (
     cmd_add,
+    cmd_compare,
     cmd_delete,
     cmd_doctor,
     cmd_export,
@@ -14,7 +15,10 @@ from applyr.commands import (
     cmd_init,
     cmd_list,
     cmd_pipeline,
+    cmd_plan,
+    cmd_salary,
     cmd_search,
+    cmd_setup_agent,
     cmd_show,
     cmd_stats,
     cmd_summary,
@@ -31,6 +35,7 @@ Usage: applyr <command> [options]
 
 Commands:
   init                          Set up ~/.applyr/ (config, database, templates)
+  setup-agent [--agent NAME]    Configure AI agent (claude, cursor, opencode, generic)
   add '<json>'                  Register a new job offer
   list [--status S] [--sort F]  List offers (default: last 50)
   pipeline [--min-score N]      View offers grouped by status
@@ -43,12 +48,15 @@ Commands:
   followups                     Pending/overdue follow-ups
   trends [--period week|month]  Application trends over time
   summary [--json]              Weekly summary (LLM-optimized)
+  compare <id1> <id2> [<idN>..] Compare offers side by side
+  plan [--limit N]              Prioritized learning plan from skill gaps
+  salary [--seniority S]        Salary insights by seniority/category
   export [--format csv|json|md]  Export all data
   doctor                        Check configuration and database health
   version                       Show version
   help                          Show this help
 
-Aliases: ls=list, st=stats, fu=followups
+Aliases: ls=list, st=stats, fu=followups, cmp=compare, sal=salary
 
 Statuses: {' | '.join(VALID_STATUSES)}
 
@@ -105,6 +113,10 @@ def main():
 
     if cmd == "init":
         cmd_init()
+
+    elif cmd == "setup-agent":
+        agent = _get_flag(args, "--agent")
+        cmd_setup_agent(agent=agent)
 
     elif cmd == "add":
         if len(args) < 2 and sys.stdin.isatty():
@@ -221,6 +233,32 @@ def main():
     elif cmd == "summary":
         as_json = _has_flag(args, "--json")
         cmd_summary(as_json=as_json)
+
+    elif cmd in ("compare", "cmp"):
+        if len(args) < 3:
+            print("Usage: applyr compare <id1> <id2> [<id3> ...]")
+            return
+        ids = []
+        for a in args[1:]:
+            oid = _safe_int(a)
+            if oid is None:
+                return
+            ids.append(oid)
+        cmd_compare(ids)
+
+    elif cmd == "plan":
+        limit = 10
+        raw = _get_flag(args, "--limit")
+        if raw is not None:
+            limit = _safe_int(raw, "--limit")
+            if limit is None:
+                return
+        cmd_plan(limit=limit)
+
+    elif cmd in ("salary", "sal"):
+        seniority = _get_flag(args, "--seniority")
+        category = _get_flag(args, "--category")
+        cmd_salary(seniority=seniority, category=category)
 
     elif cmd == "doctor":
         cmd_doctor()

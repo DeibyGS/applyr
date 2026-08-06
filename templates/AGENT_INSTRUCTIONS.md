@@ -99,7 +99,7 @@ applyr add '<json>'
 | `status` | `pending`, `applied`, `waiting`, `in_process`, `rejected`, `discarded`, `offer` |
 | `canal` | `linkedin_easy`, `linkedin_direct`, `email`, `portal`, `referral`, `other` |
 | `work_mode` | `remote`, `hybrid`, `onsite` |
-| `seniority_level` | `junior`, `mid`, `senior`, `lead`, `director` |
+| `seniority_level` | `trainee`, `entry_level`, `junior`, `mid`, `senior`, `lead`, `director` |
 | `role_category` | `backend`, `frontend`, `fullstack`, `ai`, `devops`, `data`, `mobile`, `qa`, `other` |
 | `salary_period` | `annual`, `monthly` |
 
@@ -148,6 +148,10 @@ When the user asks about their job search, use these commands:
 | "Search for Python offers" | `applyr search Python` |
 | "Export my data" | `applyr export --format json` |
 | "Show only rejected" | `applyr list --status rejected` |
+| "Compare two offers" | `applyr compare 3 7` |
+| "What should I learn?" | `applyr plan` |
+| "Salary stats" | `applyr salary` |
+| "Salary for seniors" | `applyr salary --seniority senior` |
 
 ## Rules
 
