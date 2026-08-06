@@ -6,6 +6,16 @@ from pathlib import Path
 
 APPLYR_DIR = Path(os.environ.get("APPLYR_HOME", Path.home() / ".applyr"))
 
+# Topic display names — hardcoded, not configurable
+TOPIC_LABELS = {
+    "tech_stack": "Tech Stack",
+    "education": "Education",
+    "english": "English",
+    "experience": "Experience",
+    "projects": "Own Projects",
+    "cultural_fit": "Cultural Fit",
+}
+
 TOML_TEMPLATE = """\
 # applyr configuration
 # Docs: https://github.com/DeibyGS/applyr
@@ -13,29 +23,17 @@ TOML_TEMPLATE = """\
 [general]
 threshold = 65          # Minimum compatibility % to recommend applying
 followup_days = 10      # Days before follow-up reminder
-# db_path = "~/.applyr/jobs.db"
-# list_limit = 50       # Default limit for 'list' command
 
 [weights]
-# Scoring weights — must sum to 1.0
-tech_stack = 0.30
-education = 0.15
-english = 0.10
-experience = 0.15
-projects = 0.20
-cultural_fit = 0.10
-
-[topics]
-# Display names for each scoring topic (add/remove as needed)
-tech_stack = "Tech Stack"
-education = "Education"
-english = "English"
-experience = "Experience"
-projects = "Own Projects"
-cultural_fit = "Cultural Fit"
+# Relative importance of each scoring topic (auto-normalized)
+tech_stack = 30
+education = 15
+experience = 15
+projects = 20
+english = 10
+cultural_fit = 10
 
 [cv]
-# chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # cv_master = "~/.applyr/cv-master.md"
 # output_dir = "~/.applyr/cv"
 """
@@ -70,6 +68,14 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
+def _normalize_weights(weights: dict) -> dict:
+    """Normalize integer weights to decimals that sum to 1.0."""
+    total = sum(weights.values())
+    if total == 0:
+        return weights
+    return {k: v / total for k, v in weights.items()}
+
+
 def _build_defaults() -> dict:
     """Build default config dict with runtime values."""
     return {
@@ -80,20 +86,12 @@ def _build_defaults() -> dict:
             "list_limit": 50,
         },
         "weights": {
-            "tech_stack": 0.30,
-            "education": 0.15,
-            "english": 0.10,
-            "experience": 0.15,
-            "projects": 0.20,
-            "cultural_fit": 0.10,
-        },
-        "topics": {
-            "tech_stack": "Tech Stack",
-            "education": "Education",
-            "english": "English",
-            "experience": "Experience",
-            "projects": "Own Projects",
-            "cultural_fit": "Cultural Fit",
+            "tech_stack": 30,
+            "education": 15,
+            "english": 10,
+            "experience": 15,
+            "projects": 20,
+            "cultural_fit": 10,
         },
         "cv": {
             "chrome_path": _detect_chrome(),
@@ -109,16 +107,20 @@ def load_config() -> dict:
 
     config_path = APPLYR_DIR / "applyr.toml"
     if not config_path.exists():
-        return defaults
+        config = defaults
+    else:
+        try:
+            with open(config_path, "rb") as f:
+                user_config = tomllib.load(f)
+            config = _deep_merge(defaults, user_config)
+        except Exception as e:
+            print(f"Warning: could not parse {config_path}: {e}")
+            print("Using default configuration.")
+            config = defaults
 
-    try:
-        with open(config_path, "rb") as f:
-            user_config = tomllib.load(f)
-        return _deep_merge(defaults, user_config)
-    except Exception as e:
-        print(f"Warning: could not parse {config_path}: {e}")
-        print("Using default configuration.")
-        return defaults
+    # Normalize weights to decimals
+    config["weights"] = _normalize_weights(config["weights"])
+    return config
 
 
 def create_default_config():

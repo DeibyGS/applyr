@@ -273,26 +273,15 @@ threshold = 65          # Min compatibility % to recommend applying
 followup_days = 10      # Days before follow-up reminder
 
 [weights]
-# Must sum to 1.0 — customize for your job search
-tech_stack = 0.30
-education = 0.15
-english = 0.10
-experience = 0.15
-projects = 0.20
-cultural_fit = 0.10
-
-[topics]
-# Rename or add topics to match your evaluation criteria
-tech_stack = "Tech Stack"
-education = "Education"
-english = "English"
-experience = "Experience"
-projects = "Own Projects"
-cultural_fit = "Cultural Fit"
+# Relative importance of each topic (auto-normalized, no need to sum to 1.0)
+tech_stack = 30
+education = 15
+experience = 15
+projects = 20
+english = 10
+cultural_fit = 10
 
 [cv]
-# Chrome path for PDF generation (auto-detected, or set CHROME_BIN env var)
-# chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 # cv_master = "~/.applyr/cv-master.md"
 # output_dir = "~/.applyr/cv"
 ```

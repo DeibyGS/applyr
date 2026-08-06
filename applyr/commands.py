@@ -7,7 +7,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from applyr.config import APPLYR_DIR, create_default_config, load_config
+from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, load_config
 from applyr.db import (
     VALID_CHANNELS,
     VALID_SENIORITY,
@@ -321,7 +321,7 @@ def cmd_add(raw: str) -> None:
     if follow_up_date:
         print(f"  Follow-up   : {follow_up_date}")
     if skill_gaps:
-        gap_labels = config.get("topics", {})
+        gap_labels = TOPIC_LABELS
         gap_names = [gap_labels.get(s, s) for s, _ in skill_gaps]
         print(f"  Skill gaps  : {', '.join(gap_names)}")
 
@@ -432,7 +432,7 @@ def cmd_show(offer_id: int) -> None:
         conn.close()
 
     config = load_config()
-    topic_labels: dict = config.get("topics", {})
+    topic_labels: dict = TOPIC_LABELS
 
     print(f"\n{'='*60}")
     print(f"  Offer #{row['id']}  —  {row['title']}")
@@ -734,7 +734,7 @@ def cmd_stats() -> None:
 def cmd_gaps(limit: int = 10) -> None:
     """Show recurring skill gaps sorted by frequency."""
     config = load_config()
-    topic_labels: dict = config.get("topics", {})
+    topic_labels: dict = TOPIC_LABELS
 
     conn = get_conn()
     try:
@@ -876,7 +876,7 @@ def cmd_trends(period: str = "week") -> None:
 def cmd_summary(as_json: bool = False) -> None:
     """Print a weekly summary of activity, optionally as JSON for LLM consumption."""
     config = load_config()
-    topic_labels: dict = config.get("topics", {})
+    topic_labels: dict = TOPIC_LABELS
 
     # Week boundaries
     today = date.today()
@@ -1097,13 +1097,12 @@ def cmd_doctor() -> None:
         print(f"  Chrome       : NOT FOUND (PDF generation will not work)")
         print("                 Set CHROME_BIN env var or chrome_path in applyr.toml")
 
-    # Scoring weights
+    # Scoring weights (auto-normalized, just check they exist and are positive)
     weights = config["weights"]
-    total = sum(weights.values())
-    if 0.99 <= total <= 1.01:
-        print(f"  Weights      : OK (sum={total:.2f})")
+    if all(v > 0 for v in weights.values()):
+        print(f"  Weights      : OK ({len(weights)} topics, auto-normalized)")
     else:
-        print(f"  Weights      : WARNING — sum={total:.2f} (should be 1.0)")
+        print(f"  Weights      : WARNING — some weights are zero or negative")
         issues += 1
 
     # Summary
