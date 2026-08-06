@@ -46,6 +46,13 @@ Homepage = "https://github.com/DeibyGS/applyr"
 Repository = "https://github.com/DeibyGS/applyr"
 Issues = "https://github.com/DeibyGS/applyr/issues"
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["unit: pure function tests"]
+
 [tool.setuptools.packages.find]
 include = ["applyr*"]
 
