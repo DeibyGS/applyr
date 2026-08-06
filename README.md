@@ -1,20 +1,36 @@
+<div align="center">
+
 # applyr
 
-[![PyPI version](https://img.shields.io/pypi/v/applyr)](https://pypi.org/project/applyr/)
-[![PyPI downloads](https://img.shields.io/pypi/dm/applyr)](https://pypi.org/project/applyr/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
-[![Tests: 54 passed](https://img.shields.io/badge/tests-54%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/DeibyGS/applyr/pulls)
+**Your AI agent's job application tracker — score offers, detect duplicates, generate ATS-safe CVs, all from the terminal.**
 
-**Your AI agent's job application tracker.** Score offers, detect duplicates, generate ATS-safe CVs — all from the terminal.
+applyr is the storage layer; your AI coding agent is the brain. Paste a job offer, get a weighted 0–100 compatibility score, an APPLY / SKIP recommendation, skill gaps, and a tailored ATS-safe CV — local, private, agent-native.
+
+**Fast to start** — one command. **Local-first** — SQLite on your machine, no API keys, nothing leaves your system.
+
+[![PyPI version](https://img.shields.io/pypi/v/applyr?color=blue)](https://pypi.org/project/applyr/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/applyr?color=brightgreen)](https://pypi.org/project/applyr/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
+[![tests](https://img.shields.io/badge/tests-54%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-purple)](CONTRIBUTING.md)
+
+[Features](#features) •
+[Quick Start](#quick-start) •
+[Commands](#commands) •
+[Scoring](#scoring) •
+[Configuration](#configuration) •
+[Contributing](CONTRIBUTING.md)
+
+</div>
 
 ```bash
 pip install applyr && applyr init && applyr setup-agent
 ```
 
-> **Requires:** Python 3.12+ and an AI coding agent ([Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [OpenCode](https://opencode.ai), or any agent that reads instruction files).
+> [!NOTE]
+> **Requires Python 3.12+** and an AI coding agent ([Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [OpenCode](https://opencode.ai), or any agent that reads instruction files).
 
 ---
 
