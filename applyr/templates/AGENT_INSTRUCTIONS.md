@@ -1,0 +1,241 @@
+# applyr — Agent Instructions
+
+> Add this to your AI agent's context (CLAUDE.md, .cursorrules, AGENTS.md, etc.).
+
+## Core Principles
+
+1. **cv-master.md is the only source of truth** — never invent skills, projects, or experience.
+2. **Prefer omission over guessing** — if the offer lacks info (salary, work mode), omit the field.
+3. **CLI output is authoritative** — trust applyr's scoring, thresholds, and validations.
+4. **Respect the user's threshold** — never override the configured minimum compatibility.
+5. **Every CV must pass review** — never deliver a CV without running `applyr cv review`.
+
+## Setup
+
+```bash
+applyr init
+```
+
+Then guide the user through two mandatory steps:
+
+1. **Fill `~/.applyr/cv-master.md`** with their complete professional profile.
+2. **Set the threshold** in `~/.applyr/applyr.toml` — ask: "What minimum compatibility score before I recommend applying? Default is 65%."
+
+```toml
+[general]
+threshold = 65
+```
+
+## Workflow
+
+When the user shares a job offer, follow this pipeline in order.
+
+### Step 1 — Read profile
+
+```bash
+cat ~/.applyr/cv-master.md
+```
+
+If empty or missing, STOP — tell the user to fill it in first.
+
+### Step 2 — Check duplicates
+
+```bash
+applyr search "<company name>"
+```
+
+If the company+title already exists: show the existing offer (`applyr show <id>`), STOP.
+
+### Step 3 — Evaluate and register
+
+Score each topic 0-100 using the rubric, then register:
+
+```bash
+applyr add '<json>'
+```
+
+The CLI prints a recommendation based on the configured threshold.
+
+#### Scoring rubric
+
+| Topic (default weight) | 0 | 50 | 100 |
+|------------------------|---|----|----|
+| `tech_stack` (30%) | Knows none required | ~50% of stack | Expert in all |
+| `projects` (20%) | No relevant projects | Related but indirect | Directly demonstrates skills |
+| `experience` (15%) | Zero relevant exp | Wrong seniority/industry | Exact match |
+| `education` (15%) | No relevant education | Related field | Exact degree+level |
+| `english` (10%) | Cannot converse | B1/B2 functional | C1+ or native |
+| `cultural_fit` (10%) | Incompatible mode/location | Partial match | Perfect alignment |
+
+Weights are configurable in `~/.applyr/applyr.toml` under `[weights]`. The formula is: `sum(topic_score * weight) / sum(weights)`.
+
+**Scoring rules:** Be honest (inflated scores waste applications). Always explain WHY in the `detail` field. If the offer doesn't mention a requirement, score 100.
+
+#### JSON template
+
+Required: `title`. All others optional — fill what you can extract:
+
+```json
+{
+  "title": "Backend Developer",
+  "company": "Acme Corp",
+  "summary": "Python backend role focused on APIs",
+  "status": "pending",
+  "work_mode": "remote",
+  "location": "Berlin",
+  "seniority_level": "junior",
+  "role_category": "backend",
+  "tech_stack": "Python, FastAPI, AWS",
+  "salary_min": 30000, "salary_max": 40000, "salary_period": "annual",
+  "canal": "linkedin_easy",
+  "job_url": "https://...",
+  "topics": {
+    "tech_stack": {"score": 80, "detail": "Knows Python+FastAPI, missing AWS"},
+    "experience": {"score": 40, "detail": "1yr exp, they ask 3+"},
+    "projects": {"score": 85, "detail": "3 relevant backend projects"},
+    "education": {"score": 70, "detail": "CS degree, prefer Master's"},
+    "english": {"score": 90, "detail": "B2+, offer requires fluent"},
+    "cultural_fit": {"score": 75, "detail": "Hybrid ok, prefers remote"}
+  }
+}
+```
+
+<details>
+<summary>Valid enum values</summary>
+
+| Field | Values |
+|-------|--------|
+| `status` | `pending` `applied` `waiting` `in_process` `rejected` `discarded` `offer` |
+| `canal` | `linkedin_easy` `linkedin_direct` `email` `portal` `referral` `other` |
+| `work_mode` | `remote` `hybrid` `onsite` |
+| `seniority_level` | `trainee` `entry_level` `junior` `mid` `senior` `lead` `director` |
+| `role_category` | `backend` `frontend` `fullstack` `ai` `devops` `data` `mobile` `qa` `other` |
+| `salary_period` | `annual` `monthly` `hourly` |
+
+</details>
+
+### Step 4 — Decide
+
+The CLI prints `APPLY` or `SKIP`. Follow it:
+
+- **Score >= threshold** — tell the user the score and recommend applying. Wait for confirmation.
+- **Score < threshold** — tell the user the score, list skill gaps, recommend archiving. If they agree: `applyr update <id> discarded --notes "Below threshold"`. If they insist, proceed but warn about gaps.
+
+STOP here if the user decides not to apply.
+
+### Step 5 — Generate and review CV
+
+Only when the user confirms they want to apply:
+
+```bash
+applyr update <id> applied --canal <channel>
+applyr cv generate <id>
+```
+
+Fill all `[PLACEHOLDER]` values from cv-master.md following ATS rules (see below). Then:
+
+```bash
+applyr cv review <path-to-html>
+```
+
+Execute the output prompt yourself. Based on the verdict:
+
+| Verdict | Action |
+|---------|--------|
+| READY TO SEND | Deliver to user |
+| NEEDS MINOR EDITS | Apply top 2-3 fixes, re-review (max 2 iterations) |
+| NEEDS MAJOR REVISION | Apply all fixes, re-review (max 2 iterations) |
+
+### Step 6 — Deliver
+
+Present the final CV with:
+1. ATS score from last review
+2. Changes made during iterations (if any)
+3. Remaining recommendations
+4. PDF generation command: `applyr cv pdf <path-to-html>`
+
+## Agent response format
+
+When evaluating an offer, always respond in this structure:
+
+```
+COMPATIBILITY: X% (threshold: Y%)
+CONFIDENCE: high | medium | low
+
+STRENGTHS:
+- [strength 1]
+- [strength 2]
+
+GAPS:
+- [gap 1 — impact on score]
+- [gap 2 — impact on score]
+
+RECOMMENDATION: APPLY | SKIP
+NEXT ACTION: [what to do next]
+```
+
+Use `confidence: low` when the offer has sparse information (no tech stack, no requirements listed).
+
+## Example flow
+
+```
+User: "Here's a Python backend job at Acme Corp [paste]"
+
+Agent:
+1. cat ~/.applyr/cv-master.md
+2. applyr search "Acme"               → no duplicates
+3. Evaluate topics against cv-master
+4. applyr add '{"title":"...","topics":{...}}'
+   → CLI prints: APPLY (78% >= 65%)
+5. Response:
+   COMPATIBILITY: 78% (threshold: 65%)
+   CONFIDENCE: high
+   STRENGTHS: Python expert, 3 relevant projects
+   GAPS: Missing AWS (tech_stack -20%)
+   RECOMMENDATION: APPLY
+   NEXT ACTION: Generate tailored CV?
+6. User confirms → cv generate → fill → cv review → deliver
+```
+
+## Command reference
+
+| User asks | Command |
+|-----------|---------|
+| Show applications | `applyr list [--json]` |
+| Pipeline view | `applyr pipeline` |
+| Offer details | `applyr show <id>` |
+| Stats / funnel | `applyr stats` |
+| Skill gaps | `applyr gaps` |
+| Follow-ups due | `applyr followups` |
+| Trends | `applyr trends` |
+| Weekly summary | `applyr summary [--json]` |
+| Search | `applyr search <term>` |
+| Compare offers | `applyr compare <id1> <id2>` |
+| Learning plan | `applyr plan` |
+| Salary stats | `applyr salary [--seniority X]` |
+| Export | `applyr export --format json` |
+| Review CV | `applyr cv review <file>` |
+| Discover commands | `applyr --help` |
+
+## Error recovery
+
+| Error | Fix |
+|-------|-----|
+| `applyr add` field error | Read the message — it names the field. Fix and retry. |
+| Duplicate detected | Do not re-add. Show existing offer. |
+| cv-master.md not found | Tell user to run `applyr init` and fill their profile. |
+| Chrome not found | User must install Chrome or set `chrome_path` in applyr.toml. |
+| Chrome timeout | Simplify HTML and retry. |
+| Offer not found | Run `applyr list` to check IDs. |
+
+## ATS CV rules
+
+1. Single column — no flexbox, grid, or tables
+2. Fonts: Arial or Calibri, 11-12pt body, 14-16pt headings
+3. No images, icons, or decorative elements
+4. Standard headers: Professional Summary, Work Experience, Education, Projects, Certifications, Technical Skills, Languages
+5. Measurable results in 70%+ of bullets (%, $, Nx, users)
+6. Match keywords: both acronyms and full terms (e.g., "Artificial Intelligence (AI)")
+7. Separator: `|` in contact info. Show full URLs. Date format: `MM/YYYY`
+8. Must read correctly when copy-pasted as plain text
+9. Do NOT modify the generated CSS
