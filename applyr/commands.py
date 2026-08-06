@@ -381,6 +381,12 @@ def cmd_add(raw: str) -> None:
         )
         offer_id: int = cursor.lastrowid
 
+        # --- Validate topic keys -------------------------------------------
+        valid_topics = set(config.get("topics", {}).keys()) or set(TOPIC_LABELS.keys())
+        for key in topics:
+            if key not in valid_topics:
+                print(f"  Warning: topic '{key}' not in config. Valid: {', '.join(sorted(valid_topics))}")
+
         # --- Insert topics -------------------------------------------------
         skill_gaps: list[tuple] = []
         for topic_key, values in topics.items():

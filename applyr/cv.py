@@ -282,7 +282,135 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
     print(f"  Template : {template} (ATS-safe)")
     print(f"  CV Master: {cv_master}")
     print()
-    print("  Next steps:")
-    print(f"    1. AI agent reads {cv_master}")
-    print(f"    2. AI agent fills [PLACEHOLDER] values in {html_path}")
-    print(f"    3. Run: applyr cv pdf {html_path}")
+
+
+# ---------------------------------------------------------------------------
+# CV review — recruiter prompt generator
+# ---------------------------------------------------------------------------
+
+_MAX_CV_TEXT_CHARS = 10_000
+
+_REVIEW_RUBRIC = """\
+## Evaluation criteria
+
+Score each category 0-100 and provide specific feedback:
+
+### 1. Keyword Match (weight: 30%)
+- Compare CV keywords against the job description in the HTML comments
+- Check for both acronyms and full terms (e.g., "AI" and "Artificial Intelligence")
+- Flag important keywords from the offer that are missing
+
+### 2. ATS Format Compliance (weight: 20%)
+- Single column layout (no tables, flexbox, grid)
+- Standard fonts (Arial, Calibri)
+- Standard section headers (Professional Summary, Work Experience, Education, etc.)
+- No images, icons, or decorative elements
+- URLs shown in full (linkedin.com/in/x, not "LinkedIn")
+
+### 3. Evidence & Metrics (weight: 20%)
+- At least 70% of bullet points should include measurable results (%, $, Nx, users)
+- Flag vague claims without evidence ("improved performance" → needs numbers)
+- Flag any claim that looks invented or unverifiable
+
+### 4. Clarity & Impact (weight: 20%)
+- Bullets start with strong action verbs
+- Each bullet communicates ONE clear achievement
+- Professional summary is tailored to the target role (not generic)
+
+### 5. Length & Relevance (weight: 10%)
+- 1 page maximum for < 5 years experience, 2 pages for 5+
+- All sections are relevant to the target role
+- No filler content or outdated skills"""
+
+_REVIEW_OUTPUT_FORMAT = """\
+## Required output format
+
+```
+ATS SCORE: [0-100]/100
+
+KEYWORD MATCH:      [0-100]  [1-sentence explanation]
+ATS COMPLIANCE:     [0-100]  [1-sentence explanation]
+EVIDENCE & METRICS: [0-100]  [1-sentence explanation]
+CLARITY & IMPACT:   [0-100]  [1-sentence explanation]
+LENGTH & RELEVANCE: [0-100]  [1-sentence explanation]
+
+STRENGTHS:
+- [strength 1]
+- [strength 2]
+
+WEAKNESSES:
+- [weakness 1 + specific fix]
+- [weakness 2 + specific fix]
+
+IMPROVEMENTS (ordered by impact):
+1. [most impactful change]
+2. [second most impactful]
+3. [third]
+
+VERDICT: [READY TO SEND / NEEDS MINOR EDITS / NEEDS MAJOR REVISION]
+```"""
+
+
+def _strip_html_tags(html: str) -> str:
+    """Remove HTML tags and return plain text content."""
+    import re
+    text = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+    text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:_MAX_CV_TEXT_CHARS]
+
+
+def _extract_offer_context(html: str) -> str:
+    """Extract the OFFER CONTEXT block from HTML comments."""
+    import re
+    match = re.search(
+        r'OFFER CONTEXT.*?:(.*?)INSTRUCTIONS FOR AI AGENT',
+        html, re.DOTALL
+    )
+    if match:
+        return match.group(1).strip()
+    return "(No offer context found in HTML comments)"
+
+
+def cmd_cv_review(html_file: str, as_json: bool = False) -> None:
+    """Generate a recruiter-review prompt for an HTML CV."""
+    import json
+
+    html_path = Path(html_file).resolve()
+    if not html_path.exists():
+        print(f"Error: HTML file not found: {html_file}")
+        sys.exit(1)
+
+    html = html_path.read_text(encoding="utf-8")
+    cv_text = _strip_html_tags(html)
+    offer_context = _extract_offer_context(html)
+
+    prompt = f"""\
+You are a senior technical recruiter with 10+ years of experience reviewing CVs for tech roles. You are thorough, fair, and direct.
+
+## Task
+Review the following CV against the target position and provide a detailed evaluation.
+
+## Target position context
+{offer_context}
+
+## CV content
+{cv_text}
+
+{_REVIEW_RUBRIC}
+
+{_REVIEW_OUTPUT_FORMAT}
+
+Be specific. Reference exact lines from the CV. Do not be vague."""
+
+    if as_json:
+        payload = {
+            "cv_file": str(html_path),
+            "cv_text": cv_text,
+            "offer_context": offer_context,
+            "prompt": prompt,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(prompt)
