@@ -495,11 +495,9 @@ def cmd_summary(as_json: bool = False) -> None:
 def cmd_compare(ids: list[int], as_json: bool = False) -> None:
     """Compare 2-10 offers side by side in a vertical table."""
     if len(ids) < COMPARE_MIN_OFFERS:
-        error("Error: need at least 2 IDs to compare.")
-        return
+        die("Error: need at least 2 IDs to compare.", code="invalid_argument")
     if len(ids) > COMPARE_MAX_OFFERS:
-        error("Error: maximum 10 offers to compare.")
-        return
+        die("Error: maximum 10 offers to compare.", code="error")
 
     conn = get_conn()
     try:
@@ -513,8 +511,7 @@ def cmd_compare(ids: list[int], as_json: bool = False) -> None:
     found_ids = {r["id"] for r in rows}
     for oid in ids:
         if oid not in found_ids:
-            error(f"Error: offer {oid} not found.")
-            return
+            die(f"Error: offer {oid} not found.", code="error")
 
     # Keep original order
     by_id = {r["id"]: r for r in rows}

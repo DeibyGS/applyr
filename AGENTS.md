@@ -64,6 +64,8 @@ User → CLI (cli.py) → Command (commands/*.py) → DB (db.py) → Output
 - **English** — all CLI output, commit messages, docs
 - **No DB access outside db.py** — commands call `get_conn()`, never open SQLite directly
 - **Errors go to stderr** — use `error()`/`warn()`/`die()` from `errors.py`, never `print()`
+- **Every failure ends in `die()`** — a bare `return` after an error exits 0 and lies to callers
+- **Give errors a `code`** — agents branch on it; message wording is not a contract
 - **Constants in constants.py** — no magic numbers in business logic
 
 ## How to Add a New Command

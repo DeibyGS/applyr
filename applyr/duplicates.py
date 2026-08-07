@@ -93,9 +93,10 @@ def find_similar(
     threshold. Only the closest match is reported — listing every near-miss
     would bury the one that matters.
     """
-    best: tuple[sqlite3.Row, float] | None = None
+    best_row: sqlite3.Row | None = None
+    best_score = 0.0
     for row in rows:
         score = title_similarity(title, row["title"])
-        if score >= threshold and (best is None or score > best[1]):
-            best = (row, score)
-    return best
+        if score >= threshold and score > best_score:
+            best_row, best_score = row, score
+    return (best_row, best_score) if best_row is not None else None

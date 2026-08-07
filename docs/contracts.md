@@ -48,6 +48,34 @@ Schema changes go through the migration system, never through direct edits to
 `APPLYR_HOME` overrides the directory (`applyr/config.py`). Config is optional —
 defaults must keep working with no file present.
 
+### Error codes
+
+With `--json`, failures emit one JSON object on stderr
+([ADR 007](adr/007-structured-json-errors.md)):
+
+```json
+{"error": {"code": "not_found", "message": "offer #42 not found.", "details": {"offer_id": 42}}}
+```
+
+`code` is stable and public. `message` wording is not — never match on it.
+`details` is optional and additive.
+
+| Code | Meaning |
+|------|---------|
+| `not_found` | Offer, file or template does not exist |
+| `duplicate` | An identical or near-identical offer already exists (`--force` overrides) |
+| `invalid_value` | Value outside an allowed enum — `details.valid` lists the accepted ones |
+| `invalid_argument` | Argument of the wrong type, e.g. a non-integer ID |
+| `invalid_range` | Numerically inconsistent, e.g. `salary_min > salary_max` |
+| `invalid_json` | Input JSON could not be parsed |
+| `missing_field` | Required field absent from the payload |
+| `missing_value` | A flag was given without its value |
+| `chrome_not_found` | Chrome/Chromium missing, needed for PDF |
+| `db_error` | Database could not be opened or initialized |
+| `error` | Unclassified — refining one into a specific code is additive, not breaking |
+
+Adding a code is safe. Renaming or removing one is breaking.
+
 ### Enumerated values
 
 Defined in `applyr/db.py`. These are stored as plain text in SQLite, so removing
@@ -103,6 +131,8 @@ a preference.
   `applyr/errors.py` (`error()`, `warn()`, `die()`) — see
   [ADR 006](adr/006-errors-to-stderr.md). Never use a bare `print()` for an
   error, a warning, or a hint line that follows one.
+- **Every failure path ends in `die()`**, never a bare `return`. A command that
+  reports a problem and exits `0` is a bug — see the `--json` note below.
 - Validation failures print a message starting with `Error:` on stderr and exit `1`
 - `--json` output goes to stdout with nothing else mixed in. A failed `--json`
   invocation emits nothing on stdout and exits non-zero

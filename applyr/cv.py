@@ -74,13 +74,12 @@ def cmd_cv_pdf(html_file: str, output: str | None = None) -> None:
     if not chrome_path or not os.path.isfile(chrome_path):
         error("Error: Chrome/Chromium not found.")
         error("  Set 'chrome_path' in ~/.applyr/applyr.toml under [cv]")
-        error("  Or install Google Chrome / Chromium.")
-        return
+        die("Chrome/Chromium not found — required for PDF generation.",
+            code="chrome_not_found", text="  Or install Google Chrome / Chromium.")
 
     html_path = Path(html_file).resolve()
     if not html_path.exists():
-        error(f"Error: HTML file not found: {html_file}")
-        return
+        die(f"Error: HTML file not found: {html_file}", code="not_found")
 
     if output:
         pdf_path = Path(output).resolve()
@@ -133,8 +132,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
     try:
         row = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
-            error(f"Error: offer #{offer_id} not found.")
-            return
+            die(f"Error: offer #{offer_id} not found.", code="not_found")
 
         # Load topic scores if any
         topics = conn.execute(
@@ -147,8 +145,9 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
     cv_master = get_cv_master_path()
     if not cv_master.exists():
         error(f"Error: cv-master.md not found at {cv_master}")
-        error("  Run 'applyr init' to create a template, then edit it with your profile.")
-        return
+        die(f"cv-master.md not found at {cv_master}", code="not_found",
+            details={"path": str(cv_master)},
+            text="  Run 'applyr init' to create a template, then edit it with your profile.")
     output_dir = get_output_dir()
     slug = _make_slug(row["company"], row["title"])
     html_path = output_dir / f"cv-{slug}.html"
