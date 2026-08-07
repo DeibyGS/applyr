@@ -31,8 +31,8 @@ applyr/cli.py         → Entry point, argparse routing
 applyr/commands/core.py      → CRUD: add, list, show, update, delete, search
 applyr/commands/analytics.py → Stats: pipeline, stats, gaps, trends, compare, plan, salary
 applyr/commands/workflow.py  → Export, doctor
-applyr/db.py          → SQLite (28 columns, migration system)
-applyr/scoring.py     → Weighted scoring (pure function, no I/O)
+applyr/db.py          → SQLite (offers: 31 columns), enums, migration system
+applyr/scoring.py     → Weighted scoring (reads config for weights)
 applyr/cv.py          → ATS HTML + Chrome PDF + recruiter review
 applyr/config.py      → ~/.applyr/applyr.toml
 applyr/constants.py   → All thresholds and magic numbers
@@ -70,25 +70,36 @@ applyr/constants.py   → All thresholds and magic numbers
 pytest                  # 54 tests, ~0.1s
 ```
 
-## Formatting
+## Linting
+
+CI runs pylint on Python 3.12 and 3.13. Reproduce it locally before opening a PR:
 
 ```bash
-# No linter configured — follow existing code style
-# Python 3.12+ syntax, type hints, English output
+pip install pylint
+pylint applyr/ --disable=C0114,C0115,C0116,R0913,R0914,R0801 --fail-under=7.0
 ```
+
+No formatter, type checker or coverage gate is configured. Follow existing
+style: Python 3.12+ syntax, `X | Y` unions, type hints, English output.
 
 ## Key Files for Agents
 
 - `AGENTS.md` — Full contributor guide
+- `docs/contracts.md` — Stable contracts, invariants, extension points (read before refactoring)
 - `CONTRIBUTING.md` — Human contributor guide
 - `applyr/templates/AGENT_INSTRUCTIONS.md` — End-user agent workflow (DO NOT MODIFY)
 - `specs/` — SDD specifications
 
 ## Data Model
 
-SQLite at `~/.applyr/jobs.db`:
-- `offers` — 28 columns (title, company, status, compatibility_pct, tech_stack, etc.)
-- `offer_topics` — Per-topic scores (tech_stack, experience, projects, education, english, cultural_fit)
+SQLite at `~/.applyr/jobs.db` — 4 tables:
+- `offers` — 31 columns (title, company, status, compatibility_pct, tech_stack, etc.)
+- `offer_topics` — Per-topic scores, cascades on offer delete
+- `skill_gaps` — Aggregated missing skills (skill, frequency, total_gap, last_seen)
+- `schema_version` — Migration tracker
+
+Valid statuses: `pending`, `applied`, `waiting`, `in_process`, `rejected`,
+`discarded`, `offer`. Full enum list in `docs/contracts.md`.
 
 ## Config
 

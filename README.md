@@ -274,7 +274,7 @@ cultural_fit = 10
 applyr/
   cli.py                 # Entry point
   config.py              # TOML config
-  db.py                  # SQLite schema (28 columns)
+  db.py                  # SQLite schema (offers: 31 columns)
   scoring.py             # Weighted scoring engine
   cv.py                  # ATS CV + Chrome PDF + recruiter review
   commands/
@@ -330,7 +330,7 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 | PRs | 17 (all human-reviewed) |
 | Tests | 54 unit (scoring, config, db, validators) |
 | Commands | 21 + 5 aliases |
-| Schema | 28 columns, 3 tables, migration system |
+| Schema | 31 columns, 4 tables, migration system |
 | Models | Claude Opus 4.6, DeepSeek V4 Flash |
 
 _Measured with [ClaudeStat](https://github.com/DeibyGS/claudestat)._
