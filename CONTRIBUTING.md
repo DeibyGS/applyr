@@ -42,7 +42,7 @@ Expected output: **54 tests passing** (~0.1s). All tests must pass before openin
 applyr/
   cli.py                 # Entry point
   config.py              # TOML config
-  db.py                  # SQLite schema (28 columns)
+  db.py                  # SQLite schema (offers: 31 columns)
   scoring.py             # Weighted scoring engine
   cv.py                  # ATS CV + Chrome PDF + recruiter review
   commands/
@@ -78,9 +78,14 @@ refactor/what-you-simplified
 - No new dependencies without a clear justification
 - CLI labels and messages in English
 
-### Prefer pure functions
+### Keep business logic free of database access
 
-Keep scoring and validation logic in pure functions (no I/O), so they stay easy to test. I/O lives in the CLI/command layer.
+Scoring and validation must not touch SQLite — that lives in `db.py`, reached
+through `get_conn()`. Keeping them separate is what makes them easy to test.
+
+Note that `calculate_score()` is not fully I/O-free: it reads the user config
+through `load_config()` to get topic weights. Tests must point `APPLYR_HOME` at
+a temp directory or patch `load_config`.
 
 ---
 

@@ -4,6 +4,18 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `docs/contracts.md` — stable contracts, invariants, extension points and the migration procedure
+- "Forbidden Changes" section in `AGENTS.md`, expanded with the reason for each rule
+- Linting instructions in `AGENTS.md` and `llms.txt` with the exact command CI runs
+
+### Fixed
+- Documentation stated `offers` had 28 columns and the database 3 tables — it has 31 columns and 4 tables (`offers`, `offer_topics`, `skill_gaps`, `schema_version`)
+- Documentation described `scoring.py` as a pure function with no I/O — `calculate_score()` reads user config via `load_config()`, which tests must isolate with `APPLYR_HOME`
+- `llms.txt` claimed no linter was configured — CI has run pylint since v0.4.0
+
 ## [0.5.1] — 2026-08-07
 
 ### Fixed

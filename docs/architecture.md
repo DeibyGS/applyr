@@ -32,8 +32,8 @@ flowchart TD
 |--------|-------|----------------|
 | `cli.py` | 357 | Entry point, argparse routing, global flags (`--json`, `--no-color`) |
 | `config.py` | 131 | Load/create `~/.applyr/applyr.toml`, normalize weights, detect Chrome |
-| `db.py` | 146 | SQLite schema (28 columns), migrations, connection management |
-| `scoring.py` | 36 | Weighted compatibility calculation — **pure function, no I/O** |
+| `db.py` | 146 | SQLite schema (offers: 31 columns), enums, migrations, connection management |
+| `scoring.py` | 36 | Weighted compatibility calculation — **no database access**, reads config for weights |
 | `cv.py` | 416 | ATS HTML skeleton, Chrome PDF export, recruiter review prompt |
 | `colors.py` | ~40 | Colorama wrapper, respects `NO_COLOR` |
 | `constants.py` | 67 | All magic numbers, thresholds, column widths |
@@ -44,9 +44,15 @@ flowchart TD
 
 ## Key Design Decisions
 
-### Pure Scoring Engine
+### Isolated Scoring Engine
 
-`scoring.py` is a pure function — no database access, no file I/O. This makes it trivially testable and ensures scoring logic never changes behavior unexpectedly.
+`scoring.py` has no database access and no side effects — it takes a topics dict
+and returns an int. That isolation is what makes it trivially testable.
+
+It is not, however, fully I/O-free: it calls `load_config()` to read topic
+weights from `~/.applyr/applyr.toml`. Tests must set `APPLYR_HOME` to a temp
+directory or patch `load_config`, otherwise they read the developer's real
+config and produce machine-dependent results.
 
 ```python
 def calculate_score(topics: dict) -> int:
@@ -66,7 +72,9 @@ applyr doesn't call LLM APIs. Instead, it provides:
 
 ### SQLite Schema
 
-28 columns in the `offers` table, 3 total tables (`offers`, `offer_topics`, `schema_version`). Migration system for forward-compatible schema changes.
+31 columns in the `offers` table, 4 total tables (`offers`, `offer_topics`,
+`skill_gaps`, `schema_version`). Migration system for forward-compatible schema
+changes — see [`contracts.md`](contracts.md) for the exact procedure.
 
 ## File Tree
 
