@@ -7,6 +7,7 @@ from applyr import __version__
 from applyr.colors import init_colors
 from applyr.commands import (
     cmd_add,
+    cmd_cv_stats,
     cmd_compare,
     cmd_delete,
     cmd_doctor,
@@ -42,7 +43,7 @@ Commands:
   list [--status S] [--sort F]  List offers (default: last 50)
   pipeline [--min-score N]      View offers grouped by status
   show <id>                     Show full offer details
-  update <id> <status> [opts]   Update offer status
+  update <id> <status> [opts]   Update offer status (--notes, --canal, --cv)
   delete <id>                   Delete an offer
   search <keyword> [--status S] Search by company/title/notes/tech_stack
   stats                         Conversion funnel and metrics
@@ -54,6 +55,7 @@ Commands:
   plan [--limit N]              Prioritized learning plan from skill gaps
   salary [--seniority S]        Salary insights by seniority/category
   export [--format csv|json|md]  Export all data
+  cv stats [--min-sample N]     Compare CVs by response and interview rate
   doctor                        Check configuration and database health
   version                       Show version
   help                          Show this help
@@ -209,14 +211,15 @@ def main():
 
     elif cmd == "update":
         if len(args) < 3:
-            print("Usage: applyr update <id> <status> [--notes '...'] [--canal '...']")
+            print("Usage: applyr update <id> <status> [--notes '...'] [--canal '...'] [--cv file.html]")
             print(f"  Statuses: {', '.join(VALID_STATUSES)}")
             return
         offer_id = _safe_int(args[1])
         status = args[2]
         notes = _get_flag(args, "--notes")
         canal = _get_flag(args, "--canal")
-        cmd_update(offer_id, status, notes, canal)
+        cv = _get_flag(args, "--cv")
+        cmd_update(offer_id, status, notes, canal, cv)
 
     elif cmd == "delete":
         if len(args) < 2:
@@ -330,8 +333,15 @@ def main():
             html_file = args[2]
             output = _get_flag(args, "--output")
             cmd_cv_pdf(html_file, output=output)
+        elif subcmd == "stats":
+            min_sample = 1
+            raw = _get_flag(args, "--min-sample")
+            if raw is not None:
+                min_sample = _safe_int(raw, "--min-sample")
+            cmd_cv_stats(min_sample=min_sample, as_json=as_json)
         else:
-            print(f"Unknown cv subcommand: '{subcmd}'")
+            die(f"Unknown cv subcommand: '{subcmd}'", code="invalid_value",
+                details={"value": subcmd, "valid": ["generate", "review", "pdf", "stats"]})
             print("  Available: generate, review, pdf")
 
     elif cmd == "ls":

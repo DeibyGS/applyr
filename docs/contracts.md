@@ -95,6 +95,17 @@ Scoring topic keys (`TOPIC_LABELS` in `applyr/config.py`): `tech_stack`,
 
 ---
 
+## CV tracking
+
+`offers.cv_used` holds the filename of the CV sent for that offer. `cv generate`
+sets it automatically; `update --cv` sets it manually. Rates in `cv stats` are
+computed only over **sent** offers (`applied`, `waiting`, `in_process`,
+`rejected`, `offer`) — counting `pending` would make every rate fall as you
+register offers you have not applied to yet.
+
+A rejection counts as a *response* but not as an *interview*: being rejected
+means the CV was read.
+
 ## Invariants
 
 Properties that must hold after every change. A failing invariant is a bug, not
@@ -153,6 +164,7 @@ Safe places to add functionality without touching a stable contract.
 | A shared display helper | `applyr/commands/_helpers.py` |
 | An error or warning message | `applyr/errors.py` — never a bare `print()` |
 | A duplicate-detection rule | `applyr/duplicates.py` |
+| A CV performance metric | `applyr/cv_stats.py` |
 | A scoring topic | `TOPIC_LABELS` (`config.py`) + `DEFAULT_WEIGHTS` (`constants.py`) |
 | A threshold or magic number | `applyr/constants.py` — never inline |
 | A CV or document template | `applyr/templates/` |

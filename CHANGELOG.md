@@ -4,9 +4,13 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] — 2026-08-07
 
 ### Added
+- `applyr cv stats` — compare CVs by response rate (any reply, including rejections) and interview rate (reached `in_process` or `offer`). Flags samples below `--min-sample` as noise and reports offers with no CV recorded
+- `applyr cv generate` now records the generated filename in `cv_used`, so CV tracking populates itself
+- `--cv` flag on `applyr update`, to record a CV for offers applied to outside the `cv generate` flow
+- `applyr/cv_stats.py` with 17 tests
 - Structured JSON errors: with `--json`, failures emit `{"error": {"code", "message", "details"}}` on stderr so agents can branch on a stable code instead of matching English prose. See [ADR 007](docs/adr/007-structured-json-errors.md)
 - `docs/adr/007-structured-json-errors.md`
 - 15 tests for error routing, JSON mode and code stability
