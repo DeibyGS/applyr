@@ -21,9 +21,10 @@ from applyr.commands.analytics import (
     cmd_plan,
     cmd_salary,
 )
-from applyr.commands.workflow import cmd_export, cmd_doctor
+from applyr.commands.workflow import cmd_export, cmd_doctor, cmd_cv_stats
 
 __all__ = [
+    "cmd_cv_stats",
     "cmd_init",
     "cmd_setup_agent",
     "cmd_add",

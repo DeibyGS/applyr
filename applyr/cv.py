@@ -275,10 +275,21 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
 
     html_path.write_text(html)
 
+    # Record which CV was used for this offer, so `applyr cv stats` can later
+    # correlate CVs with outcomes. Without this nothing ever populates cv_used.
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE offers SET cv_used = ? WHERE id = ?",
+                     (html_path.name, offer_id))
+        conn.commit()
+    finally:
+        conn.close()
+
     print(f"CV skeleton generated: {html_path}")
     print(f"  Offer    : #{offer_id} — {row['title']} @ {row['company'] or '?'}")
     print(f"  Template : {template} (ATS-safe)")
     print(f"  CV Master: {cv_master}")
+    print(f"  Recorded : cv_used = {html_path.name}")
     print()
 
 

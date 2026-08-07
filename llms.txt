@@ -38,6 +38,7 @@ applyr/config.py      → ~/.applyr/applyr.toml
 applyr/constants.py   → All thresholds and magic numbers
 applyr/errors.py      → error()/warn()/die() — stderr; JSON error objects in --json mode
 applyr/duplicates.py  → Title normalization + similarity for duplicate detection
+applyr/cv_stats.py    → CV A/B tracking: response and interview rates
 ```
 
 ## Commands (21 + 5 aliases)
@@ -49,7 +50,7 @@ applyr/duplicates.py  → Title normalization + similarity for duplicate detecti
 | `add '<json>' [--force]` | Register a job offer (`--force` skips duplicate check) |
 | `list` | List offers (alias: `ls`) |
 | `show <id>` | Show full details |
-| `update <id> <status>` | Change status |
+| `update <id> <status>` | Change status (`--notes`, `--canal`, `--cv`) |
 | `delete <id>` | Remove offer |
 | `search <keyword>` | Search by company/title/tech |
 | `stats` | Conversion funnel (alias: `st`) |
@@ -63,6 +64,7 @@ applyr/duplicates.py  → Title normalization + similarity for duplicate detecti
 | `cv generate <id>` | ATS HTML skeleton |
 | `cv review <file>` | Recruiter review prompt |
 | `cv pdf <file>` | Chrome headless PDF |
+| `cv stats` | Compare CVs by response and interview rate |
 | `export` | Export CSV/JSON/MD |
 | `doctor` | Health check |
 

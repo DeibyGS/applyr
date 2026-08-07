@@ -7,7 +7,8 @@ from pathlib import Path
 
 from applyr import __version__
 from applyr.config import APPLYR_DIR, load_config
-from applyr.constants import CV_MASTER_MIN_SIZE
+from applyr.constants import CV_MASTER_MIN_SIZE, CV_STATS_NAME_WIDTH
+from applyr.cv_stats import build_report
 from applyr.db import get_conn
 from applyr.errors import die, error
 
@@ -163,3 +164,62 @@ def cmd_doctor() -> None:
         print("  All checks passed.")
     else:
         print(f"  {issues} issue(s) found.")
+
+
+# ---------------------------------------------------------------------------
+# cmd_cv_stats
+# ---------------------------------------------------------------------------
+
+def cmd_cv_stats(min_sample: int = 1, as_json: bool = False) -> None:
+    """Compare CVs by response and interview rate."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, company, status, cv_used FROM offers"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    report = build_report(rows, min_sample=min_sample)
+
+    if as_json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return
+
+    print("CV Performance\n")
+
+    if not report["cvs"]:
+        print("  No offers have a CV recorded yet.")
+        print()
+        print("  'applyr cv generate <id>' records the CV automatically.")
+        print("  For offers you already applied to, set it with:")
+        print("    applyr update <id> <status> --cv <filename>")
+        print()
+        return
+
+    header = f"  {'CV':<28} {'SENT':>5} {'RESP':>6} {'INTV':>6} {'OFFER':>6}"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+
+    for cv in report["cvs"]:
+        name = _truncate_cv(cv["cv"], CV_STATS_NAME_WIDTH)
+        marker = " *" if cv["below_min_sample"] else ""
+        print(f"  {name:<28} {cv['sent']:>5} "
+              f"{cv['response_rate']:>5.0f}% {cv['interview_rate']:>5.0f}% "
+              f"{cv['offers']:>6}{marker}")
+
+    print()
+    if any(cv["below_min_sample"] for cv in report["cvs"]):
+        print(f"  * fewer than {min_sample} applications — treat the rate as noise")
+    if report["untracked"]:
+        print(f"  {report['untracked']} of {report['total_offers']} offers have no CV recorded "
+              f"and are excluded.")
+    print()
+    print("  RESP  = got any reply, including rejections (did it pass the filter?)")
+    print("  INTV  = reached in_process or offer (did it convince?)")
+    print()
+
+
+def _truncate_cv(name: str, width: int) -> str:
+    """Shorten a CV filename for table display."""
+    return name if len(name) <= width else name[:width - 1] + "…"

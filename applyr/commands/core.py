@@ -656,8 +656,9 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 # cmd_update
 # ---------------------------------------------------------------------------
 
-def cmd_update(offer_id: int, status: str, notes: str | None = None, canal: str | None = None) -> None:
-    """Update the status (and optionally notes/canal) of an offer."""
+def cmd_update(offer_id: int, status: str, notes: str | None = None,
+               canal: str | None = None, cv: str | None = None) -> None:
+    """Update the status (and optionally notes/canal/cv) of an offer."""
     if status not in VALID_STATUSES:
         die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}", code="invalid_value", details={"field": "status", "value": status, "valid": list(VALID_STATUSES)})
     if canal and canal not in VALID_CHANNELS:
@@ -685,6 +686,12 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None, canal: str 
         if canal is not None:
             fields.append("canal = ?")
             params.append(canal)
+
+        # Which CV was sent — feeds `applyr cv stats`. Set automatically by
+        # `cv generate`; this is the manual path for offers applied elsewhere.
+        if cv is not None:
+            fields.append("cv_used = ?")
+            params.append(cv)
 
         # Auto follow-up when moving to applied/waiting
         if status in ("applied", "waiting"):
