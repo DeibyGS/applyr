@@ -28,7 +28,7 @@ from applyr.commands import (
 )
 from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review
 from applyr.db import init_db, VALID_STATUSES
-from applyr.errors import die, error
+from applyr.errors import die, error, set_json_mode
 
 USAGE = f"""\
 applyr v{__version__} — CLI job application tracker for AI coding agents
@@ -66,13 +66,14 @@ Docs: https://github.com/DeibyGS/applyr
 """
 
 
-def _safe_int(value: str, label: str = "ID") -> int | None:
-    """Parse string to int, print error and return None on failure."""
+def _safe_int(value: str, label: str = "ID") -> int:
+    """Parse string to int. Exits with an error if the value is not an integer."""
     try:
         return int(value)
     except ValueError:
-        error(f"Error: {label} must be an integer, got: {value}")
-        return None
+        die(f"Error: {label} must be an integer, got: {value}",
+            code="invalid_argument",
+            details={"argument": label, "value": value})
 
 
 def _get_flag(args: list[str], flag: str) -> str | None:
@@ -81,8 +82,8 @@ def _get_flag(args: list[str], flag: str) -> str | None:
         return None
     idx = args.index(flag)
     if idx + 1 >= len(args):
-        error(f"Error: {flag} requires a value")
-        return None
+        die(f"Error: {flag} requires a value",
+            code="missing_value", details={"flag": flag})
     return args[idx + 1]
 
 
@@ -123,6 +124,7 @@ def main():
         args.remove("--json")
 
     init_colors(no_color=no_color or as_json)
+    set_json_mode(as_json)
 
     if not args or args[0] in ("help", "--help", "-h"):
         if not args and not _is_initialized():
@@ -143,7 +145,8 @@ def main():
             init_db()
         except Exception as e:
             error(f"Error: could not initialize database: {e}")
-            die("  Try running: applyr init")
+            die(f"Could not initialize database: {e}", code="db_error",
+                details={"reason": str(e)}, text="  Try running: applyr init")
 
     if cmd == "init":
         cmd_init()
@@ -188,8 +191,6 @@ def main():
             limit = -1
         elif _get_flag(args, "--limit") is not None:
             limit = _safe_int(_get_flag(args, "--limit"), "--limit")
-            if limit is None:
-                return
         cmd_list(status_filter=status, sort_by=sort_by, limit=limit, as_json=as_json)
 
     elif cmd == "pipeline":
@@ -197,8 +198,6 @@ def main():
         raw = _get_flag(args, "--min-score")
         if raw is not None:
             min_score = _safe_int(raw, "--min-score")
-            if min_score is None:
-                return
         cmd_pipeline(min_score=min_score, as_json=as_json)
 
     elif cmd == "show":
@@ -206,8 +205,7 @@ def main():
             print("Usage: applyr show <id>")
             return
         offer_id = _safe_int(args[1])
-        if offer_id is not None:
-            cmd_show(offer_id, as_json=as_json)
+        cmd_show(offer_id, as_json=as_json)
 
     elif cmd == "update":
         if len(args) < 3:
@@ -215,8 +213,6 @@ def main():
             print(f"  Statuses: {', '.join(VALID_STATUSES)}")
             return
         offer_id = _safe_int(args[1])
-        if offer_id is None:
-            return
         status = args[2]
         notes = _get_flag(args, "--notes")
         canal = _get_flag(args, "--canal")
@@ -227,8 +223,7 @@ def main():
             print("Usage: applyr delete <id>")
             return
         offer_id = _safe_int(args[1])
-        if offer_id is not None:
-            cmd_delete(offer_id)
+        cmd_delete(offer_id)
 
     elif cmd == "search":
         if len(args) < 2:
@@ -255,8 +250,6 @@ def main():
         raw = _get_flag(args, "--limit")
         if raw is not None:
             limit = _safe_int(raw, "--limit")
-            if limit is None:
-                return
         cmd_gaps(limit=limit, as_json=as_json)
 
     elif cmd == "followups":
@@ -265,22 +258,24 @@ def main():
     elif cmd == "trends":
         period = _get_flag(args, "--period") or "week"
         if period not in ("week", "month"):
-            error(f"Error: period must be 'week' or 'month', got: {period}")
-            return
+            die(f"Error: period must be 'week' or 'month', got: {period}", code="invalid_value")
         cmd_trends(period=period, as_json=as_json)
 
     elif cmd == "summary":
         cmd_summary(as_json=as_json)
 
     elif cmd in ("compare", "cmp"):
-        if len(args) < 3:
+        if len(args) == 1:
             print("Usage: applyr compare <id1> <id2> [<id3> ...]")
             return
+        if len(args) < 3:
+            die("compare needs at least 2 offer IDs.",
+                code="invalid_argument",
+                details={"given": len(args) - 1, "minimum": 2},
+                text="Usage: applyr compare <id1> <id2> [<id3> ...]")
         ids = []
         for a in args[1:]:
             oid = _safe_int(a)
-            if oid is None:
-                return
             ids.append(oid)
         cmd_compare(ids, as_json=as_json)
 
@@ -289,8 +284,6 @@ def main():
         raw = _get_flag(args, "--limit")
         if raw is not None:
             limit = _safe_int(raw, "--limit")
-            if limit is None:
-                return
         cmd_plan(limit=limit, as_json=as_json)
 
     elif cmd in ("salary", "sal"):
@@ -304,8 +297,7 @@ def main():
     elif cmd == "export":
         fmt = _get_flag(args, "--format") or "csv"
         if fmt not in ("csv", "json", "md", "markdown"):
-            error(f"Error: format must be 'csv', 'json', or 'md', got: {fmt}")
-            return
+            die(f"Error: format must be 'csv', 'json', or 'md', got: {fmt}", code="invalid_value")
         if fmt == "markdown":
             fmt = "md"
         filepath = _get_flag(args, "--file")
@@ -324,8 +316,6 @@ def main():
                 print("Usage: applyr cv generate <id> [--template ats]")
                 return
             offer_id = _safe_int(args[2])
-            if offer_id is None:
-                return
             template = _get_flag(args, "--template") or "ats"
             cmd_cv_generate(offer_id, template=template)
         elif subcmd == "review":

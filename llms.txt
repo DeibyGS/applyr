@@ -36,7 +36,7 @@ applyr/scoring.py     → Weighted scoring (reads config for weights)
 applyr/cv.py          → ATS HTML + Chrome PDF + recruiter review
 applyr/config.py      → ~/.applyr/applyr.toml
 applyr/constants.py   → All thresholds and magic numbers
-applyr/errors.py      → error()/warn()/die() — all stderr output
+applyr/errors.py      → error()/warn()/die() — stderr; JSON error objects in --json mode
 applyr/duplicates.py  → Title normalization + similarity for duplicate detection
 ```
 
@@ -65,6 +65,19 @@ applyr/duplicates.py  → Title normalization + similarity for duplicate detecti
 | `cv pdf <file>` | Chrome headless PDF |
 | `export` | Export CSV/JSON/MD |
 | `doctor` | Health check |
+
+## Error handling for agents
+
+With `--json`, failures emit one JSON object on **stderr** and exit non-zero:
+
+```json
+{"error": {"code": "not_found", "message": "offer #42 not found.", "details": {"offer_id": 42}}}
+```
+
+Branch on `code` (stable), never on `message` (reworded freely).
+Codes: not_found, duplicate, invalid_value, invalid_argument, invalid_range,
+invalid_json, missing_field, missing_value, chrome_not_found, db_error, error.
+Full table in docs/contracts.md.
 
 ## Testing
 

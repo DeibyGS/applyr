@@ -43,8 +43,7 @@ def _export_markdown(records: list[dict]) -> str:
 def cmd_export(fmt: str = "csv", filepath: str | None = None) -> None:
     """Export all offers to CSV, JSON, or Markdown."""
     if fmt not in ("csv", "json", "md"):
-        error(f"Error: unsupported format '{fmt}'. Use 'csv', 'json', or 'md'.")
-        return
+        die(f"Error: unsupported format '{fmt}'. Use 'csv', 'json', or 'md'.", code="invalid_value")
 
     conn = get_conn()
     try:

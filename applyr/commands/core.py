@@ -124,7 +124,11 @@ def _report_duplicate(row, reason: str) -> None:
     error(f"  Compat.     : {row['compatibility_pct']}%")
     error(f"\nUse 'applyr show {row['id']}' to review, "
           f"'applyr update {row['id']} <status>' to change it,")
-    die("or re-run with --force to add it anyway.")
+    die(f"Duplicate detected — {reason}. Re-run with --force to add it anyway.",
+        code="duplicate",
+        details={"existing_id": row["id"], "existing_title": row["title"],
+                 "existing_status": row["status"]},
+        text="or re-run with --force to add it anyway.")
 
 
 def _print_table(rows: list[dict], headers: list[str], col_widths: list[int]) -> None:
@@ -198,8 +202,8 @@ def cmd_setup_agent(agent: str | None = None) -> None:
     instructions = _get_agent_instructions()
     if not instructions:
         error("Error: could not find AGENT_INSTRUCTIONS.md")
-        error("  Run 'applyr init' first.")
-        return
+        die("Could not find AGENT_INSTRUCTIONS.md", code="not_found",
+            text="  Run 'applyr init' first.")
 
     # Auto-detect if no agent specified
     if not agent:
@@ -217,8 +221,9 @@ def cmd_setup_agent(agent: str | None = None) -> None:
 
     if agent not in _AGENT_TARGETS:
         error(f"Error: unknown agent '{agent}'")
-        error(f"  Supported: {', '.join(_AGENT_TARGETS.keys())}")
-        return
+        die(f"Unknown agent '{agent}'", code="invalid_value",
+            details={"value": agent, "valid": list(_AGENT_TARGETS)},
+            text=f"  Supported: {', '.join(_AGENT_TARGETS.keys())}")
 
     rel_path = _AGENT_TARGETS[agent][0]
     target = cwd / rel_path
@@ -262,7 +267,10 @@ def cmd_add(raw: str, force: bool = False) -> None:
         if exc.pos is not None:
             snippet = raw[max(0, exc.pos - JSON_ERROR_CONTEXT):exc.pos + JSON_ERROR_CONTEXT]
             error(f"  Around: ...{snippet}...")
-        die('  Example: applyr add \'{"title": "Backend Dev", "company": "Acme"}\'')
+        die(f"invalid JSON — {exc.msg} at line {exc.lineno}, column {exc.colno}",
+            code="invalid_json",
+            details={"line": exc.lineno, "column": exc.colno, "position": exc.pos},
+            text='  Example: applyr add \'{"title": "Backend Dev", "company": "Acme"}\'')
 
     config = load_config()
     threshold: int = config["general"]["threshold"]
@@ -271,8 +279,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
     # --- Required field ----------------------------------------------------
     title: str = (data.get("title") or "").strip()
     if not title:
-        die("Error: 'title' is required.")
-
+        die("Error: 'title' is required.", code="missing_field", details={"field": "title"})
     # --- Optional scalars --------------------------------------------------
     company: str | None = data.get("company")
     summary: str | None = data.get("summary")
@@ -286,10 +293,13 @@ def cmd_add(raw: str, force: bool = False) -> None:
     salary_max: int | None = data.get("salary_max")
     if salary_min and salary_max and salary_min > salary_max:
         error(f"Error: salary_min ({salary_min}) cannot be greater than salary_max ({salary_max}).")
-        die("  Hint: swap the values or correct the input.")
+        die(f"salary_min ({salary_min}) cannot be greater than salary_max ({salary_max}).",
+            code="invalid_range",
+            details={"salary_min": salary_min, "salary_max": salary_max},
+            text="  Hint: swap the values or correct the input.")
     salary_period: str = data.get("salary_period", "annual")
     if salary_period not in VALID_SALARY_PERIODS:
-        die(f"Error: invalid salary_period '{salary_period}'. Valid: {', '.join(VALID_SALARY_PERIODS)}")
+        die(f"Error: invalid salary_period '{salary_period}'. Valid: {', '.join(VALID_SALARY_PERIODS)}", code="invalid_value", details={"field": "salary_period", "value": salary_period, "valid": list(VALID_SALARY_PERIODS)})
     seniority_level: str | None = data.get("seniority_level")
     role_category: str | None = data.get("role_category")
     tech_stack: str | None = data.get("tech_stack")
@@ -311,20 +321,15 @@ def cmd_add(raw: str, force: bool = False) -> None:
 
     # --- Validate enums ----------------------------------------------------
     if status not in VALID_STATUSES:
-        die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}")
-
+        die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}", code="invalid_value", details={"field": "status", "value": status, "valid": list(VALID_STATUSES)})
     if canal and canal not in VALID_CHANNELS:
-        die(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}")
-
+        die(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}", code="invalid_value", details={"field": "canal", "value": canal, "valid": list(VALID_CHANNELS)})
     if work_mode and work_mode not in VALID_WORK_MODES:
-        die(f"Error: invalid work_mode '{work_mode}'. Valid: {', '.join(VALID_WORK_MODES)}")
-
+        die(f"Error: invalid work_mode '{work_mode}'. Valid: {', '.join(VALID_WORK_MODES)}", code="invalid_value", details={"field": "work_mode", "value": work_mode, "valid": list(VALID_WORK_MODES)})
     if seniority_level and seniority_level not in VALID_SENIORITY:
-        die(f"Error: invalid seniority_level '{seniority_level}'. Valid: {', '.join(VALID_SENIORITY)}")
-
+        die(f"Error: invalid seniority_level '{seniority_level}'. Valid: {', '.join(VALID_SENIORITY)}", code="invalid_value", details={"field": "seniority_level", "value": seniority_level, "valid": list(VALID_SENIORITY)})
     if role_category and role_category not in VALID_ROLE_CATEGORIES:
-        die(f"Error: invalid role_category '{role_category}'. Valid: {', '.join(VALID_ROLE_CATEGORIES)}")
-
+        die(f"Error: invalid role_category '{role_category}'. Valid: {', '.join(VALID_ROLE_CATEGORIES)}", code="invalid_value", details={"field": "role_category", "value": role_category, "valid": list(VALID_ROLE_CATEGORIES)})
     # --- Duplicate detection -----------------------------------------------
     conn = get_conn()
     try:
@@ -363,9 +368,9 @@ def cmd_add(raw: str, force: bool = False) -> None:
         try:
             compatibility_pct = int(compat_raw)
         except (TypeError, ValueError):
-            die("Error: 'compatibility_pct' must be an integer 0-100.")
+            die("Error: 'compatibility_pct' must be an integer 0-100.", code="invalid_value", details={"field": "compatibility_pct"})
         if not 0 <= compatibility_pct <= 100:
-            die("Error: 'compatibility_pct' must be between 0 and 100.")
+            die("Error: 'compatibility_pct' must be between 0 and 100.", code="invalid_value", details={"field": "compatibility_pct"})
     elif topics:
         compatibility_pct = calculate_score(topics)
     else:
@@ -478,6 +483,14 @@ def cmd_add(raw: str, force: bool = False) -> None:
 
 def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", limit: int | None = None, as_json: bool = False) -> None:
     """List job offers as a summary table."""
+    # Validate before querying: an unknown status would otherwise return an
+    # empty list, which reads as "no offers" rather than "you mistyped it".
+    if status_filter and status_filter not in VALID_STATUSES:
+        die(f"Error: invalid status '{status_filter}'. Valid: {', '.join(VALID_STATUSES)}",
+            code="invalid_value",
+            details={"field": "status", "value": status_filter,
+                     "valid": list(VALID_STATUSES)})
+
     config = load_config()
     effective_limit = limit if limit is not None else config["general"]["list_limit"]
 
@@ -533,7 +546,9 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
         row = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
             error(f"Error: offer #{offer_id} not found.")
-            die("  Hint: run 'applyr list' to see available offers.")
+            die(f"offer #{offer_id} not found.", code="not_found",
+                details={"offer_id": offer_id},
+                text="  Hint: run 'applyr list' to see available offers.")
 
         topics = conn.execute(
             "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ?", (offer_id,)
@@ -644,11 +659,9 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 def cmd_update(offer_id: int, status: str, notes: str | None = None, canal: str | None = None) -> None:
     """Update the status (and optionally notes/canal) of an offer."""
     if status not in VALID_STATUSES:
-        die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}")
-
+        die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}", code="invalid_value", details={"field": "status", "value": status, "valid": list(VALID_STATUSES)})
     if canal and canal not in VALID_CHANNELS:
-        die(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}")
-
+        die(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}", code="invalid_value", details={"field": "canal", "value": canal, "valid": list(VALID_CHANNELS)})
     config = load_config()
     followup_days: int = config["general"]["followup_days"]
 
@@ -657,7 +670,9 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None, canal: str 
         row = conn.execute("SELECT id, title, company FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
             error(f"Error: offer #{offer_id} not found.")
-            die("  Hint: run 'applyr list' to see available offers.")
+            die(f"offer #{offer_id} not found.", code="not_found",
+                details={"offer_id": offer_id},
+                text="  Hint: run 'applyr list' to see available offers.")
 
         # Build dynamic update
         fields: list[str] = ["status = ?"]
@@ -704,7 +719,9 @@ def cmd_delete(offer_id: int) -> None:
         row = conn.execute("SELECT id, title, company, status FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
             error(f"Error: offer #{offer_id} not found.")
-            die("  Hint: run 'applyr list' to see available offers.")
+            die(f"offer #{offer_id} not found.", code="not_found",
+                details={"offer_id": offer_id},
+                text="  Hint: run 'applyr list' to see available offers.")
 
         print(f"About to delete:")
         print(f"  #{row['id']}  {row['title']}  ({row['company'] or '—'})  [{STATUS_LABELS.get(row['status'], row['status'])}]")
@@ -743,7 +760,10 @@ def cmd_search(keyword: str, status_filter: str | None = None, as_json: bool = F
 
     if status_filter:
         if status_filter not in VALID_STATUSES:
-            die(f"Error: invalid status '{status_filter}'. Valid: {', '.join(VALID_STATUSES)}")
+            die(f"Error: invalid status '{status_filter}'. Valid: {', '.join(VALID_STATUSES)}",
+                code="invalid_value",
+                details={"field": "status", "value": status_filter,
+                         "valid": list(VALID_STATUSES)})
         base_query += " AND status = ?"
         params.append(status_filter)
 

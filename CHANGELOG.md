@@ -4,6 +4,16 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Structured JSON errors: with `--json`, failures emit `{"error": {"code", "message", "details"}}` on stderr so agents can branch on a stable code instead of matching English prose. See [ADR 007](docs/adr/007-structured-json-errors.md)
+- `docs/adr/007-structured-json-errors.md`
+- 15 tests for error routing, JSON mode and code stability
+
+### Fixed
+- Several error paths printed a message and returned instead of exiting, so commands like `applyr show abc` reported a failure but exited `0` — scripts and agents read that as success. All failure paths now exit `1`
+
 ## [0.6.0] — 2026-08-07
 
 ### Changed
