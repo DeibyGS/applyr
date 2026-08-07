@@ -1,0 +1,108 @@
+# llms.txt — Applyr Quick Reference for AI Agents
+
+Project: applyr
+Purpose: CLI job application tracker for AI coding agents
+License: MIT
+Python: >=3.12
+Dependencies: colorama>=0.4.6 (only runtime dep)
+
+## Install
+
+```bash
+pip install applyr
+# or from source:
+git clone https://github.com/DeibyGS/applyr && cd applyr && pip install -e ".[dev]"
+```
+
+## Quick Start
+
+```bash
+applyr init                              # Create ~/.applyr/ with config + DB
+applyr setup-agent --agent claude        # Generate agent instructions
+applyr add '{"title":"Engineer","company":"Acme","compatibility_pct":75}'
+applyr list                              # Show all offers
+applyr stats                             # Conversion funnel
+```
+
+## Architecture
+
+```
+applyr/cli.py         → Entry point, argparse routing
+applyr/commands/core.py      → CRUD: add, list, show, update, delete, search
+applyr/commands/analytics.py → Stats: pipeline, stats, gaps, trends, compare, plan, salary
+applyr/commands/workflow.py  → Export, doctor
+applyr/db.py          → SQLite (28 columns, migration system)
+applyr/scoring.py     → Weighted scoring (pure function, no I/O)
+applyr/cv.py          → ATS HTML + Chrome PDF + recruiter review
+applyr/config.py      → ~/.applyr/applyr.toml
+applyr/constants.py   → All thresholds and magic numbers
+```
+
+## Commands (21 + 5 aliases)
+
+| Command | Purpose |
+|---------|---------|
+| `init` | Set up ~/.applyr/ |
+| `setup-agent` | Configure AI agent (claude/cursor/opencode/generic) |
+| `add '<json>'` | Register a job offer |
+| `list` | List offers (alias: `ls`) |
+| `show <id>` | Show full details |
+| `update <id> <status>` | Change status |
+| `delete <id>` | Remove offer |
+| `search <keyword>` | Search by company/title/tech |
+| `stats` | Conversion funnel (alias: `st`) |
+| `gaps` | Skill gap analysis |
+| `followups` | Pending follow-ups (alias: `fu`) |
+| `trends` | Applications over time |
+| `summary` | Weekly summary (LLM-optimized) |
+| `compare <id1> <id2>` | Side-by-side (alias: `cmp`) |
+| `plan` | Learning priorities |
+| `salary` | Salary insights (alias: `sal`) |
+| `cv generate <id>` | ATS HTML skeleton |
+| `cv review <file>` | Recruiter review prompt |
+| `cv pdf <file>` | Chrome headless PDF |
+| `export` | Export CSV/JSON/MD |
+| `doctor` | Health check |
+
+## Testing
+
+```bash
+pytest                  # 54 tests, ~0.1s
+```
+
+## Formatting
+
+```bash
+# No linter configured — follow existing code style
+# Python 3.12+ syntax, type hints, English output
+```
+
+## Key Files for Agents
+
+- `AGENTS.md` — Full contributor guide
+- `CONTRIBUTING.md` — Human contributor guide
+- `applyr/templates/AGENT_INSTRUCTIONS.md` — End-user agent workflow (DO NOT MODIFY)
+- `specs/` — SDD specifications
+
+## Data Model
+
+SQLite at `~/.applyr/jobs.db`:
+- `offers` — 28 columns (title, company, status, compatibility_pct, tech_stack, etc.)
+- `offer_topics` — Per-topic scores (tech_stack, experience, projects, education, english, cultural_fit)
+
+## Config
+
+`~/.applyr/applyr.toml`:
+```toml
+[general]
+threshold = 65        # Min % to recommend applying
+followup_days = 10
+
+[weights]
+tech_stack = 30       # Auto-normalized to sum=1.0
+education = 15
+experience = 15
+projects = 20
+english = 10
+cultural_fit = 10
+```
