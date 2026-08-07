@@ -1,13 +1,13 @@
 """CRUD and setup commands: init, setup-agent, add, list, show, update, delete, search."""
 
 import json
-import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from applyr.colors import color
 from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, load_config
 from applyr.constants import (
+    DUPLICATE_COMPANY_HISTORY_LIMIT,
     FOLLOWUP_UPCOMING_DAYS,
     JSON_ERROR_CONTEXT,
     LIST_COL_WIDTHS,
@@ -29,6 +29,8 @@ from applyr.db import (
 )
 from applyr.scoring import calculate_score
 from applyr.commands._helpers import _bar, _today, _truncate
+from applyr.duplicates import find_company_offers, find_exact, find_similar
+from applyr.errors import die, error, warn
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -111,6 +113,20 @@ def _parse_date(raw: str | None) -> str | None:
     return None  # Unrecognised format — caller decides what to do
 
 
+def _report_duplicate(row, reason: str) -> None:
+    """Report a blocking duplicate on stderr and exit. Never returns."""
+    label = STATUS_LABELS.get(row["status"], row["status"])
+    error(f"\nDuplicate detected — {reason}.")
+    error(f"  ID          : {row['id']}")
+    error(f"  Title       : {row['title']}")
+    error(f"  Status      : {label}")
+    error(f"  Received    : {row['date_received']}")
+    error(f"  Compat.     : {row['compatibility_pct']}%")
+    error(f"\nUse 'applyr show {row['id']}' to review, "
+          f"'applyr update {row['id']} <status>' to change it,")
+    die("or re-run with --force to add it anyway.")
+
+
 def _print_table(rows: list[dict], headers: list[str], col_widths: list[int]) -> None:
     """Print a fixed-width ASCII table."""
     sep = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
@@ -181,8 +197,8 @@ def cmd_setup_agent(agent: str | None = None) -> None:
     cwd = Path.cwd()
     instructions = _get_agent_instructions()
     if not instructions:
-        print("Error: could not find AGENT_INSTRUCTIONS.md")
-        print("  Run 'applyr init' first.")
+        error("Error: could not find AGENT_INSTRUCTIONS.md")
+        error("  Run 'applyr init' first.")
         return
 
     # Auto-detect if no agent specified
@@ -200,8 +216,8 @@ def cmd_setup_agent(agent: str | None = None) -> None:
         return
 
     if agent not in _AGENT_TARGETS:
-        print(f"Error: unknown agent '{agent}'")
-        print(f"  Supported: {', '.join(_AGENT_TARGETS.keys())}")
+        error(f"Error: unknown agent '{agent}'")
+        error(f"  Supported: {', '.join(_AGENT_TARGETS.keys())}")
         return
 
     rel_path = _AGENT_TARGETS[agent][0]
@@ -231,18 +247,22 @@ def cmd_setup_agent(agent: str | None = None) -> None:
 # cmd_add
 # ---------------------------------------------------------------------------
 
-def cmd_add(raw: str) -> None:
-    """Parse JSON and insert a new job offer into the database."""
+def cmd_add(raw: str, force: bool = False) -> None:
+    """Parse JSON and insert a new job offer into the database.
+
+    Blocks on an exact or near-identical duplicate at the same company unless
+    force is set. Previous offers at the same company are reported but never
+    block — see applyr/duplicates.py.
+    """
     # --- Parse input -------------------------------------------------------
     try:
         data: dict = json.loads(raw)
     except json.JSONDecodeError as exc:
-        print(f"Error: invalid JSON — {exc.msg} at line {exc.lineno}, column {exc.colno}")
+        error(f"Error: invalid JSON — {exc.msg} at line {exc.lineno}, column {exc.colno}")
         if exc.pos is not None:
             snippet = raw[max(0, exc.pos - JSON_ERROR_CONTEXT):exc.pos + JSON_ERROR_CONTEXT]
-            print(f"  Around: ...{snippet}...")
-        print('  Example: applyr add \'{"title": "Backend Dev", "company": "Acme"}\'')
-        sys.exit(1)
+            error(f"  Around: ...{snippet}...")
+        die('  Example: applyr add \'{"title": "Backend Dev", "company": "Acme"}\'')
 
     config = load_config()
     threshold: int = config["general"]["threshold"]
@@ -251,8 +271,7 @@ def cmd_add(raw: str) -> None:
     # --- Required field ----------------------------------------------------
     title: str = (data.get("title") or "").strip()
     if not title:
-        print("Error: 'title' is required.")
-        sys.exit(1)
+        die("Error: 'title' is required.")
 
     # --- Optional scalars --------------------------------------------------
     company: str | None = data.get("company")
@@ -266,13 +285,11 @@ def cmd_add(raw: str) -> None:
     salary_min: int | None = data.get("salary_min")
     salary_max: int | None = data.get("salary_max")
     if salary_min and salary_max and salary_min > salary_max:
-        print(f"Error: salary_min ({salary_min}) cannot be greater than salary_max ({salary_max}).")
-        print("  Hint: swap the values or correct the input.")
-        sys.exit(1)
+        error(f"Error: salary_min ({salary_min}) cannot be greater than salary_max ({salary_max}).")
+        die("  Hint: swap the values or correct the input.")
     salary_period: str = data.get("salary_period", "annual")
     if salary_period not in VALID_SALARY_PERIODS:
-        print(f"Error: invalid salary_period '{salary_period}'. Valid: {', '.join(VALID_SALARY_PERIODS)}")
-        sys.exit(1)
+        die(f"Error: invalid salary_period '{salary_period}'. Valid: {', '.join(VALID_SALARY_PERIODS)}")
     seniority_level: str | None = data.get("seniority_level")
     role_category: str | None = data.get("role_category")
     tech_stack: str | None = data.get("tech_stack")
@@ -294,46 +311,49 @@ def cmd_add(raw: str) -> None:
 
     # --- Validate enums ----------------------------------------------------
     if status not in VALID_STATUSES:
-        print(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}")
-        sys.exit(1)
+        die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}")
 
     if canal and canal not in VALID_CHANNELS:
-        print(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}")
-        sys.exit(1)
+        die(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}")
 
     if work_mode and work_mode not in VALID_WORK_MODES:
-        print(f"Error: invalid work_mode '{work_mode}'. Valid: {', '.join(VALID_WORK_MODES)}")
-        sys.exit(1)
+        die(f"Error: invalid work_mode '{work_mode}'. Valid: {', '.join(VALID_WORK_MODES)}")
 
     if seniority_level and seniority_level not in VALID_SENIORITY:
-        print(f"Error: invalid seniority_level '{seniority_level}'. Valid: {', '.join(VALID_SENIORITY)}")
-        sys.exit(1)
+        die(f"Error: invalid seniority_level '{seniority_level}'. Valid: {', '.join(VALID_SENIORITY)}")
 
     if role_category and role_category not in VALID_ROLE_CATEGORIES:
-        print(f"Error: invalid role_category '{role_category}'. Valid: {', '.join(VALID_ROLE_CATEGORIES)}")
-        sys.exit(1)
+        die(f"Error: invalid role_category '{role_category}'. Valid: {', '.join(VALID_ROLE_CATEGORIES)}")
 
     # --- Duplicate detection -----------------------------------------------
     conn = get_conn()
     try:
-        dup = conn.execute(
-            """SELECT id, status, date_received, compatibility_pct
-               FROM offers
-               WHERE LOWER(title) = LOWER(?) AND LOWER(COALESCE(company,'')) = LOWER(COALESCE(?,''))""",
-            (title, company),
-        ).fetchone()
+        exact = find_exact(conn, title, company)
+        company_offers = find_company_offers(conn, company)
     finally:
         conn.close()
 
-    if dup:
-        dup_label = STATUS_LABELS.get(dup["status"], dup["status"])
-        print(f"\nDuplicate detected — this offer already exists in your database.")
-        print(f"  ID          : {dup['id']}")
-        print(f"  Status      : {dup_label}")
-        print(f"  Received    : {dup['date_received']}")
-        print(f"  Compat.     : {dup['compatibility_pct']}%")
-        print(f"\nUse 'applyr show {dup['id']}' to review or 'applyr update {dup['id']} <status>' to change it.")
-        sys.exit(1)
+    if exact and not force:
+        _report_duplicate(exact, "this offer already exists in your database")
+
+    similar = None
+    if not exact:
+        similar = find_similar(company_offers, title)
+    if similar and not force:
+        row, score = similar
+        _report_duplicate(row, f"a very similar offer already exists ({score:.0%} match)")
+
+    # Same company, different role — informational, never blocks.
+    already_reported = {row["id"] for row in (exact, similar[0] if similar else None) if row}
+    others = [r for r in company_offers if r["id"] not in already_reported]
+    if others:
+        warn(f"\nYou have already applied to {company} — {len(others)} previous offer(s):")
+        for row in others[:DUPLICATE_COMPANY_HISTORY_LIMIT]:
+            label = STATUS_LABELS.get(row["status"], row["status"])
+            warn(f"  #{row['id']:<4} {_truncate(row['title'], TRUNCATE_TITLE):<28} {label}")
+        if len(others) > DUPLICATE_COMPANY_HISTORY_LIMIT:
+            warn(f"  ... and {len(others) - DUPLICATE_COMPANY_HISTORY_LIMIT} more")
+        warn("")
 
     # --- Compatibility score -----------------------------------------------
     topics: dict = data.get("topics", {})
@@ -343,11 +363,9 @@ def cmd_add(raw: str) -> None:
         try:
             compatibility_pct = int(compat_raw)
         except (TypeError, ValueError):
-            print("Error: 'compatibility_pct' must be an integer 0-100.")
-            sys.exit(1)
+            die("Error: 'compatibility_pct' must be an integer 0-100.")
         if not 0 <= compatibility_pct <= 100:
-            print("Error: 'compatibility_pct' must be between 0 and 100.")
-            sys.exit(1)
+            die("Error: 'compatibility_pct' must be between 0 and 100.")
     elif topics:
         compatibility_pct = calculate_score(topics)
     else:
@@ -514,9 +532,8 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
     try:
         row = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
-            print(f"Error: offer #{offer_id} not found.")
-            print("  Hint: run 'applyr list' to see available offers.")
-            sys.exit(1)
+            error(f"Error: offer #{offer_id} not found.")
+            die("  Hint: run 'applyr list' to see available offers.")
 
         topics = conn.execute(
             "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ?", (offer_id,)
@@ -627,12 +644,10 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 def cmd_update(offer_id: int, status: str, notes: str | None = None, canal: str | None = None) -> None:
     """Update the status (and optionally notes/canal) of an offer."""
     if status not in VALID_STATUSES:
-        print(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}")
-        sys.exit(1)
+        die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}")
 
     if canal and canal not in VALID_CHANNELS:
-        print(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}")
-        sys.exit(1)
+        die(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}")
 
     config = load_config()
     followup_days: int = config["general"]["followup_days"]
@@ -641,9 +656,8 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None, canal: str 
     try:
         row = conn.execute("SELECT id, title, company FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
-            print(f"Error: offer #{offer_id} not found.")
-            print("  Hint: run 'applyr list' to see available offers.")
-            sys.exit(1)
+            error(f"Error: offer #{offer_id} not found.")
+            die("  Hint: run 'applyr list' to see available offers.")
 
         # Build dynamic update
         fields: list[str] = ["status = ?"]
@@ -689,9 +703,8 @@ def cmd_delete(offer_id: int) -> None:
     try:
         row = conn.execute("SELECT id, title, company, status FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
-            print(f"Error: offer #{offer_id} not found.")
-            print("  Hint: run 'applyr list' to see available offers.")
-            sys.exit(1)
+            error(f"Error: offer #{offer_id} not found.")
+            die("  Hint: run 'applyr list' to see available offers.")
 
         print(f"About to delete:")
         print(f"  #{row['id']}  {row['title']}  ({row['company'] or '—'})  [{STATUS_LABELS.get(row['status'], row['status'])}]")
@@ -730,8 +743,7 @@ def cmd_search(keyword: str, status_filter: str | None = None, as_json: bool = F
 
     if status_filter:
         if status_filter not in VALID_STATUSES:
-            print(f"Error: invalid status '{status_filter}'. Valid: {', '.join(VALID_STATUSES)}")
-            sys.exit(1)
+            die(f"Error: invalid status '{status_filter}'. Valid: {', '.join(VALID_STATUSES)}")
         base_query += " AND status = ?"
         params.append(status_filter)
 

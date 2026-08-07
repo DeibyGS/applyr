@@ -34,6 +34,8 @@ flowchart TD
 | `config.py` | 131 | Load/create `~/.applyr/applyr.toml`, normalize weights, detect Chrome |
 | `db.py` | 146 | SQLite schema (offers: 31 columns), enums, migrations, connection management |
 | `scoring.py` | 36 | Weighted compatibility calculation — **no database access**, reads config for weights |
+| `errors.py` | 20 | `error()`, `warn()`, `die()` — all output to stderr |
+| `duplicates.py` | 95 | Title normalization and similarity matching for `add` |
 | `cv.py` | 416 | ATS HTML skeleton, Chrome PDF export, recruiter review prompt |
 | `colors.py` | ~40 | Colorama wrapper, respects `NO_COLOR` |
 | `constants.py` | 67 | All magic numbers, thresholds, column widths |

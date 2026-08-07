@@ -28,6 +28,7 @@ from applyr.commands import (
 )
 from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review
 from applyr.db import init_db, VALID_STATUSES
+from applyr.errors import die, error
 
 USAGE = f"""\
 applyr v{__version__} — CLI job application tracker for AI coding agents
@@ -37,7 +38,7 @@ Usage: applyr <command> [options]
 Commands:
   init                          Set up ~/.applyr/ (config, database, templates)
   setup-agent [--agent NAME]    Configure AI agent (claude, cursor, opencode, generic)
-  add '<json>'                  Register a new job offer
+  add '<json>' [--force]        Register a new job offer (--force skips duplicate check)
   list [--status S] [--sort F]  List offers (default: last 50)
   pipeline [--min-score N]      View offers grouped by status
   show <id>                     Show full offer details
@@ -70,7 +71,7 @@ def _safe_int(value: str, label: str = "ID") -> int | None:
     try:
         return int(value)
     except ValueError:
-        print(f"Error: {label} must be an integer, got: {value}")
+        error(f"Error: {label} must be an integer, got: {value}")
         return None
 
 
@@ -80,7 +81,7 @@ def _get_flag(args: list[str], flag: str) -> str | None:
         return None
     idx = args.index(flag)
     if idx + 1 >= len(args):
-        print(f"Error: {flag} requires a value")
+        error(f"Error: {flag} requires a value")
         return None
     return args[idx + 1]
 
@@ -141,9 +142,8 @@ def main():
         try:
             init_db()
         except Exception as e:
-            print(f"Error: could not initialize database: {e}")
-            print("  Try running: applyr init")
-            sys.exit(1)
+            error(f"Error: could not initialize database: {e}")
+            die("  Try running: applyr init")
 
     if cmd == "init":
         cmd_init()
@@ -153,10 +153,15 @@ def main():
         cmd_setup_agent(agent=agent)
 
     elif cmd == "add":
+        # Extract --force before positional parsing, so it can appear anywhere
+        force = _has_flag(args, "--force")
+        if force:
+            args.remove("--force")
         if len(args) < 2 and sys.stdin.isatty():
-            print("Usage: applyr add '<json>'")
+            print("Usage: applyr add '<json>' [--force]")
             print("       applyr add offer.json")
             print("       cat offer.json | applyr add -")
+            print("  --force: add even if a duplicate offer is detected")
             print("  Required: title")
             print("  Optional: company, summary, date_received, date_applied,")
             print("            compatibility_pct, status, canal, work_mode,")
@@ -173,7 +178,7 @@ def main():
             raw = args[1]
         else:
             raw = sys.stdin.read()
-        cmd_add(raw)
+        cmd_add(raw, force=force)
 
     elif cmd == "list":
         status = _get_flag(args, "--status")
@@ -260,7 +265,7 @@ def main():
     elif cmd == "trends":
         period = _get_flag(args, "--period") or "week"
         if period not in ("week", "month"):
-            print(f"Error: period must be 'week' or 'month', got: {period}")
+            error(f"Error: period must be 'week' or 'month', got: {period}")
             return
         cmd_trends(period=period, as_json=as_json)
 
@@ -299,7 +304,7 @@ def main():
     elif cmd == "export":
         fmt = _get_flag(args, "--format") or "csv"
         if fmt not in ("csv", "json", "md", "markdown"):
-            print(f"Error: format must be 'csv', 'json', or 'md', got: {fmt}")
+            error(f"Error: format must be 'csv', 'json', or 'md', got: {fmt}")
             return
         if fmt == "markdown":
             fmt = "md"

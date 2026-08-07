@@ -99,15 +99,15 @@ a preference.
 
 - Every command closes its connection in a `finally` block
 - `NO_COLOR` env var and `--no-color` flag both disable color (`applyr/colors.py`)
-- Validation failures print a message starting with `Error:` and exit `1`
-
-> **Known limitation — do not document this as intended behavior.** Applyr
-> currently writes everything to **stdout**; it never uses stderr. When a
-> command invoked with `--json` fails validation, the error text lands on
-> stdout alongside (or instead of) the JSON payload, so an agent parsing
-> stdout gets a `JSONDecodeError` rather than a structured error. Routing
-> errors to stderr would be a breaking change for anyone capturing stdout
-> today, so it needs an ADR before being fixed.
+- **stdout carries data only. All errors and warnings go to stderr** via
+  `applyr/errors.py` (`error()`, `warn()`, `die()`) — see
+  [ADR 006](adr/006-errors-to-stderr.md). Never use a bare `print()` for an
+  error, a warning, or a hint line that follows one.
+- Validation failures print a message starting with `Error:` on stderr and exit `1`
+- `--json` output goes to stdout with nothing else mixed in. A failed `--json`
+  invocation emits nothing on stdout and exits non-zero
+- Usage text shown when a command is called with no arguments is help, not an
+  error: it goes to stdout and exits `0`
 
 ---
 
@@ -121,6 +121,8 @@ Safe places to add functionality without touching a stable contract.
 | An analytics/report command | `applyr/commands/analytics.py` |
 | An export format or system command | `applyr/commands/workflow.py` |
 | A shared display helper | `applyr/commands/_helpers.py` |
+| An error or warning message | `applyr/errors.py` — never a bare `print()` |
+| A duplicate-detection rule | `applyr/duplicates.py` |
 | A scoring topic | `TOPIC_LABELS` (`config.py`) + `DEFAULT_WEIGHTS` (`constants.py`) |
 | A threshold or magic number | `applyr/constants.py` — never inline |
 | A CV or document template | `applyr/templates/` |

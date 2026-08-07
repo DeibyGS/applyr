@@ -39,6 +39,11 @@ PRIORITY_MEDIUM_SCORE = 40
 # Scoring
 DEFAULT_TOPIC_WEIGHT = 0.10
 
+# Duplicate detection — minimum title similarity (0.0-1.0) to treat two offers
+# at the same company as the same role. Below this they are separate offers.
+DUPLICATE_SIMILARITY_THRESHOLD = 0.85
+DUPLICATE_COMPANY_HISTORY_LIMIT = 5
+
 # ---------------------------------------------------------------------------
 # Timeouts
 # ---------------------------------------------------------------------------

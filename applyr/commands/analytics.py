@@ -1,7 +1,6 @@
 """Analysis and reporting commands: pipeline, stats, gaps, followups, trends, summary, compare, plan, salary."""
 
 import json
-import sys
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -28,6 +27,7 @@ from applyr.constants import (
 )
 from applyr.db import STATUS_LABELS, VALID_STATUSES, get_conn
 from applyr.commands._helpers import _bar, _today, _truncate
+from applyr.errors import die, error
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -346,8 +346,7 @@ def cmd_followups(as_json: bool = False) -> None:
 def cmd_trends(period: str = "week", as_json: bool = False) -> None:
     """Group applications by week or month and show growth vs previous period."""
     if period not in ("week", "month"):
-        print("Error: period must be 'week' or 'month'.")
-        sys.exit(1)
+        die("Error: period must be 'week' or 'month'.")
 
     # SQLite strftime format
     fmt = "%Y-W%W" if period == "week" else "%Y-%m"
@@ -496,10 +495,10 @@ def cmd_summary(as_json: bool = False) -> None:
 def cmd_compare(ids: list[int], as_json: bool = False) -> None:
     """Compare 2-10 offers side by side in a vertical table."""
     if len(ids) < COMPARE_MIN_OFFERS:
-        print("Error: need at least 2 IDs to compare.")
+        error("Error: need at least 2 IDs to compare.")
         return
     if len(ids) > COMPARE_MAX_OFFERS:
-        print("Error: maximum 10 offers to compare.")
+        error("Error: maximum 10 offers to compare.")
         return
 
     conn = get_conn()
@@ -514,7 +513,7 @@ def cmd_compare(ids: list[int], as_json: bool = False) -> None:
     found_ids = {r["id"] for r in rows}
     for oid in ids:
         if oid not in found_ids:
-            print(f"Error: offer {oid} not found.")
+            error(f"Error: offer {oid} not found.")
             return
 
     # Keep original order
