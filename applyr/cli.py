@@ -162,7 +162,10 @@ def main():
         force = _has_flag(args, "--force")
         if force:
             args.remove("--force")
-        if len(args) < 2 and sys.stdin.isatty():
+        # `--help` must win over JSON parsing, otherwise asking for usage is
+        # reported as an invalid-JSON error.
+        wants_help = len(args) >= 2 and args[1] in ("--help", "-h")
+        if wants_help or (len(args) < 2 and sys.stdin.isatty()):
             print("Usage: applyr add '<json>' [--force]")
             print("       applyr add offer.json")
             print("       cat offer.json | applyr add -")
@@ -222,11 +225,12 @@ def main():
         cmd_update(offer_id, status, notes, canal, cv)
 
     elif cmd == "delete":
-        if len(args) < 2:
-            print("Usage: applyr delete <id>")
+        if len(args) < 2 or args[1] in ("--help", "-h"):
+            print("Usage: applyr delete <id> [--force]")
+            print("  --force: skip the confirmation prompt (required when not on a terminal)")
             return
         offer_id = _safe_int(args[1])
-        cmd_delete(offer_id)
+        cmd_delete(offer_id, force=_has_flag(args, "--force"))
 
     elif cmd == "search":
         if len(args) < 2:
@@ -309,18 +313,20 @@ def main():
     elif cmd == "cv":
         if len(args) < 2:
             print("Usage:")
-            print("  applyr cv generate <id> [--template ats]  Generate CV for offer")
+            print("  applyr cv generate <id> [--template ats] [--force]")
+            print("                                            Generate CV for offer")
             print("  applyr cv review <html-file>              Recruiter review prompt")
             print("  applyr cv pdf <html-file> [--output f.pdf] HTML to PDF via Chrome")
             return
         subcmd = args[1]
         if subcmd == "generate":
-            if len(args) < 3:
-                print("Usage: applyr cv generate <id> [--template ats]")
+            if len(args) < 3 or args[2] in ("--help", "-h"):
+                print("Usage: applyr cv generate <id> [--template ats] [--force]")
+                print("  --force: overwrite an existing CV for this offer")
                 return
             offer_id = _safe_int(args[2])
             template = _get_flag(args, "--template") or "ats"
-            cmd_cv_generate(offer_id, template=template)
+            cmd_cv_generate(offer_id, template=template, force=_has_flag(args, "--force"))
         elif subcmd == "review":
             if len(args) < 3:
                 print("Usage: applyr cv review <html-file>")

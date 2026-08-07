@@ -1,6 +1,7 @@
 """CRUD and setup commands: init, setup-agent, add, list, show, update, delete, search."""
 
 import json
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -185,7 +186,7 @@ def cmd_init() -> None:
         print(f"  {agent_instructions_dst} already exists — skipped")
 
     print("\napplyr is ready.")
-    print("  1. Edit ~/.applyr/cv-master.md with your professional profile")
+    print(f"  1. Edit {APPLYR_DIR / 'cv-master.md'} with your professional profile")
     print("  2. Run 'applyr setup-agent' in your project directory")
     print("     to configure your AI agent (Claude, Cursor, OpenCode, etc.)")
     print("  3. Run 'applyr add <json>' to log your first offer")
@@ -244,7 +245,7 @@ def cmd_setup_agent(agent: str | None = None) -> None:
         print(f"  Created {rel_path} with applyr instructions")
 
     print(f"\n  Your AI agent will now use applyr automatically.")
-    print(f"  Make sure ~/.applyr/cv-master.md has your professional profile.")
+    print(f"  Make sure {APPLYR_DIR / 'cv-master.md'} has your professional profile.")
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +699,13 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
             fields.append("follow_up_date = ?")
             params.append(new_follow_up)
 
+            # Stamp the send date too. Without it `summary` counts zero
+            # applications, the default `list` sort has nothing to sort on and
+            # follow-ups never come due. COALESCE keeps the original date when
+            # an offer moves applied -> waiting.
+            fields.append("date_applied = COALESCE(date_applied, ?)")
+            params.append(_today())
+
         # Record response date when first response received
         if status in ("in_process", "rejected", "offer"):
             fields.append("date_responded = COALESCE(date_responded, ?)")
@@ -718,7 +726,7 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
 # cmd_delete
 # ---------------------------------------------------------------------------
 
-def cmd_delete(offer_id: int) -> None:
+def cmd_delete(offer_id: int, force: bool = False) -> None:
     """Delete an offer and its associated topics (CASCADE)."""
     conn = get_conn()
     try:
@@ -731,10 +739,18 @@ def cmd_delete(offer_id: int) -> None:
 
         print(f"About to delete:")
         print(f"  #{row['id']}  {row['title']}  ({row['company'] or '—'})  [{STATUS_LABELS.get(row['status'], row['status'])}]")
-        confirm = input("Confirm deletion? [y/N]: ").strip().lower()
-        if confirm != "y":
-            print("Aborted.")
-            return
+
+        if not force:
+            # Without a terminal there is nobody to answer the prompt, and
+            # input() would raise EOFError as a bare traceback.
+            if not sys.stdin.isatty():
+                die("Refusing to delete without confirmation.", code="confirmation_required",
+                    details={"offer_id": offer_id},
+                    text="  No terminal available to confirm. Pass --force to delete.")
+            confirm = input("Confirm deletion? [y/N]: ").strip().lower()
+            if confirm != "y":
+                print("Aborted.")
+                return
 
         conn.execute("DELETE FROM offers WHERE id = ?", (offer_id,))
         conn.commit()

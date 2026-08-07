@@ -9,3 +9,7 @@ build/
 .claude/
 HANDOFF.md
 specs/
+
+# Personal data — never commit (public repo)
+cv/
+*.pdf
