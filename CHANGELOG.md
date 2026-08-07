@@ -4,6 +4,38 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.2] — 2026-08-07
+
+`doctor` was the command v0.8.1 told every agent to run first, and it could not
+fail. Two defects made it report a healthy setup no matter what.
+
+### Fixed
+- **`applyr doctor` exits `1` when the setup is unhealthy.** It always exited `0`,
+  including while printing "3 issue(s) found", so `applyr doctor && applyr cv
+  generate 3` built a CV from an empty profile without hesitating. This was
+  already a contract violation: `docs/contracts.md` states that a command
+  reporting a problem and exiting `0` is a bug. Chrome stays non-blocking — a
+  missing PDF renderer does not invalidate the setup
+- **`doctor` no longer recreates the database it is checking.** Every command
+  except `init` ran `init_db()` before routing, so by the time the health check
+  looked, a deleted `jobs.db` had been silently recreated and its `NOT FOUND`
+  branch was unreachable. `doctor` is now excluded from that auto-init and
+  observes the real state
+
+### Added
+- **`applyr doctor --json`** — `{"healthy", "issues", "checks": [...]}`, with a
+  `status` of `ok`, `issue` or `note` per check. Agents read this command first;
+  now they can parse it instead of scraping text
+- 8 tests for `doctor`, which had none. `commands/workflow.py` coverage went from
+  11% to 49%, and total from 32% to 35%
+
+### Changed
+- `docs/contracts.md` distinguishes a failed invocation from a command whose job
+  is to render a verdict, and records that `doctor` must never mutate what it
+  inspects — the ambiguity is what let both defects look acceptable
+- `cmd_doctor` split into one function per check, clearing its
+  `too-many-branches` and `too-many-statements` warnings (pylint 9.36 → 9.41)
+
 ## [0.8.1] — 2026-08-07
 
 ### Added

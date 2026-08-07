@@ -3,11 +3,13 @@
 import csv
 import json
 import os
+import sys
 from pathlib import Path
 
 from applyr import __version__
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CV_MASTER_MIN_SIZE, CV_STATS_NAME_WIDTH
+from applyr.cv import get_cv_master_path
 from applyr.cv_stats import build_report
 from applyr.db import get_conn
 from applyr.errors import die
@@ -85,85 +87,122 @@ def cmd_export(fmt: str = "csv", filepath: str | None = None) -> None:
 # cmd_doctor
 # ---------------------------------------------------------------------------
 
-def cmd_doctor() -> None:
-    """Check applyr configuration, database, and environment health."""
-    from applyr.cv import get_cv_master_path
+def _ok(name: str, message: str) -> dict:
+    """A check that passed."""
+    return {"name": name, "status": "ok", "message": message, "hint": None}
 
-    config = load_config()
-    issues = 0
 
-    print(f"applyr v{__version__} — health check\n")
+def _issue(name: str, message: str, hint: str | None = None) -> dict:
+    """A check that failed in a way that makes the rest of applyr unreliable."""
+    return {"name": name, "status": "issue", "message": message, "hint": hint}
 
-    # Database
+
+def _note(name: str, message: str, hint: str | None = None) -> dict:
+    """A check that failed without invalidating the setup — reported, not blocking."""
+    return {"name": name, "status": "note", "message": message, "hint": hint}
+
+
+def _check_database(config: dict) -> dict:
     db_path = Path(config["general"]["db_path"])
-    if db_path.exists():
-        conn = get_conn()
-        try:
-            count = conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0]
-            print(f"  Database     : OK ({db_path}, {count} offers)")
-        except Exception as e:
-            print(f"  Database     : ERROR — {e}")
-            issues += 1
-        finally:
-            conn.close()
-    else:
-        print(f"  Database     : NOT FOUND — {db_path}")
-        print("                 Run 'applyr init' to create it.")
-        issues += 1
+    if not db_path.exists():
+        return _issue("Database", f"NOT FOUND — {db_path}",
+                      "Run 'applyr init' to create it.")
+    conn = get_conn()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0]
+    except Exception as e:  # pylint: disable=broad-except
+        # A health check must report a broken database, never crash on it.
+        return _issue("Database", f"ERROR — {e}")
+    finally:
+        conn.close()
+    return _ok("Database", f"OK ({db_path}, {count} offers)")
 
-    # Config
+
+def _check_config() -> dict:
     config_path = APPLYR_DIR / "applyr.toml"
     if config_path.exists():
-        print(f"  Config       : OK ({config_path})")
-    else:
-        print(f"  Config       : NOT FOUND — using defaults")
-        issues += 1
+        return _ok("Config", f"OK ({config_path})")
+    return _issue("Config", "NOT FOUND — using defaults")
 
-    # CV master
+
+def _check_cv_master() -> dict:
     cv_master = get_cv_master_path()
-    if cv_master.exists():
-        size = cv_master.stat().st_size
-        if size < CV_MASTER_MIN_SIZE:
-            print(f"  CV Master    : WARNING — file exists but looks empty ({size} bytes)")
-            print(f"                 Edit {cv_master} with your professional profile.")
-            issues += 1
-        else:
-            print(f"  CV Master    : OK ({cv_master}, {size:,} bytes)")
-    else:
-        print(f"  CV Master    : NOT FOUND — {cv_master}")
-        print("                 Run 'applyr init' to create a template.")
-        issues += 1
+    if not cv_master.exists():
+        return _issue("CV Master", f"NOT FOUND — {cv_master}",
+                      "Run 'applyr init' to create a template.")
+    size = cv_master.stat().st_size
+    if size < CV_MASTER_MIN_SIZE:
+        return _issue("CV Master",
+                      f"WARNING — file exists but looks empty ({size} bytes)",
+                      f"Edit {cv_master} with your professional profile.")
+    return _ok("CV Master", f"OK ({cv_master}, {size:,} bytes)")
 
-    # Agent instructions
+
+def _check_agent_instructions() -> dict:
     agent_path = APPLYR_DIR / "AGENT_INSTRUCTIONS.md"
     if agent_path.exists():
-        print(f"  Agent Instr. : OK ({agent_path})")
-    else:
-        print(f"  Agent Instr. : NOT FOUND — run 'applyr init'")
-        issues += 1
+        return _ok("Agent Instr.", f"OK ({agent_path})")
+    return _issue("Agent Instr.", "NOT FOUND — run 'applyr init'")
 
-    # Chrome
+
+def _check_chrome(config: dict) -> dict:
     chrome = config["cv"]["chrome_path"]
     if chrome and os.path.isfile(chrome):
-        print(f"  Chrome       : OK ({chrome})")
-    else:
-        print(f"  Chrome       : NOT FOUND (PDF generation will not work)")
-        print("                 Set CHROME_BIN env var or chrome_path in applyr.toml")
+        return _ok("Chrome", f"OK ({chrome})")
+    # Not blocking: without Chrome only `cv pdf` breaks. Scoring, tracking and
+    # HTML generation all still work, so this must not fail the health check.
+    return _note("Chrome", "NOT FOUND (PDF generation will not work)",
+                 "Set CHROME_BIN env var or chrome_path in applyr.toml.")
 
-    # Scoring weights (auto-normalized, just check they exist and are positive)
+
+def _check_weights(config: dict) -> dict:
     weights = config["weights"]
     if all(v > 0 for v in weights.values()):
-        print(f"  Weights      : OK ({len(weights)} topics, auto-normalized)")
-    else:
-        print(f"  Weights      : WARNING — some weights are zero or negative")
-        issues += 1
+        return _ok("Weights", f"OK ({len(weights)} topics, auto-normalized)")
+    return _issue("Weights", "WARNING — some weights are zero or negative")
 
-    # Summary
-    print()
-    if issues == 0:
-        print("  All checks passed.")
+
+def cmd_doctor(as_json: bool = False) -> None:
+    """Check applyr configuration, database, and environment health.
+
+    Exits 1 when a blocking issue is found. `doctor` is a gate, not a report:
+    a health check that always exits 0 cannot guard anything, so
+    `applyr doctor && applyr cv generate 3` would happily build a CV from an
+    empty profile. The report itself is data and stays on stdout in both modes
+    — the exit code carries the verdict.
+    """
+    config = load_config()
+    checks = [
+        _check_database(config),
+        _check_config(),
+        _check_cv_master(),
+        _check_agent_instructions(),
+        _check_chrome(config),
+        _check_weights(config),
+    ]
+    issues = [c for c in checks if c["status"] == "issue"]
+
+    if as_json:
+        print(json.dumps({
+            "version": __version__,
+            "healthy": not issues,
+            "issues": len(issues),
+            "checks": checks,
+        }, indent=2))
     else:
-        print(f"  {issues} issue(s) found.")
+        print(f"applyr v{__version__} — health check\n")
+        for check in checks:
+            # Messages are self-describing so the human report is unchanged;
+            # `status` is what machines read in --json mode.
+            print(f"  {check['name']:<13}: {check['message']}")
+            if check["hint"]:
+                print(f"                 {check['hint']}")
+        print()
+        print("  All checks passed." if not issues
+              else f"  {len(issues)} issue(s) found.")
+
+    if issues:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
