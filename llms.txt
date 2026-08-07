@@ -88,6 +88,7 @@ style: Python 3.12+ syntax, `X | Y` unions, type hints, English output.
 - `docs/agent-workflow.md` — Order of operations, definition of done, common tasks
 - `AGENTS.md` — Full contributor guide
 - `docs/contracts.md` — Stable contracts, invariants, extension points (read before refactoring)
+- `docs/adr/` — Why the architecture is what it is (read before reversing a decision)
 - `CONTRIBUTING.md` — Human contributor guide
 - `applyr/templates/AGENT_INSTRUCTIONS.md` — End-user agent workflow (DO NOT MODIFY)
 - `specs/` — SDD specifications
