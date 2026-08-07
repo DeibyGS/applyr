@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ## [Unreleased]
 
 ### Added
+- `docs/adr/` — 5 retroactive Architecture Decision Records (local-first, SQLite, no LLM calls, weighted scoring, single CLI) with an index and conventions
 - `docs/mental-model.md` — what applyr is and is not, design principles, anti-patterns
 - `docs/agent-workflow.md` — reading order, definition of done, common tasks, when to stop and ask
 - `docs/contracts.md` — stable contracts, invariants, extension points and the migration procedure
