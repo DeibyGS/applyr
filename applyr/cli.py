@@ -56,7 +56,7 @@ Commands:
   salary [--seniority S]        Salary insights by seniority/category
   export [--format csv|json|md]  Export all data
   cv stats [--min-sample N]     Compare CVs by response and interview rate
-  doctor                        Check configuration and database health
+  doctor [--json]               Check configuration and database health (exit 1 if unhealthy)
   version                       Show version
   help                          Show this help
 
@@ -141,8 +141,11 @@ def main():
         print(f"applyr v{__version__}")
         return
 
-    # Commands that need DB initialized
-    if cmd != "init":
+    # Commands that need DB initialized. `doctor` is excluded on purpose: it
+    # must observe the environment, not mutate it. While it ran through this
+    # path the database was recreated before the check, so its "NOT FOUND"
+    # branch was unreachable and a missing database always reported OK.
+    if cmd not in ("init", "doctor"):
         try:
             init_db()
         except Exception as e:
@@ -300,7 +303,7 @@ def main():
         cmd_salary(seniority=seniority, category=category, as_json=as_json)
 
     elif cmd == "doctor":
-        cmd_doctor()
+        cmd_doctor(as_json=as_json)
 
     elif cmd == "export":
         fmt = _get_flag(args, "--format") or "csv"

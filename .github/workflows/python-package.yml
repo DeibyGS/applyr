@@ -40,6 +40,20 @@ jobs:
       - name: Verify init
         run: applyr init
 
+      # The database-recreation defect lived in cli.py routing and was invisible
+      # to unit tests calling cmd_doctor() directly — only the real binary shows
+      # it. Chrome is absent on the runner, which also proves it does not block.
+      - name: Verify doctor gates on health
+        run: |
+          if applyr doctor; then echo "doctor must exit 1 on an unfilled cv-master"; exit 1; fi
+          python -c "import pathlib,os; p=pathlib.Path(os.path.expanduser('~/.applyr/cv-master.md')); p.write_text('# CV Master\n\n' + 'Real experience. ' * 200)"
+          applyr doctor
+          applyr doctor --json | python -c "import sys,json; d=json.load(sys.stdin); assert d['healthy'] is True, d"
+          rm ~/.applyr/jobs.db
+          if applyr doctor; then echo "doctor must exit 1 when the database is gone"; exit 1; fi
+          test ! -f ~/.applyr/jobs.db || { echo "doctor must not recreate the database"; exit 1; }
+          applyr init
+
       - name: Verify add + show
         run: |
           applyr add '{"title": "Test Job", "company": "TestCorp", "work_mode": "remote", "status": "applied", "tech_stack": "Python", "topics": {"tech_stack": {"score": 80, "detail": "OK"}}}'

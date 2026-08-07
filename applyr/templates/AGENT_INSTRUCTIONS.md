@@ -18,9 +18,14 @@ applyr doctor
 ```
 
 `doctor` is the health check: it verifies the database, config, CV master, agent
-instructions and Chrome. It always exits 0, so do not branch on the exit code — read
-the output. A CV master that still holds the empty template is reported here, and
-every CV generated from it would be invented.
+instructions and Chrome. **It exits 1 when the setup is unhealthy**, so it is safe to
+gate on: `applyr doctor && applyr cv generate 3`. A non-zero exit means applyr found a
+problem, not that the command failed — read the report and fix what it names. A CV
+master that still holds the empty template is reported here, and every CV generated
+from it would be invented.
+
+`applyr doctor --json` returns the same report as `{"healthy", "issues", "checks": [...]}`
+for agents that would rather parse than scrape.
 
 Then guide the user through two mandatory steps:
 
@@ -42,9 +47,10 @@ When the user shares a job offer, follow this pipeline in order.
 applyr doctor
 ```
 
-Run this first, every session. If it reports an issue, fix that before scoring
-anything — a `CV Master: WARNING` means the profile is still the blank template, and
-a CV built on it will contain invented experience.
+Run this first, every session. It exits 1 when something is broken — if that happens,
+fix what it names before scoring anything. A `CV Master: WARNING` means the profile is
+still the blank template, and a CV built on it will contain invented experience.
+Missing Chrome is reported but never blocks: it only stops `cv pdf`.
 
 ```bash
 cat ~/.applyr/cv-master.md

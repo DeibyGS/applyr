@@ -71,6 +71,18 @@ applyr update 1 applied --cv cv-acme.html
 applyr update 1 applied --cv ""          # unlink the CV
 ```
 
+### `applyr doctor [--json]`
+
+Check configuration, database, CV master, agent instructions, Chrome and scoring
+weights. **Exits `1` when a blocking issue is found**, so it can gate a pipeline:
+
+```bash
+applyr doctor && applyr cv generate 3
+applyr doctor --json    # {"healthy": bool, "issues": int, "checks": [...]}
+```
+
+A missing Chrome is reported but does not block — it only stops `cv pdf`.
+
 ### `applyr delete <id>`
 
 Remove an offer.

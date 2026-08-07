@@ -149,6 +149,15 @@ a preference.
   invocation emits nothing on stdout and exits non-zero
 - Usage text shown when a command is called with no arguments is help, not an
   error: it goes to stdout and exits `0`
+- **A command whose job is to render a verdict exits non-zero on a negative one,
+  and its report stays on stdout.** `doctor` is the only such command today: a
+  health check that always exits `0` cannot gate anything, so it exits `1` when a
+  blocking issue is found — while still printing the full report as data, in text
+  and in `--json`. This is not the "failed invocation" case above: the command
+  succeeded, the answer is just "unhealthy". Do not route it through `die()`
+- **`doctor` must never mutate what it inspects.** It is excluded from the
+  automatic `init_db()` in `cli.py`; while it ran through that path the database
+  was recreated before the check and a missing database always reported OK
 
 ---
 
