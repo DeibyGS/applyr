@@ -2,6 +2,11 @@
 
 > Guide for AI coding agents working on the applyr codebase.
 
+**New here?** Read [`docs/mental-model.md`](docs/mental-model.md) first — it takes
+two minutes and prevents the most common category of wrong change. Then
+[`docs/agent-workflow.md`](docs/agent-workflow.md) for the order of operations,
+and [`docs/contracts.md`](docs/contracts.md) before any refactor.
+
 ## What is Applyr?
 
 A CLI job application tracker for AI coding agents. Python 3.12+, SQLite, zero heavy dependencies. Installable via `pip install applyr`.

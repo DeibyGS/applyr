@@ -99,8 +99,15 @@ a preference.
 
 - Every command closes its connection in a `finally` block
 - `NO_COLOR` env var and `--no-color` flag both disable color (`applyr/colors.py`)
-- `--json` output goes to stdout with nothing else mixed in
-- Validation errors exit non-zero with a message on stderr
+- Validation failures print a message starting with `Error:` and exit `1`
+
+> **Known limitation — do not document this as intended behavior.** Applyr
+> currently writes everything to **stdout**; it never uses stderr. When a
+> command invoked with `--json` fails validation, the error text lands on
+> stdout alongside (or instead of) the JSON payload, so an agent parsing
+> stdout gets a `JSONDecodeError` rather than a structured error. Routing
+> errors to stderr would be a breaking change for anyone capturing stdout
+> today, so it needs an ADR before being fixed.
 
 ---
 

@@ -84,6 +84,8 @@ style: Python 3.12+ syntax, `X | Y` unions, type hints, English output.
 
 ## Key Files for Agents
 
+- `docs/mental-model.md` — What applyr is and is not (read this first)
+- `docs/agent-workflow.md` — Order of operations, definition of done, common tasks
 - `AGENTS.md` — Full contributor guide
 - `docs/contracts.md` — Stable contracts, invariants, extension points (read before refactoring)
 - `CONTRIBUTING.md` — Human contributor guide
