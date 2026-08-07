@@ -1,11 +1,12 @@
 """CV system — HTML skeleton generation and Chrome headless PDF export."""
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
-from applyr.config import load_config
-from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS
+from applyr.config import APPLYR_DIR, load_config
+from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, CV_MASTER_MIN_SIZE
 from applyr.errors import die, error
 
 
@@ -50,16 +51,25 @@ h3 { font-size: 11pt; margin-bottom: 2px; }
 ul { padding-left: 18px; margin: 4px 0 10px; }
 li { margin-bottom: 3px; }
 p { margin-bottom: 4px; }
+/* Chrome adds its own default page margin on top of the body padding, which
+   silently pushes a one-page CV onto a second page. Zeroing it here makes the
+   body padding the single source of truth for margins. */
+@page { size: A4; margin: 0; }
 @media print {
-    body { padding: 1cm 1.5cm; }
+    body { padding: 1.2cm 1.6cm; }
     h2 { page-break-after: avoid; }
 }"""
 
 
 def _make_slug(company: str | None, title: str) -> str:
-    """Create a filesystem-safe slug from company and title."""
+    """Create a filesystem-safe slug from company and title.
+
+    Keeps only ASCII letters, digits and dashes so titles like "Full Stack (JS)"
+    do not produce filenames that need shell quoting.
+    """
     raw = f"{company or 'unknown'}-{title}".lower()
-    return raw.replace(" ", "-").replace("/", "-")[:40]
+    cleaned = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+    return cleaned[:40].strip("-") or "cv"
 
 
 def get_cv_master_path() -> Path:
@@ -83,7 +93,7 @@ def cmd_cv_pdf(html_file: str, output: str | None = None) -> None:
 
     if not chrome_path or not os.path.isfile(chrome_path):
         error("Error: Chrome/Chromium not found.")
-        error("  Set 'chrome_path' in ~/.applyr/applyr.toml under [cv]")
+        error(f"  Set 'chrome_path' in {APPLYR_DIR / 'applyr.toml'} under [cv]")
         die("Chrome/Chromium not found — required for PDF generation.",
             code="chrome_not_found", text="  Or install Google Chrome / Chromium.")
 
@@ -122,7 +132,7 @@ def cmd_cv_pdf(html_file: str, output: str | None = None) -> None:
             code="chrome_not_found", details={"path": chrome_path})
 
 
-def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
+def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -> None:
     """Generate an ATS-safe HTML CV skeleton for a specific offer.
 
     The HTML includes:
@@ -141,12 +151,6 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
         if not row:
             die(f"Error: offer #{offer_id} not found.", code="not_found",
                 details={"offer_id": offer_id})
-
-        # Load topic scores if any
-        topics = conn.execute(
-            "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ? ORDER BY score DESC",
-            (offer_id,),
-        ).fetchall()
     finally:
         conn.close()
 
@@ -156,6 +160,17 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
         die(f"Error: cv-master.md not found at {cv_master}", code="not_found",
             details={"path": str(cv_master)},
             text="  Run 'applyr init' to create a template, then edit it with your profile.")
+
+    # An unfilled template is worse than a missing one: generation succeeds and
+    # the agent has nothing to fill the placeholders from, so the failure is
+    # silent. setup-agent already warns about this; refuse it here too.
+    cv_master_size = cv_master.stat().st_size
+    if cv_master_size < CV_MASTER_MIN_SIZE:
+        error(f"Error: cv-master.md looks empty ({cv_master_size} bytes).")
+        die("cv-master.md is still the unfilled template.", code="empty_cv_master",
+            details={"path": str(cv_master), "size": cv_master_size,
+                     "min_size": CV_MASTER_MIN_SIZE},
+            text=f"  Fill {cv_master} with your profile before generating a CV.")
     output_dir = get_output_dir()
     slug = _make_slug(row["company"], row["title"])
     html_path = output_dir / f"cv-{slug}.html"
@@ -173,12 +188,11 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
     ]
     if row["summary"]:
         context_lines.append(f"    Job Summary      : {row['summary']}")
-    if topics:
-        context_lines.append("")
-        context_lines.append("    Topic Scores:")
-        for t in topics:
-            context_lines.append(f"      {t['topic']}: {t['score']}% — {t['detail'] or ''}")
 
+    # Topic scores deliberately stay out of the HTML. They contain candid
+    # self-assessment ("no professional experience in this stack") that would
+    # ship to the recruiter inside the file. `cv review` reads them from the
+    # database via the applyr:offer-id marker below instead.
     context_block = "\n".join(context_lines)
 
     html = f"""\
@@ -193,6 +207,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
     </style>
 </head>
 <body>
+<!-- applyr:offer-id={offer_id} -->
 
 <!--
     ================================================================
@@ -280,6 +295,15 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
 
 </body>
 </html>"""
+
+    # Never clobber a finished CV. Regenerating drops the skeleton back on top
+    # of hours of tailored content, and there is no undo.
+    if html_path.exists() and not force:
+        error(f"Error: {html_path.name} already exists.")
+        die(f"CV already exists at {html_path}", code="already_exists",
+            details={"path": str(html_path), "offer_id": offer_id},
+            text="  It would be overwritten with an empty skeleton.\n"
+                 "  Pass --force to replace it, or rename the existing file first.")
 
     html_path.write_text(html)
 
@@ -369,25 +393,66 @@ VERDICT: [READY TO SEND / NEEDS MINOR EDITS / NEEDS MAJOR REVISION]
 
 
 def _strip_html_tags(html: str) -> str:
-    """Remove HTML tags and return plain text content."""
-    import re
+    """Remove markup, styles and comments, returning the readable CV text."""
     text = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
-    text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
     text = re.sub(r'<[^>]+>', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text[:_MAX_CV_TEXT_CHARS]
 
 
+def _offer_context_from_db(offer_id: int) -> str | None:
+    """Build the review context for an offer, scores included, from the database.
+
+    Scores live here rather than in the CV so that candid self-assessment never
+    ships inside the file the recruiter receives.
+    """
+    from applyr.db import get_conn
+
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
+        if not row:
+            return None
+        topics = conn.execute(
+            "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ? ORDER BY score DESC",
+            (offer_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    lines = [
+        f"Target Position : {row['title']}",
+        f"Company         : {row['company'] or 'Not specified'}",
+        f"Work Mode       : {row['work_mode'] or 'Not specified'}",
+        f"Location        : {row['location'] or 'Not specified'}",
+        f"Seniority       : {row['seniority_level'] or 'Not specified'}",
+        f"Tech Stack Req. : {row['tech_stack'] or 'Not specified'}",
+        f"Compatibility   : {row['compatibility_pct']}%",
+    ]
+    if row["summary"]:
+        lines.append(f"Job Summary     : {row['summary']}")
+    if topics:
+        lines.append("")
+        lines.append("Topic Scores:")
+        lines += [f"  {t['topic']}: {t['score']}% — {t['detail'] or ''}" for t in topics]
+    return "\n".join(lines)
+
+
 def _extract_offer_context(html: str) -> str:
-    """Extract the OFFER CONTEXT block from HTML comments."""
-    import re
-    match = re.search(
-        r'OFFER CONTEXT.*?:(.*?)INSTRUCTIONS FOR AI AGENT',
-        html, re.DOTALL
-    )
-    if match:
-        return match.group(1).strip()
-    return "(No offer context found in HTML comments)"
+    """Resolve the offer context for a CV, preferring the database."""
+    marker = re.search(r'applyr:offer-id=(\d+)', html)
+    if marker:
+        context = _offer_context_from_db(int(marker.group(1)))
+        if context:
+            return context
+
+    # CVs generated before the marker existed still carry the context inline.
+    legacy = re.search(r'OFFER CONTEXT.*?:(.*?)INSTRUCTIONS FOR AI AGENT', html, re.DOTALL)
+    if legacy:
+        return legacy.group(1).strip()
+    return "(No offer context found — pass a CV generated by 'applyr cv generate')"
 
 
 def cmd_cv_review(html_file: str, as_json: bool = False) -> None:

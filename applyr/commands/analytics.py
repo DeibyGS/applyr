@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from applyr.colors import color
-from applyr.config import TOPIC_LABELS
+from applyr.config import TOPIC_LABELS, load_config
 from applyr.constants import (
     COMPARE_COL_MAX,
     COMPARE_COL_MIN,
@@ -222,18 +222,46 @@ def cmd_stats(as_json: bool = False) -> None:
 # cmd_gaps
 # ---------------------------------------------------------------------------
 
-def cmd_gaps(limit: int = 10, as_json: bool = False) -> None:
-    """Show recurring skill gaps sorted by frequency."""
-    topic_labels: dict = TOPIC_LABELS
+def _live_skill_gaps(limit: int | None = None) -> list[dict]:
+    """Derive recurring skill gaps from the offers currently stored.
+
+    The skill_gaps table is an append-only counter: cmd_add increments it and
+    nothing ever decrements it, so deleting an offer leaves its gaps behind
+    forever. Deriving from offer_topics keeps these numbers consistent with
+    what `applyr list` actually shows.
+    """
+    threshold = load_config()["general"]["threshold"]
 
     conn = get_conn()
     try:
         rows = conn.execute(
-            "SELECT skill, frequency, total_gap FROM skill_gaps ORDER BY frequency DESC, total_gap DESC LIMIT ?",
-            (limit,),
+            """
+            SELECT t.topic                AS skill,
+                   COUNT(*)               AS frequency,
+                   SUM(:threshold - t.score) AS total_gap
+            FROM offer_topics t
+            -- SQLite runs with foreign_keys OFF, so orphaned topic rows are
+            -- possible. The join drops them rather than counting them.
+            JOIN offers o ON o.id = t.offer_id
+            WHERE t.score < :threshold
+            GROUP BY t.topic
+            ORDER BY frequency DESC, total_gap DESC
+            """,
+            {"threshold": threshold},
         ).fetchall()
     finally:
         conn.close()
+
+    gaps = [{"skill": r["skill"], "frequency": r["frequency"], "total_gap": r["total_gap"]}
+            for r in rows]
+    return gaps[:limit] if limit is not None else gaps
+
+
+def cmd_gaps(limit: int = 10, as_json: bool = False) -> None:
+    """Show recurring skill gaps sorted by frequency."""
+    topic_labels: dict = TOPIC_LABELS
+
+    rows = _live_skill_gaps(limit)
 
     if not rows:
         print("No skill gaps recorded yet.")
@@ -449,14 +477,12 @@ def cmd_summary(as_json: bool = False) -> None:
             (week_start, week_end),
         ).fetchall()
         work_modes = {r["work_mode"]: r["cnt"] for r in modes_rows}
-
-        # Top skill gap
-        top_gap_row = conn.execute(
-            "SELECT skill FROM skill_gaps ORDER BY frequency DESC LIMIT 1"
-        ).fetchone()
-        top_gap = topic_labels.get(top_gap_row["skill"], top_gap_row["skill"]) if top_gap_row else None
     finally:
         conn.close()
+
+    # Top skill gap — derived from current offers, see _live_skill_gaps
+    top_gaps = _live_skill_gaps(limit=1)
+    top_gap = topic_labels.get(top_gaps[0]["skill"], top_gaps[0]["skill"]) if top_gaps else None
 
     response_rate = round(responses / sent * 100, 1) if sent else 0.0
 
@@ -589,13 +615,7 @@ def cmd_plan(limit: int = 10, as_json: bool = False) -> None:
     """Show a prioritized learning plan based on skill gaps."""
     topic_labels: dict = TOPIC_LABELS
 
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            "SELECT skill, frequency, total_gap FROM skill_gaps ORDER BY frequency DESC, total_gap DESC",
-        ).fetchall()
-    finally:
-        conn.close()
+    rows = _live_skill_gaps()
 
     if not rows:
         print("No skill gaps recorded yet.")

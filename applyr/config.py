@@ -36,8 +36,13 @@ english = 10
 cultural_fit = 10
 
 [cv]
-# cv_master = "~/.applyr/cv-master.md"
-# output_dir = "~/.applyr/cv"
+# cv_master  — the profile applyr reads to fill generated CVs. Fill it before
+#              running 'cv generate'; a stub file produces an empty CV.
+# output_dir — where generated CVs are written.
+# Both accept any path, e.g. a private repo you already version. If you point
+# them at a repo, make sure it is gitignored — CVs contain personal data.
+cv_master = "__APPLYR_DIR__/cv-master.md"
+output_dir = "__APPLYR_DIR__/cv"
 """
 
 
@@ -124,7 +129,9 @@ def create_default_config():
 
     config_path = APPLYR_DIR / "applyr.toml"
     if not config_path.exists():
-        config_path.write_text(TOML_TEMPLATE)
+        # The template ships a placeholder rather than a literal ~/.applyr so
+        # that an APPLYR_HOME install does not write paths pointing outside it.
+        config_path.write_text(TOML_TEMPLATE.replace("__APPLYR_DIR__", str(APPLYR_DIR)))
         print(f"  Created {config_path}")
 
     cv_dir = APPLYR_DIR / "cv"
