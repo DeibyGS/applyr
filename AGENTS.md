@@ -24,6 +24,8 @@ applyr/
 ├── cv.py               # ATS HTML skeleton + Chrome PDF + recruiter review
 ├── colors.py           # Colorama wrapper, NO_COLOR support
 ├── constants.py        # All magic numbers, thresholds, column widths
+├── errors.py           # error()/warn()/die() — everything here goes to stderr
+├── duplicates.py       # Title normalization + similarity matching for `add`
 ├── commands/
 │   ├── core.py         # CRUD: init, setup-agent, add, list, show, update, delete, search
 │   ├── analytics.py    # Stats: pipeline, stats, gaps, followups, trends, summary, compare, plan, salary
@@ -61,6 +63,7 @@ User → CLI (cli.py) → Command (commands/*.py) → DB (db.py) → Output
 - **No LLM calls** — applyr is a storage layer, not an AI service
 - **English** — all CLI output, commit messages, docs
 - **No DB access outside db.py** — commands call `get_conn()`, never open SQLite directly
+- **Errors go to stderr** — use `error()`/`warn()`/`die()` from `errors.py`, never `print()`
 - **Constants in constants.py** — no magic numbers in business logic
 
 ## How to Add a New Command

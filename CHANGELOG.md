@@ -4,10 +4,21 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.0] — 2026-08-07
+
+### Changed
+- **BREAKING:** all error and warning output now goes to **stderr** instead of stdout. stdout carries data only, so `applyr <cmd> --json` emits either a valid JSON document or nothing. Scripts that captured stdout to read error text must now capture stderr (`2>&1`). See [ADR 006](docs/adr/006-errors-to-stderr.md)
+- `applyr add` now blocks on near-identical offers at the same company, not only on exact title matches. `"Backend Engineer (Remote)"` is detected as a variant of `"Backend Engineer"`
 
 ### Added
-- `docs/adr/` — 5 retroactive Architecture Decision Records (local-first, SQLite, no LLM calls, weighted scoring, single CLI) with an index and conventions
+- `--force` flag on `applyr add` to insert despite a detected duplicate — previously an exact duplicate had no escape
+- `applyr add` reports previous offers at the same company without blocking, since applying to several roles at one company is normal
+- `applyr/errors.py` — `error()`, `warn()`, `die()` helpers
+- `applyr/duplicates.py` — title normalization and similarity matching, with work-mode qualifiers (`Remote`, `Hybrid`, `m/f/d`) stripped before comparison
+- 23 tests for duplicate detection
+
+### Documentation
+- `docs/adr/` — 6 Architecture Decision Records: local-first, SQLite, no LLM calls, weighted scoring, single CLI, errors-to-stderr
 - `docs/mental-model.md` — what applyr is and is not, design principles, anti-patterns
 - `docs/agent-workflow.md` — reading order, definition of done, common tasks, when to stop and ask
 - `docs/contracts.md` — stable contracts, invariants, extension points and the migration procedure
@@ -15,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Linting instructions in `AGENTS.md` and `llms.txt` with the exact command CI runs
 
 ### Fixed
+- `applyr/__init__.py` reported `0.5.0` while `pyproject.toml` declared `0.5.1`, so `applyr version` did not match the installed release. Both are now `0.6.0`
 - Documentation stated `offers` had 28 columns and the database 3 tables — it has 31 columns and 4 tables (`offers`, `offer_topics`, `skill_gaps`, `schema_version`)
 - Documentation described `scoring.py` as a pure function with no I/O — `calculate_score()` reads user config via `load_config()`, which tests must isolate with `APPLYR_HOME`
 - `llms.txt` claimed no linter was configured — CI has run pylint since v0.4.0

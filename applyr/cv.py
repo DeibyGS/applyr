@@ -7,6 +7,7 @@ from pathlib import Path
 
 from applyr.config import load_config, APPLYR_DIR
 from applyr.constants import CHROME_TIMEOUT_SECONDS
+from applyr.errors import die, error
 
 # ATS-safe CSS — embedded in every generated CV
 # Rules: single column, no flex/grid/tables, standard fonts, no images
@@ -71,14 +72,14 @@ def cmd_cv_pdf(html_file: str, output: str | None = None) -> None:
     chrome_path = config["cv"]["chrome_path"]
 
     if not chrome_path or not os.path.isfile(chrome_path):
-        print("Error: Chrome/Chromium not found.")
-        print("  Set 'chrome_path' in ~/.applyr/applyr.toml under [cv]")
-        print("  Or install Google Chrome / Chromium.")
+        error("Error: Chrome/Chromium not found.")
+        error("  Set 'chrome_path' in ~/.applyr/applyr.toml under [cv]")
+        error("  Or install Google Chrome / Chromium.")
         return
 
     html_path = Path(html_file).resolve()
     if not html_path.exists():
-        print(f"Error: HTML file not found: {html_file}")
+        error(f"Error: HTML file not found: {html_file}")
         return
 
     if output:
@@ -98,23 +99,21 @@ def cmd_cv_pdf(html_file: str, output: str | None = None) -> None:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=CHROME_TIMEOUT_SECONDS)
         if result.returncode != 0:
-            print("Error: Chrome exited with an error.")
+            error("Error: Chrome exited with an error.")
             if result.stderr:
                 print(f"  Chrome stderr: {result.stderr[:200]}")
             sys.exit(1)
         if pdf_path.exists():
             print(f"PDF generated: {pdf_path}")
         else:
-            print("Error: PDF was not generated.")
+            error("Error: PDF was not generated.")
             if result.stderr:
                 print(f"  Chrome stderr: {result.stderr[:200]}")
             sys.exit(1)
     except subprocess.TimeoutExpired:
-        print(f"Error: Chrome timed out after {CHROME_TIMEOUT_SECONDS} seconds.")
-        sys.exit(1)
+        die(f"Error: Chrome timed out after {CHROME_TIMEOUT_SECONDS} seconds.")
     except FileNotFoundError:
-        print(f"Error: Chrome not found at: {chrome_path}")
-        sys.exit(1)
+        die(f"Error: Chrome not found at: {chrome_path}")
 
 
 def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
@@ -134,7 +133,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
     try:
         row = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
-            print(f"Error: offer #{offer_id} not found.")
+            error(f"Error: offer #{offer_id} not found.")
             return
 
         # Load topic scores if any
@@ -147,8 +146,8 @@ def cmd_cv_generate(offer_id: int, template: str = "ats") -> None:
 
     cv_master = get_cv_master_path()
     if not cv_master.exists():
-        print(f"Error: cv-master.md not found at {cv_master}")
-        print("  Run 'applyr init' to create a template, then edit it with your profile.")
+        error(f"Error: cv-master.md not found at {cv_master}")
+        error("  Run 'applyr init' to create a template, then edit it with your profile.")
         return
     output_dir = get_output_dir()
     slug = _make_slug(row["company"], row["title"])
@@ -379,8 +378,7 @@ def cmd_cv_review(html_file: str, as_json: bool = False) -> None:
 
     html_path = Path(html_file).resolve()
     if not html_path.exists():
-        print(f"Error: HTML file not found: {html_file}")
-        sys.exit(1)
+        die(f"Error: HTML file not found: {html_file}")
 
     html = html_path.read_text(encoding="utf-8")
     cv_text = _strip_html_tags(html)

@@ -3,13 +3,13 @@
 import csv
 import json
 import os
-import sys
 from pathlib import Path
 
 from applyr import __version__
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CV_MASTER_MIN_SIZE
 from applyr.db import get_conn
+from applyr.errors import die, error
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ def _export_markdown(records: list[dict]) -> str:
 def cmd_export(fmt: str = "csv", filepath: str | None = None) -> None:
     """Export all offers to CSV, JSON, or Markdown."""
     if fmt not in ("csv", "json", "md"):
-        print(f"Error: unsupported format '{fmt}'. Use 'csv', 'json', or 'md'.")
+        error(f"Error: unsupported format '{fmt}'. Use 'csv', 'json', or 'md'.")
         return
 
     conn = get_conn()
@@ -76,8 +76,7 @@ def cmd_export(fmt: str = "csv", filepath: str | None = None) -> None:
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(_export_markdown(records))
     except OSError as exc:
-        print(f"Error writing file: {exc}")
-        sys.exit(1)
+        die(f"Error: writing file — {exc}")
 
     print(f"Exported {len(records)} offer(s) to {out_path}")
 

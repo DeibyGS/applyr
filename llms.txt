@@ -36,6 +36,8 @@ applyr/scoring.py     → Weighted scoring (reads config for weights)
 applyr/cv.py          → ATS HTML + Chrome PDF + recruiter review
 applyr/config.py      → ~/.applyr/applyr.toml
 applyr/constants.py   → All thresholds and magic numbers
+applyr/errors.py      → error()/warn()/die() — all stderr output
+applyr/duplicates.py  → Title normalization + similarity for duplicate detection
 ```
 
 ## Commands (21 + 5 aliases)
@@ -44,7 +46,7 @@ applyr/constants.py   → All thresholds and magic numbers
 |---------|---------|
 | `init` | Set up ~/.applyr/ |
 | `setup-agent` | Configure AI agent (claude/cursor/opencode/generic) |
-| `add '<json>'` | Register a job offer |
+| `add '<json>' [--force]` | Register a job offer (`--force` skips duplicate check) |
 | `list` | List offers (alias: `ls`) |
 | `show <id>` | Show full details |
 | `update <id> <status>` | Change status |
