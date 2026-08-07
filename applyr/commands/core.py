@@ -4,7 +4,6 @@ import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from applyr.colors import color
 from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, load_config
 from applyr.constants import (
     DUPLICATE_COMPANY_HISTORY_LIMIT,

@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from applyr.colors import color
-from applyr.config import TOPIC_LABELS, load_config
+from applyr.config import TOPIC_LABELS
 from applyr.constants import (
     COMPARE_COL_MAX,
     COMPARE_COL_MIN,
@@ -25,9 +25,9 @@ from applyr.constants import (
     TREND_BAR_WIDTH,
     TREND_HISTORY_LIMIT,
 )
-from applyr.db import STATUS_LABELS, VALID_STATUSES, get_conn
+from applyr.db import STATUS_LABELS, get_conn
 from applyr.commands._helpers import _bar, _today, _truncate
-from applyr.errors import die, error
+from applyr.errors import die
 
 # ---------------------------------------------------------------------------
 # Module-level constants

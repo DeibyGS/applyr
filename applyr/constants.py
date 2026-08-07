@@ -51,6 +51,8 @@ DUPLICATE_COMPANY_HISTORY_LIMIT = 5
 # Timeouts
 # ---------------------------------------------------------------------------
 CHROME_TIMEOUT_SECONDS = 30
+# Chrome's stderr can be very long; only the head is useful for diagnosis.
+CHROME_STDERR_SNIPPET = 200
 
 # ---------------------------------------------------------------------------
 # Validation

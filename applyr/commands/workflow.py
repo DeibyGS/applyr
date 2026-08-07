@@ -10,7 +10,7 @@ from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CV_MASTER_MIN_SIZE, CV_STATS_NAME_WIDTH
 from applyr.cv_stats import build_report
 from applyr.db import get_conn
-from applyr.errors import die, error
+from applyr.errors import die
 
 
 # ---------------------------------------------------------------------------
