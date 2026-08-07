@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [0.7.0] — 2026-08-07
 
+### Fixed
+- Chrome failure paths in `cv pdf` called `sys.exit(1)` directly and printed to stdout, so they emitted nothing in `--json` mode and mixed diagnostics into parsed output. They now report through `die()` with a `chrome_failed` code and Chrome's stderr in `details`
+- Removed unused imports left behind across `cv.py`, `commands/core.py`, `commands/analytics.py` and `commands/workflow.py`
+
 ### Added
 - `applyr cv stats` — compare CVs by response rate (any reply, including rejections) and interview rate (reached `in_process` or `offer`). Flags samples below `--min-sample` as noise and reports offers with no CV recorded
 - `applyr cv generate` now records the generated filename in `cv_used`, so CV tracking populates itself

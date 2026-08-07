@@ -72,6 +72,8 @@ def die(
         if details:
             payload["details"] = details
         print(json.dumps({"error": payload}, ensure_ascii=False), file=sys.stderr)
-    else:
+    elif text != "":
+        # An empty `text` means the caller already printed everything a human
+        # needs via error(), and only the JSON payload is still missing.
         print(text if text is not None else message, file=sys.stderr)
     sys.exit(exit_code)
