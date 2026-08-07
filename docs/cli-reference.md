@@ -56,13 +56,19 @@ applyr show 1
 applyr show 1 --json
 ```
 
-### `applyr update <id> <status> [--notes '...'] [--canal '...']`
+### `applyr update <id> <status> [--notes '...'] [--canal '...'] [--cv file.html]`
 
 Update offer status. Valid statuses: `pending`, `applied`, `waiting`, `in_process`, `offer`, `rejected`, `discarded`.
+
+`--cv` records which CV was sent, feeding `applyr cv stats`. `cv generate` sets it
+automatically; use the flag for offers applied through some other route. Passing an
+empty value clears the link.
 
 ```bash
 applyr update 1 applied
 applyr update 1 waiting --notes "Phone screen scheduled"
+applyr update 1 applied --cv cv-acme.html
+applyr update 1 applied --cv ""          # unlink the CV
 ```
 
 ### `applyr delete <id>`

@@ -689,9 +689,11 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
 
         # Which CV was sent — feeds `applyr cv stats`. Set automatically by
         # `cv generate`; this is the manual path for offers applied elsewhere.
+        # `--cv ""` clears the link: store NULL rather than an empty string so
+        # "never had a CV" and "CV unlinked" are the same value in the database.
         if cv is not None:
             fields.append("cv_used = ?")
-            params.append(cv)
+            params.append(cv.strip() or None)
 
         # Auto follow-up when moving to applied/waiting
         if status in ("applied", "waiting"):

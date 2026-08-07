@@ -10,6 +10,11 @@ build/
 HANDOFF.md
 specs/
 
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+
 # Personal data — never commit (public repo)
 cv/
 *.pdf

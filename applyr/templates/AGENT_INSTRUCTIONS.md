@@ -14,7 +14,13 @@
 
 ```bash
 applyr init
+applyr doctor
 ```
+
+`doctor` is the health check: it verifies the database, config, CV master, agent
+instructions and Chrome. It always exits 0, so do not branch on the exit code — read
+the output. A CV master that still holds the empty template is reported here, and
+every CV generated from it would be invented.
 
 Then guide the user through two mandatory steps:
 
@@ -30,7 +36,15 @@ threshold = 65
 
 When the user shares a job offer, follow this pipeline in order.
 
-### Step 1 — Read profile
+### Step 1 — Health check, then read profile
+
+```bash
+applyr doctor
+```
+
+Run this first, every session. If it reports an issue, fix that before scoring
+anything — a `CV Master: WARNING` means the profile is still the blank template, and
+a CV built on it will contain invented experience.
 
 ```bash
 cat ~/.applyr/cv-master.md
@@ -201,6 +215,7 @@ Agent:
 
 | User asks | Command |
 |-----------|---------|
+| Health check / "is this set up?" | `applyr doctor` |
 | Show applications | `applyr list [--json]` |
 | Pipeline view | `applyr pipeline` |
 | Offer details | `applyr show <id>` |
@@ -221,6 +236,7 @@ Agent:
 
 | Error | Fix |
 |-------|-----|
+| Anything unexpected, or unsure of the setup | Run `applyr doctor` first — it names the broken piece. |
 | `applyr add` field error | Read the message — it names the field. Fix and retry. |
 | Duplicate detected | Do not re-add. Show existing offer. |
 | cv-master.md not found | Tell user to run `applyr init` and fill their profile. |

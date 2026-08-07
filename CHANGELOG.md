@@ -4,6 +4,28 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] — 2026-08-07
+
+### Added
+- **The test suite now runs in CI.** The `test` job only ever smoke-tested the
+  CLI, so the unit tests never ran on a pull request — which is how seven of the
+  eight bugs found in the v0.8.0 audit reached a release from modules with no
+  coverage. `pytest --cov` now runs on 3.12 and 3.13
+- **Coverage measurement** via `pytest-cov`, configured in `pyproject.toml`.
+  Baseline is 32%: `cli.py` 0%, `commands/analytics.py` 7%,
+  `commands/workflow.py` 11%. No `fail_under` gate yet — the floor gets set once
+  those modules are covered
+- Regression tests for `update --cv`, which had none
+
+### Changed
+- **`AGENT_INSTRUCTIONS.md` now opens with `applyr doctor`.** The health check
+  already detected an unfilled `cv-master.md`, but the documented flow never ran
+  it, so the check existed and nobody reached it. `doctor` is now step 1 of both
+  setup and the per-offer workflow, and the entry point for error recovery
+- **`applyr update <id> <status> --cv ""` stores `NULL` instead of `""`.**
+  Clearing already worked; the empty string just left two different values
+  meaning "no CV" in the database. Whitespace-only values clear too
+
 ## [0.8.0] — 2026-08-07
 
 Thirteen bugs found by running one real job application end to end — register
