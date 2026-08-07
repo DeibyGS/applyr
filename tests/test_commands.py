@@ -62,6 +62,42 @@ class TestUpdateStampsDateApplied:
         assert _row(tmp_applyr, 1)["date_applied"] is None
 
 
+class TestUpdateCvUsed:
+    """`--cv ""` is the only way to unlink a CV from an offer. It must land as
+    NULL, so "never had a CV" and "CV unlinked" are one value for cv stats."""
+
+    def test_sets_cv_used(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied", cv="cv-acme.html")
+        assert _row(tmp_applyr, 1)["cv_used"] == "cv-acme.html"
+
+    def test_empty_value_clears_to_null(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied", cv="cv-acme.html")
+        cmd_update(1, "applied", cv="")
+        assert _row(tmp_applyr, 1)["cv_used"] is None
+
+    def test_whitespace_only_value_clears_to_null(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied", cv="cv-acme.html")
+        cmd_update(1, "applied", cv="   ")
+        assert _row(tmp_applyr, 1)["cv_used"] is None
+
+    def test_omitting_the_flag_leaves_it_untouched(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied", cv="cv-acme.html")
+        cmd_update(1, "waiting")
+        assert _row(tmp_applyr, 1)["cv_used"] == "cv-acme.html"
+
+
 class TestLiveSkillGaps:
     """skill_gaps is an append-only counter nothing ever decrements, so gaps
     must be derived from the offers that actually exist."""

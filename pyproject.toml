@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "applyr"
-version = "0.8.0"
+version = "0.8.1"
 description = "CLI job application tracker designed for AI coding agents"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -47,11 +47,22 @@ Repository = "https://github.com/DeibyGS/applyr"
 Issues = "https://github.com/DeibyGS/applyr/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["unit: pure function tests"]
+
+[tool.coverage.run]
+source = ["applyr"]
+omit = ["applyr/templates/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# No fail_under yet: the baseline is being measured first. Raise it once the
+# untested modules found in the v0.8.0 audit (cv.py, commands/core.py, cli.py)
+# have coverage, so the gate reflects a floor we already clear.
 
 [tool.setuptools.packages.find]
 include = ["applyr*"]

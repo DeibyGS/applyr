@@ -215,6 +215,7 @@ def main():
     elif cmd == "update":
         if len(args) < 3:
             print("Usage: applyr update <id> <status> [--notes '...'] [--canal '...'] [--cv file.html]")
+            print("  --cv \"\": clear the CV linked to this offer")
             print(f"  Statuses: {', '.join(VALID_STATUSES)}")
             return
         offer_id = _safe_int(args[1])
