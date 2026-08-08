@@ -4,7 +4,7 @@
 ### Version: 1.0
 
 ### Recovered context
-- Project constitution (CLAUDE.md): PR budget 400 lines, work-unit commits, Python 3.12+, SQLite, colorama
+- Project constitution (CLAUDE.md): PR budget 400 lines, work-unit commits, Python 3.11+, SQLite, colorama
 - Engram #1642: spec-applyr — 21 commands, 28-column schema, scoring engine
 - No prior ADRs or refactor decisions
 - Corrected assumptions: none — all 8 confirmed

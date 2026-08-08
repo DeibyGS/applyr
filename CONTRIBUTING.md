@@ -18,7 +18,7 @@ If you're unsure whether your idea fits, open an issue first and describe what y
 
 ## Setup
 
-**Requirements:** Python 3.12+
+**Requirements:** Python 3.11+
 
 ```bash
 # 1. Fork the repo on GitHub, then clone your fork
@@ -73,7 +73,7 @@ refactor/what-you-simplified
 
 ### Code style
 
-- Python 3.12+, typed signatures
+- Python 3.11+, typed signatures
 - Keep functions small and focused — follow the `commands/` package split
 - No new dependencies without a clear justification
 - CLI labels and messages in English

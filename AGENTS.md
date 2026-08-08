@@ -9,7 +9,7 @@ and [`docs/contracts.md`](docs/contracts.md) before any refactor.
 
 ## What is Applyr?
 
-A CLI job application tracker for AI coding agents. Python 3.12+, SQLite, zero heavy dependencies. Installable via `pip install applyr`.
+A CLI job application tracker for AI coding agents. Python 3.11+, SQLite, zero heavy dependencies. Installable via `pip install applyr`.
 
 **Key insight:** Applyr works **WITH** AI agents, not **THROUGH** them. It has no LLM API calls — the agent reads `AGENT_INSTRUCTIONS.md` and calls the CLI.
 
@@ -57,7 +57,7 @@ User → CLI (cli.py) → Command (commands/*.py) → DB (db.py) → Output
 
 ## Conventions
 
-- **Python 3.12+** — use `X | Y` union syntax, not `Optional[X]`
+- **Python 3.11+** — use `X | Y` union syntax, not `Optional[X]`
 - **Type hints** — all function signatures
 - **No global state** — config loaded per-call via `load_config()`
 - **No LLM calls** — applyr is a storage layer, not an AI service

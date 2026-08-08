@@ -37,7 +37,7 @@ The key insight: Applyr already has good code and a solid README. What's missing
 |----------|--------|-----------|
 | Doc format | Markdown | Agents read markdown natively, GitHub renders it |
 | Diagram syntax | Mermaid | GitHub renders inline, agents understand it |
-| Example language | Python 3.12+ | Matches project requirement |
+| Example language | Python 3.11+ | Matches project requirement |
 | Changelog format | Keep a Changelog | Industry standard, agents recognize it |
 
 ## AC Coverage Map

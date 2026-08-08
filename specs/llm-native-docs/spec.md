@@ -13,7 +13,7 @@ Make Applyr maximally understandable by AI coding agents (Claude Code, Cursor, O
 Applyr is a CLI job tracker that works **WITH** AI agents, not **THROUGH** them. It has no LLM API integration — and that's correct. The goal is not to add LLM features, but to make agents understand the project instantly when they encounter it.
 
 ### What Applyr IS
-- Python 3.12+ CLI tool
+- Python 3.11+ CLI tool
 - SQLite local storage
 - Chrome headless for PDF generation
 - Works with AI agents via `AGENT_INSTRUCTIONS.md`
