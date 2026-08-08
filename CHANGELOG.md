@@ -4,6 +4,28 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.4] — 2026-08-08
+
+### Fixed
+- **Commands no longer recreate a missing database.** Running `applyr list` (or any
+  command other than `init`) against a missing `jobs.db` now fails with a clear error
+  message instead of silently recreating the database. This was a regression from
+  session 11 that made `doctor` always exit 0
+
+### Removed
+- **`skill_gaps` table dropped.** The table was write-only since v0.5.0 — `cmd_add`
+  wrote to it, but `_live_skill_gaps()` derives gaps from `offer_topics` and ignores
+  the table entirely. Schema migrated from v1 to v2 with `DROP TABLE IF EXISTS`
+
+### Changed
+- **Python 3.11 now supported.** `requires-python` lowered from `>=3.12` to `>=3.11`.
+  CI matrix expanded to test on 3.11, 3.12, and 3.13
+
+### Added
+- 115 tests for `cli.py` routing (AC-2.1 … AC-2.7), coverage 0% → 92%
+- Regression guard tests ensuring no command recreates a missing database
+- Migration test verifying `skill_gaps` table is dropped on upgrade
+
 ## [0.8.3] — 2026-08-08
 
 `setup-agent` copies applyr's instructions into other projects' AI config, so a

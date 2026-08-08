@@ -5,12 +5,13 @@ from pathlib import Path
 
 from applyr.config import load_config
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
-# Example: MIGRATIONS[(1, 2)] = ["ALTER TABLE offers ADD COLUMN new_col TEXT;"]
-MIGRATIONS: dict[tuple[int, int], list[str]] = {}
+MIGRATIONS: dict[tuple[int, int], list[str]] = {
+    (1, 2): ["DROP TABLE IF EXISTS skill_gaps"],
+}
 
 SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS offers (
@@ -60,13 +61,6 @@ CREATE TABLE IF NOT EXISTS offer_topics (
     topic     TEXT,
     score     INTEGER,
     detail    TEXT
-);
-
-CREATE TABLE IF NOT EXISTS skill_gaps (
-    skill      TEXT    PRIMARY KEY,
-    frequency  INTEGER DEFAULT 1,
-    total_gap  INTEGER DEFAULT 0,
-    last_seen  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS schema_version (

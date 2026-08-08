@@ -99,8 +99,7 @@ class TestUpdateCvUsed:
 
 
 class TestLiveSkillGaps:
-    """skill_gaps is an append-only counter nothing ever decrements, so gaps
-    must be derived from the offers that actually exist."""
+    """skill_gaps is derived from offer_topics, not the (now-dropped) table."""
 
     def test_reflects_only_current_offers(self, tmp_db, tmp_applyr):
         from applyr.commands.analytics import _live_skill_gaps
@@ -111,19 +110,6 @@ class TestLiveSkillGaps:
 
         cmd_delete(1, force=True)
         assert _live_skill_gaps() == []
-
-    def test_ignores_stale_accumulator_rows(self, tmp_db, tmp_applyr):
-        from applyr.commands.analytics import _live_skill_gaps
-
-        conn = sqlite3.connect(tmp_applyr / "jobs.db")
-        conn.execute(
-            "INSERT INTO skill_gaps (skill, frequency, total_gap, last_seen)"
-            " VALUES ('fake_topic', 99, 900, '2020-01-01')"
-        )
-        conn.commit()
-        conn.close()
-
-        assert all(g["skill"] != "fake_topic" for g in _live_skill_gaps())
 
     def test_scores_at_or_above_threshold_are_not_gaps(self, tmp_db, tmp_applyr):
         from applyr.commands.analytics import _live_skill_gaps
