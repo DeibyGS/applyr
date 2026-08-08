@@ -175,6 +175,48 @@ def _get_match_breakdown(topics: list[dict]) -> dict:
 
     return {"strong": strong, "partial": partial, "missing": missing}
 
+
+def _get_why_you_match(topics: list[dict], topic_labels: dict) -> tuple[list[str], str | None]:
+    """Get top 3 strong topics and biggest weakness.
+
+    Returns:
+        Tuple of (why_match_lines, biggest_weakness)
+    """
+    strong = []
+    partial = []
+    missing = []
+
+    for t in topics:
+        score = t.get("score", 0)
+        label = topic_labels.get(t["topic"], t["topic"])
+        detail = t.get("detail", "")
+        entry = f"• {label}: {detail}" if detail else f"• {label} (score: {score})"
+
+        classification = _classify_topic(score)
+        if classification == "strong":
+            strong.append((score, entry))
+        elif classification == "partial":
+            partial.append((score, entry))
+        else:
+            missing.append((score, entry))
+
+    # Top 3 strong topics (sorted by score descending)
+    strong.sort(key=lambda x: x[0], reverse=True)
+    why_match = [entry for _, entry in strong[:3]]
+
+    # Biggest weakness: lowest partial or highest missing
+    biggest_weakness = None
+    if partial:
+        partial.sort(key=lambda x: x[0])
+        score, entry = partial[0]
+        biggest_weakness = entry
+    elif missing:
+        missing.sort(key=lambda x: x[0], reverse=True)
+        score, entry = missing[0]
+        biggest_weakness = entry
+
+    return why_match, biggest_weakness
+
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
@@ -570,6 +612,16 @@ def cmd_add(raw: str, force: bool = False) -> None:
                    for k, v in topics.items()]
     if topics_list:
         _show_match_breakdown(topics_list, TOPIC_LABELS)
+
+        # --- Why you match ---------------------------------------------------
+        why_match, biggest_weakness = _get_why_you_match(topics_list, TOPIC_LABELS)
+        if why_match:
+            print("\n  Why you match:")
+            for line in why_match:
+                print(f"    {line}")
+        if biggest_weakness:
+            print("\n  Biggest weakness:")
+            print(f"    {biggest_weakness}")
 
     if recommendation == "apply":
         print(f"\n     Next: 'applyr cv generate {offer_id}' to create a tailored CV")

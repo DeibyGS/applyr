@@ -2,7 +2,7 @@
 
 import pytest
 
-from applyr.commands.core import _get_recommendation, _get_recommendation_label, _show_match_breakdown, _get_match_breakdown
+from applyr.commands.core import _get_recommendation, _get_recommendation_label, _show_match_breakdown, _get_match_breakdown, _get_why_you_match
 from applyr.commands._helpers import _classify_topic, _classify_icon
 
 
@@ -100,3 +100,43 @@ class TestGetMatchBreakdown:
         assert result["strong"][0]["topic"] == "tech_stack"
         assert result["partial"][0]["topic"] == "experience"
         assert result["missing"][0]["topic"] == "projects"
+
+
+class TestGetWhyYouMatch:
+    def test_empty(self):
+        why_match, weakness = _get_why_you_match([], {})
+        assert why_match == []
+        assert weakness is None
+
+    def test_strong_only(self):
+        topics = [
+            {"topic": "tech_stack", "score": 90, "detail": "Python expert"},
+            {"topic": "projects", "score": 85, "detail": "Relevant projects"},
+        ]
+        topic_labels = {"tech_stack": "Tech Stack", "projects": "Projects"}
+        why_match, weakness = _get_why_you_match(topics, topic_labels)
+        assert len(why_match) == 2
+        assert weakness is None
+
+    def test_with_weakness(self):
+        topics = [
+            {"topic": "tech_stack", "score": 90, "detail": "Python expert"},
+            {"topic": "experience", "score": 60, "detail": "2 years"},
+            {"topic": "projects", "score": 30, "detail": "No relevant projects"},
+        ]
+        topic_labels = {"tech_stack": "Tech Stack", "experience": "Experience", "projects": "Projects"}
+        why_match, weakness = _get_why_you_match(topics, topic_labels)
+        assert len(why_match) == 1
+        assert weakness is not None
+        assert "Experience" in weakness
+
+    def test_top_three(self):
+        topics = [
+            {"topic": "tech_stack", "score": 95, "detail": "Expert"},
+            {"topic": "projects", "score": 90, "detail": "Relevant"},
+            {"topic": "education", "score": 85, "detail": "CS degree"},
+            {"topic": "english", "score": 80, "detail": "Fluent"},
+        ]
+        topic_labels = {"tech_stack": "Tech Stack", "projects": "Projects", "education": "Education", "english": "English"}
+        why_match, weakness = _get_why_you_match(topics, topic_labels)
+        assert len(why_match) == 3  # Only top 3
