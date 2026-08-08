@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from applyr import __version__
+from applyr.agent_instructions import is_stale, stamped_version
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CV_MASTER_MIN_SIZE, CV_STATS_NAME_WIDTH
 from applyr.cv import get_cv_master_path
@@ -140,9 +141,19 @@ def _check_cv_master() -> dict:
 
 def _check_agent_instructions() -> dict:
     agent_path = APPLYR_DIR / "AGENT_INSTRUCTIONS.md"
-    if agent_path.exists():
-        return _ok("Agent Instr.", f"OK ({agent_path})")
-    return _issue("Agent Instr.", "NOT FOUND — run 'applyr init'")
+    if not agent_path.exists():
+        return _issue("Agent Instr.", "NOT FOUND — run 'applyr init'")
+    # Stale instructions are reported but do not block: `setup-agent` already
+    # falls back to the packaged copy, so work continues correctly meanwhile.
+    text = agent_path.read_text()
+    if is_stale(text):
+        return _note("Agent Instr.",
+                     "STALE — local copy is from "
+                     f"{stamped_version(text) or 'an unstamped version'}, "
+                     f"package is {__version__}",
+                     "setup-agent uses the packaged version instead. Delete "
+                     f"{agent_path} and run 'applyr init' to refresh it.")
+    return _ok("Agent Instr.", f"OK ({agent_path})")
 
 
 def _check_chrome(config: dict) -> dict:

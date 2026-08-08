@@ -5,6 +5,14 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from applyr import __version__
+from applyr.agent_instructions import (
+    FALLBACK,
+    is_stale,
+    packaged_instructions,
+    stamp,
+    stamped_version,
+)
 from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, load_config
 from applyr.constants import (
     DUPLICATE_COMPANY_HISTORY_LIMIT,
@@ -75,17 +83,32 @@ _AGENT_DETECT_ORDER = [
 # ---------------------------------------------------------------------------
 
 def _get_agent_instructions() -> str:
-    """Read AGENT_INSTRUCTIONS.md content from ~/.applyr/ or bundled template."""
+    """Return the instructions `setup-agent` should inject into a project.
+
+    The local copy wins while it is current, so hand edits survive. Once it falls
+    behind the installed package it is bypassed rather than rewritten: the file
+    belongs to the user, and silently overwriting it would be the mirror image of
+    the bug this fixes.
+    """
     local = APPLYR_DIR / "AGENT_INSTRUCTIONS.md"
-    if local.exists():
-        return local.read_text()
-    for src in [
-        Path(__file__).parent.parent.parent / "templates" / "AGENT_INSTRUCTIONS.md",
-        Path(__file__).parent.parent / "templates" / "AGENT_INSTRUCTIONS.md",
-    ]:
-        if src.exists():
-            return src.read_text()
-    return ""
+    if not local.exists():
+        packaged = packaged_instructions()
+        return stamp(packaged) if packaged else ""
+
+    local_text = local.read_text()
+    if not is_stale(local_text):
+        return local_text
+
+    packaged = packaged_instructions()
+    if not packaged:
+        return local_text  # stale, but there is nothing better to offer
+
+    warn(f"Local AGENT_INSTRUCTIONS.md is from applyr "
+         f"{stamped_version(local_text) or 'an unstamped version'}; "
+         f"using the {__version__} instructions from the package instead.")
+    warn(f"  {local} was left untouched. "
+         "Delete it and run 'applyr init' to refresh it.")
+    return stamp(packaged)
 
 
 def _make_display_row(r) -> dict:
@@ -165,22 +188,8 @@ def cmd_init() -> None:
     # Copy AGENT_INSTRUCTIONS.md
     agent_instructions_dst = APPLYR_DIR / "AGENT_INSTRUCTIONS.md"
     if not agent_instructions_dst.exists():
-        # Try to find the template bundled with the package or in templates/
-        src_candidates = [
-            Path(__file__).parent.parent.parent / "templates" / "AGENT_INSTRUCTIONS.md",
-            Path(__file__).parent.parent / "templates" / "AGENT_INSTRUCTIONS.md",
-        ]
-        for src in src_candidates:
-            if src.exists():
-                agent_instructions_dst.write_text(src.read_text())
-                break
-        else:
-            # Fallback: create a minimal pointer
-            agent_instructions_dst.write_text(
-                "# applyr — Agent Instructions\n\n"
-                "Download the full instructions from:\n"
-                "https://github.com/DeibyGS/applyr/blob/main/templates/AGENT_INSTRUCTIONS.md\n"
-            )
+        packaged = packaged_instructions()
+        agent_instructions_dst.write_text(stamp(packaged) if packaged else FALLBACK)
         print(f"  Created {agent_instructions_dst}")
     else:
         print(f"  {agent_instructions_dst} already exists — skipped")
