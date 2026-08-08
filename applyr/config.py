@@ -4,7 +4,7 @@ import os
 import tomllib
 from pathlib import Path
 
-from applyr.constants import DEFAULT_WEIGHTS, DEFAULT_THRESHOLD, DEFAULT_FOLLOWUP_DAYS, DEFAULT_LIST_LIMIT
+from applyr.constants import DEFAULT_WEIGHTS, DEFAULT_THRESHOLD, DEFAULT_THRESHOLD_APPLY, DEFAULT_THRESHOLD_MAYBE, DEFAULT_FOLLOWUP_DAYS, DEFAULT_LIST_LIMIT
 
 APPLYR_DIR = Path(os.environ.get("APPLYR_HOME", Path.home() / ".applyr"))
 
@@ -23,7 +23,9 @@ TOML_TEMPLATE = """\
 # Docs: https://github.com/DeibyGS/applyr
 
 [general]
-threshold = 65          # Minimum compatibility % to recommend applying
+threshold = 65          # Minimum compatibility % to recommend applying (legacy, use threshold_apply/maybe)
+threshold_apply = 80    # Score >= this → APPLY
+threshold_maybe = 60    # Score >= this → MAYBE (below → LOW MATCH)
 followup_days = 10      # Days before follow-up reminder
 
 [weights]
@@ -88,6 +90,8 @@ def _build_defaults() -> dict:
     return {
         "general": {
             "threshold": DEFAULT_THRESHOLD,
+            "threshold_apply": DEFAULT_THRESHOLD_APPLY,
+            "threshold_maybe": DEFAULT_THRESHOLD_MAYBE,
             "followup_days": DEFAULT_FOLLOWUP_DAYS,
             "db_path": str(APPLYR_DIR / "jobs.db"),
             "list_limit": DEFAULT_LIST_LIMIT,
@@ -117,6 +121,15 @@ def load_config() -> dict:
             print(f"Warning: could not parse {config_path}: {e}")
             print("Using default configuration.")
             config = defaults
+
+    # Backward compatibility: if threshold_apply not set, derive from threshold
+    general = config.get("general", {})
+    if "threshold_apply" not in general:
+        threshold = general.get("threshold", DEFAULT_THRESHOLD)
+        general["threshold_apply"] = threshold
+        general["threshold_maybe"] = max(0, threshold - 20)
+    elif "threshold_maybe" not in general:
+        general["threshold_maybe"] = max(0, general["threshold_apply"] - 20)
 
     # Normalize weights to decimals
     config["weights"] = _normalize_weights(config["weights"])

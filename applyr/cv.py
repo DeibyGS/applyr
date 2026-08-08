@@ -86,6 +86,65 @@ def get_output_dir() -> Path:
     return output_dir
 
 
+def _get_tailoring_hints(tech_stack: str | None, topics: dict) -> tuple[list[str], list[str], list[str]]:
+    """Generate tailoring hints based on tech_stack and topic scores.
+
+    Returns:
+        Tuple of (highlight, de_emphasize, not_included) lists
+    """
+    highlight = []
+    de_emphasize = []
+    not_included = []
+
+    if tech_stack:
+        # Parse tech_stack from comma-separated string
+        skills = [s.strip() for s in tech_stack.split(",") if s.strip()]
+        highlight = skills
+
+    # Get strong topics to highlight
+    for topic, values in topics.items():
+        score = values.get("score", 0)
+        if score >= 80:
+            label = {
+                "tech_stack": "Technical Skills",
+                "experience": "Work Experience",
+                "projects": "Projects",
+                "education": "Education",
+                "english": "Languages",
+                "cultural_fit": "Work Preferences",
+            }.get(topic, topic)
+            if label not in highlight:
+                highlight.append(label)
+
+    # Get missing topics to de-emphasize
+    for topic, values in topics.items():
+        score = values.get("score", 0)
+        if score < 50:
+            label = {
+                "tech_stack": "Technical Skills",
+                "experience": "Work Experience",
+                "projects": "Projects",
+                "education": "Education",
+                "english": "Languages",
+                "cultural_fit": "Work Preferences",
+            }.get(topic, topic)
+            de_emphasize.append(label)
+
+    return highlight, de_emphasize, not_included
+
+
+def _format_tailoring_hints(highlight: list[str], de_emphasize: list[str], not_included: list[str]) -> str:
+    """Format tailoring hints as HTML comments."""
+    lines = []
+    if highlight:
+        lines.append(f"<!-- TAILOR: Prioritize {', '.join(highlight)} -->")
+    if de_emphasize:
+        lines.append(f"<!-- DE-EMPHASIZE: {', '.join(de_emphasize)} -->")
+    if not_included:
+        lines.append(f"<!-- NOT INCLUDED: {', '.join(not_included)} -->")
+    return "\n".join(lines)
+
+
 def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
     """Convert a CV file (markdown or HTML) to PDF using Chrome headless.
 
@@ -228,8 +287,27 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
 
     frontmatter = "---\n" + "\n".join(context_lines) + "\n---"
 
+    # Get tailoring hints
+    topics_dict = {}
+    # Load topics from database
+    from applyr.db import get_conn
+    conn = get_conn()
+    try:
+        topic_rows = conn.execute(
+            "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ?", (offer_id,)
+        ).fetchall()
+        for t in topic_rows:
+            topics_dict[t["topic"]] = {"score": t["score"], "detail": t["detail"]}
+    finally:
+        conn.close()
+
+    highlight, de_emphasize, not_included = _get_tailoring_hints(row["tech_stack"], topics_dict)
+    tailoring_hints = _format_tailoring_hints(highlight, de_emphasize, not_included)
+
     md = f"""\
 {frontmatter}
+
+{tailoring_hints}
 
 # [FULL NAME]
 
@@ -311,6 +389,16 @@ Include both acronyms and full terms.]
     print(f"  Template : {template} (ATS-safe)")
     print(f"  CV Master: {cv_master}")
     print(f"  Recorded : cv_used = {md_path.stem}")
+
+    # Show tailoring summary
+    if highlight:
+        print(f"\n  Tailoring applied:")
+        print(f"    ✓ Highlighted: {', '.join(highlight)}")
+    if de_emphasize:
+        print(f"    ✗ De-emphasized: {', '.join(de_emphasize)}")
+    if not_included:
+        print(f"    • Not included: {', '.join(not_included)}")
+
     print()
 
 

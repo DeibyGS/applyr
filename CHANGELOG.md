@@ -4,6 +4,40 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-08-08
+
+### Added
+
+- **Three-state recommendation**: APPLY (>=80%), MAYBE (60-79%), LOW MATCH (<60%)
+  - Configurable thresholds in `applyr.toml` (`threshold_apply`, `threshold_maybe`)
+  - Backward compatible: old `threshold` still works
+  - Colored output with icons: ✅ APPLY, ⚠️ MAYBE, ❌ LOW MATCH
+
+- **Skill-level breakdown**: Strong (>=80%), Partial (50-79%), Missing (<50%)
+  - Shown in `cmd_add` and `cmd_show` output
+  - Icons: ✓ Strong, △ Partial, ✕ Missing
+
+- **"Why you match" summary**: Top 3 strong topics + biggest weakness
+  - Executive summary after recommendation
+  - Helps user understand strengths and gaps quickly
+
+- **CV tailoring hints**: HTML comments in generated CVs
+  - Highlights skills to emphasize based on job requirements
+  - Shows what to de-emphasize (low-scoring topics)
+  - Tailoring summary in `cv generate` output
+
+- **Score breakdown**: Weighted contribution per topic
+  - Shows "Technical skills 80% × 30% weight = 24.0 contribution"
+  - Explains why the total score is what it is
+
+- 33 new tests for recommendation, breakdown, and tailoring logic
+
+### Changed
+
+- `cmd_add` output now shows recommendation, breakdown, and "Why you match"
+- `cmd_show` output now shows breakdown, score breakdown, and recommendation
+- `cv generate` output now shows tailoring summary
+
 ## [0.9.0] — 2026-08-08
 
 ### Changed

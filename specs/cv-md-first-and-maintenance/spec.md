@@ -10,7 +10,7 @@
 
 **Project constitution (`AGENTS.md`)**
 - Applyr works *with* AI agents, not *through* them. No LLM API calls (ADR 003).
-- Python 3.12+, `X | Y` unions, standard library plus a single runtime dependency (ADR 005).
+- Python 3.11+, `X | Y` unions, standard library plus a single runtime dependency (ADR 005).
 - `applyr/templates/AGENT_INSTRUCTIONS.md` is marked **DO NOT MODIFY** for agents working
   on the codebase. Phase 1 changes how that file is *distributed*, not its prose.
 

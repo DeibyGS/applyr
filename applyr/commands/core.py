@@ -36,7 +36,7 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score
-from applyr.commands._helpers import _bar, _today, _truncate
+from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _classify_icon, _show_score_breakdown
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
 
@@ -77,6 +77,145 @@ _AGENT_DETECT_ORDER = [
     ("opencode", ".opencode/instructions.md"),
     ("generic",  "AGENTS.md"),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Recommendation helpers
+# ---------------------------------------------------------------------------
+
+def _get_recommendation(score: int, config: dict) -> tuple[str, str]:
+    """Get recommendation state and icon based on score and thresholds.
+
+    Returns:
+        Tuple of (recommendation, icon) where recommendation is
+        "apply", "maybe", or "low_match" and icon is the display emoji.
+    """
+    general = config.get("general", {})
+    threshold_apply = general.get("threshold_apply", 80)
+    threshold_maybe = general.get("threshold_maybe", 60)
+
+    if score >= threshold_apply:
+        return "apply", "✅"
+    elif score >= threshold_maybe:
+        return "maybe", "⚠️"
+    else:
+        return "low_match", "❌"
+
+
+def _get_recommendation_label(recommendation: str) -> str:
+    """Get human-readable label for recommendation."""
+    labels = {
+        "apply": "STRONG MATCH: APPLY",
+        "maybe": "GOOD MATCH: MAYBE",
+        "low_match": "LOW MATCH: SKIP",
+    }
+    return labels.get(recommendation, recommendation.upper())
+
+
+def _show_match_breakdown(topics: list[dict], topic_labels: dict) -> None:
+    """Show skill-level match breakdown (Strong/Partial/Missing)."""
+    if not topics:
+        return
+
+    strong = []
+    partial = []
+    missing = []
+
+    for t in topics:
+        score = t.get("score", 0)
+        classification = _classify_topic(score)
+        entry = {
+            "topic": t["topic"],
+            "score": score,
+            "detail": t.get("detail", ""),
+            "label": topic_labels.get(t["topic"], t["topic"]),
+        }
+        if classification == "strong":
+            strong.append(entry)
+        elif classification == "partial":
+            partial.append(entry)
+        else:
+            missing.append(entry)
+
+    if strong:
+        print("\n  Strong:")
+        for e in strong:
+            detail = f" ({e['detail']})" if e["detail"] else ""
+            print(f"    ✓ {e['label']}: {e['score']}%{detail}")
+
+    if partial:
+        print("\n  Partial:")
+        for e in partial:
+            detail = f" ({e['detail']})" if e["detail"] else ""
+            print(f"    △ {e['label']}: {e['score']}%{detail}")
+
+    if missing:
+        print("\n  Missing:")
+        for e in missing:
+            detail = f" ({e['detail']})" if e["detail"] else ""
+            print(f"    ✕ {e['label']}: {e['score']}%{detail}")
+
+
+def _get_match_breakdown(topics: list[dict]) -> dict:
+    """Get match breakdown as dict for JSON output."""
+    strong = []
+    partial = []
+    missing = []
+
+    for t in topics:
+        score = t.get("score", 0)
+        classification = _classify_topic(score)
+        entry = {"topic": t["topic"], "score": score, "detail": t.get("detail", "")}
+        if classification == "strong":
+            strong.append(entry)
+        elif classification == "partial":
+            partial.append(entry)
+        else:
+            missing.append(entry)
+
+    return {"strong": strong, "partial": partial, "missing": missing}
+
+
+def _get_why_you_match(topics: list[dict], topic_labels: dict) -> tuple[list[str], str | None]:
+    """Get top 3 strong topics and biggest weakness.
+
+    Returns:
+        Tuple of (why_match_lines, biggest_weakness)
+    """
+    strong = []
+    partial = []
+    missing = []
+
+    for t in topics:
+        score = t.get("score", 0)
+        label = topic_labels.get(t["topic"], t["topic"])
+        detail = t.get("detail", "")
+        entry = f"• {label}: {detail}" if detail else f"• {label} (score: {score})"
+
+        classification = _classify_topic(score)
+        if classification == "strong":
+            strong.append((score, entry))
+        elif classification == "partial":
+            partial.append((score, entry))
+        else:
+            missing.append((score, entry))
+
+    # Top 3 strong topics (sorted by score descending)
+    strong.sort(key=lambda x: x[0], reverse=True)
+    why_match = [entry for _, entry in strong[:3]]
+
+    # Biggest weakness: lowest partial or highest missing
+    biggest_weakness = None
+    if partial:
+        partial.sort(key=lambda x: x[0])
+        score, entry = partial[0]
+        biggest_weakness = entry
+    elif missing:
+        missing.sort(key=lambda x: x[0], reverse=True)
+        score, entry = missing[0]
+        biggest_weakness = entry
+
+    return why_match, biggest_weakness
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -463,13 +602,34 @@ def cmd_add(raw: str, force: bool = False) -> None:
         gap_names = [gap_labels.get(s, s) for s, _ in skill_gaps]
         print(f"  Skill gaps  : {', '.join(gap_names)}")
 
-    # --- Threshold recommendation ------------------------------------------
-    if compatibility_pct >= threshold:
-        print(f"\n  >> RECOMMENDATION: APPLY (score {compatibility_pct}% >= {threshold}% threshold)")
+    # --- Three-state recommendation ----------------------------------------
+    recommendation, icon = _get_recommendation(compatibility_pct, config)
+    rec_label_text = _get_recommendation_label(recommendation)
+    print(f"\n  >> {icon} {rec_label_text} (score {compatibility_pct}%)")
+
+    # --- Skill-level breakdown ---------------------------------------------
+    topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", "")}
+                   for k, v in topics.items()]
+    if topics_list:
+        _show_match_breakdown(topics_list, TOPIC_LABELS)
+
+        # --- Why you match ---------------------------------------------------
+        why_match, biggest_weakness = _get_why_you_match(topics_list, TOPIC_LABELS)
+        if why_match:
+            print("\n  Why you match:")
+            for line in why_match:
+                print(f"    {line}")
+        if biggest_weakness:
+            print("\n  Biggest weakness:")
+            print(f"    {biggest_weakness}")
+
+    if recommendation == "apply":
+        print(f"\n     Next: 'applyr cv generate {offer_id}' to create a tailored CV")
+    elif recommendation == "maybe":
+        print(f"\n     Consider: review the gaps above before deciding")
         print(f"     Next: 'applyr cv generate {offer_id}' to create a tailored CV")
     else:
-        print(f"\n  >> RECOMMENDATION: SKIP (score {compatibility_pct}% < {threshold}% threshold)")
-        print(f"     Consider: 'applyr update {offer_id} discarded' to archive this offer")
+        print(f"\n     Consider: 'applyr update {offer_id} discarded' to archive this offer")
 
 
 # ---------------------------------------------------------------------------
@@ -643,6 +803,17 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
             bar = _bar(t["score"])
             detail = f"  ({t['detail']})" if t["detail"] else ""
             print(f"    {label:<18} {t['score']:>3}%  {bar}{detail}")
+
+        # Skill-level breakdown
+        _show_match_breakdown([dict(t) for t in topics], topic_labels)
+
+        # Score breakdown
+        _show_score_breakdown([dict(t) for t in topics], config.get("weights", {}))
+
+    # Recommendation
+    recommendation, icon = _get_recommendation(row["compatibility_pct"], config)
+    rec_label_text = _get_recommendation_label(recommendation)
+    print(f"\n  >> {icon} {rec_label_text} (score {row['compatibility_pct']}%)")
 
     print()
 

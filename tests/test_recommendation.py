@@ -1,0 +1,173 @@
+"""Tests for three-state recommendation logic and match breakdown."""
+
+import pytest
+
+from applyr.commands.core import _get_recommendation, _get_recommendation_label, _show_match_breakdown, _get_match_breakdown, _get_why_you_match
+from applyr.commands._helpers import _classify_topic, _classify_icon
+
+
+class TestGetRecommendation:
+    def test_strong_match(self):
+        config = {"general": {"threshold_apply": 80, "threshold_maybe": 60}}
+        rec, icon = _get_recommendation(85, config)
+        assert rec == "apply"
+        assert icon == "✅"
+
+    def test_good_match(self):
+        config = {"general": {"threshold_apply": 80, "threshold_maybe": 60}}
+        rec, icon = _get_recommendation(70, config)
+        assert rec == "maybe"
+        assert icon == "⚠️"
+
+    def test_low_match(self):
+        config = {"general": {"threshold_apply": 80, "threshold_maybe": 60}}
+        rec, icon = _get_recommendation(50, config)
+        assert rec == "low_match"
+        assert icon == "❌"
+
+    def test_boundary_apply(self):
+        config = {"general": {"threshold_apply": 80, "threshold_maybe": 60}}
+        rec, _ = _get_recommendation(80, config)
+        assert rec == "apply"
+
+    def test_boundary_maybe(self):
+        config = {"general": {"threshold_apply": 80, "threshold_maybe": 60}}
+        rec, _ = _get_recommendation(60, config)
+        assert rec == "maybe"
+
+    def test_boundary_low(self):
+        config = {"general": {"threshold_apply": 80, "threshold_maybe": 60}}
+        rec, _ = _get_recommendation(59, config)
+        assert rec == "low_match"
+
+    def test_custom_thresholds(self):
+        config = {"general": {"threshold_apply": 90, "threshold_maybe": 70}}
+        rec, _ = _get_recommendation(85, config)
+        assert rec == "maybe"
+
+
+class TestGetRecommendationLabel:
+    def test_apply(self):
+        assert "APPLY" in _get_recommendation_label("apply")
+
+    def test_maybe(self):
+        assert "MAYBE" in _get_recommendation_label("maybe")
+
+    def test_low_match(self):
+        assert "LOW MATCH" in _get_recommendation_label("low_match")
+
+
+class TestClassifyTopic:
+    def test_strong(self):
+        assert _classify_topic(95) == "strong"
+        assert _classify_topic(80) == "strong"
+
+    def test_partial(self):
+        assert _classify_topic(79) == "partial"
+        assert _classify_topic(50) == "partial"
+
+    def test_missing(self):
+        assert _classify_topic(49) == "missing"
+        assert _classify_topic(0) == "missing"
+
+
+class TestClassifyIcon:
+    def test_strong(self):
+        assert _classify_icon("strong") == "✓"
+
+    def test_partial(self):
+        assert _classify_icon("partial") == "△"
+
+    def test_missing(self):
+        assert _classify_icon("missing") == "✕"
+
+
+class TestGetMatchBreakdown:
+    def test_empty(self):
+        result = _get_match_breakdown([])
+        assert result == {"strong": [], "partial": [], "missing": []}
+
+    def test_mixed(self):
+        topics = [
+            {"topic": "tech_stack", "score": 90, "detail": "Python expert"},
+            {"topic": "experience", "score": 60, "detail": "2 years"},
+            {"topic": "projects", "score": 30, "detail": "No relevant projects"},
+        ]
+        result = _get_match_breakdown(topics)
+        assert len(result["strong"]) == 1
+        assert len(result["partial"]) == 1
+        assert len(result["missing"]) == 1
+        assert result["strong"][0]["topic"] == "tech_stack"
+        assert result["partial"][0]["topic"] == "experience"
+        assert result["missing"][0]["topic"] == "projects"
+
+
+class TestGetWhyYouMatch:
+    def test_empty(self):
+        why_match, weakness = _get_why_you_match([], {})
+        assert why_match == []
+        assert weakness is None
+
+    def test_strong_only(self):
+        topics = [
+            {"topic": "tech_stack", "score": 90, "detail": "Python expert"},
+            {"topic": "projects", "score": 85, "detail": "Relevant projects"},
+        ]
+        topic_labels = {"tech_stack": "Tech Stack", "projects": "Projects"}
+        why_match, weakness = _get_why_you_match(topics, topic_labels)
+        assert len(why_match) == 2
+        assert weakness is None
+
+    def test_with_weakness(self):
+        topics = [
+            {"topic": "tech_stack", "score": 90, "detail": "Python expert"},
+            {"topic": "experience", "score": 60, "detail": "2 years"},
+            {"topic": "projects", "score": 30, "detail": "No relevant projects"},
+        ]
+        topic_labels = {"tech_stack": "Tech Stack", "experience": "Experience", "projects": "Projects"}
+        why_match, weakness = _get_why_you_match(topics, topic_labels)
+        assert len(why_match) == 1
+        assert weakness is not None
+        assert "Experience" in weakness
+
+    def test_top_three(self):
+        topics = [
+            {"topic": "tech_stack", "score": 95, "detail": "Expert"},
+            {"topic": "projects", "score": 90, "detail": "Relevant"},
+            {"topic": "education", "score": 85, "detail": "CS degree"},
+            {"topic": "english", "score": 80, "detail": "Fluent"},
+        ]
+        topic_labels = {"tech_stack": "Tech Stack", "projects": "Projects", "education": "Education", "english": "English"}
+        why_match, weakness = _get_why_you_match(topics, topic_labels)
+        assert len(why_match) == 3  # Only top 3
+
+
+from applyr.commands._helpers import _show_score_breakdown
+
+
+class TestShowScoreBreakdown:
+    def test_empty(self, capsys):
+        _show_score_breakdown([], {})
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_single_topic(self, capsys):
+        topics = [{"topic": "tech_stack", "score": 80}]
+        weights = {"tech_stack": 0.3}
+        _show_score_breakdown(topics, weights)
+        captured = capsys.readouterr()
+        assert "Technical skills" in captured.out
+        assert "80%" in captured.out
+        assert "24.0" in captured.out  # 80 * 0.3
+
+    def test_multiple_topics(self, capsys):
+        topics = [
+            {"topic": "tech_stack", "score": 80},
+            {"topic": "experience", "score": 60},
+        ]
+        weights = {"tech_stack": 0.3, "experience": 0.15}
+        _show_score_breakdown(topics, weights)
+        captured = capsys.readouterr()
+        assert "Technical skills" in captured.out
+        assert "Experience" in captured.out
+        assert "Total" in captured.out

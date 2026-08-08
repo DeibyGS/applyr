@@ -3,7 +3,7 @@
 Project: applyr
 Purpose: CLI job application tracker for AI coding agents
 License: MIT
-Python: >=3.12
+Python: >=3.11
 Dependencies: colorama>=0.4.6 (only runtime dep)
 
 ## Install
@@ -97,7 +97,7 @@ pylint applyr/ --disable=C0114,C0115,C0116,R0913,R0914,R0801 --fail-under=7.0
 ```
 
 No formatter, type checker or coverage gate is configured. Follow existing
-style: Python 3.12+ syntax, `X | Y` unions, type hints, English output.
+style: Python 3.11+ syntax, `X | Y` unions, type hints, English output.
 
 ## Key Files for Agents
 
