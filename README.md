@@ -11,9 +11,9 @@ applyr is the storage layer; your AI coding agent is the brain. Paste a job offe
 [![PyPI version](https://img.shields.io/pypi/v/applyr?color=blue)](https://pypi.org/project/applyr/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/applyr?color=brightgreen)](https://pypi.org/project/applyr/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
-[![tests](https://img.shields.io/badge/tests-54%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
+[![tests](https://img.shields.io/badge/tests-296%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-purple)](CONTRIBUTING.md)
 
 [Features](#features) •
@@ -30,7 +30,7 @@ pip install applyr && applyr init && applyr setup-agent
 ```
 
 > [!NOTE]
-> **Requires Python 3.12+** and an AI coding agent ([Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [OpenCode](https://opencode.ai), or any agent that reads instruction files).
+> **Requires Python 3.11+** and an AI coding agent ([Claude Code](https://claude.ai/claude-code), [Cursor](https://cursor.sh), [OpenCode](https://opencode.ai), or any agent that reads instruction files).
 
 ---
 
@@ -161,9 +161,9 @@ applyr followups                   # Overdue + upcoming
 ### CV pipeline
 
 ```bash
-applyr cv generate <id>            # ATS HTML skeleton
-applyr cv review <file.html>       # Recruiter review prompt
-applyr cv pdf <file.html>          # Chrome headless → PDF
+applyr cv generate <id>            # Markdown CV with YAML frontmatter
+applyr cv review <file.md>         # Recruiter review prompt (accepts .md or .html)
+applyr cv pdf <file.md>            # Markdown → ATS-HTML → PDF via Chrome
 ```
 
 ### System
@@ -276,7 +276,8 @@ applyr/
   config.py              # TOML config
   db.py                  # SQLite schema (offers: 31 columns)
   scoring.py             # Weighted scoring engine
-  cv.py                  # ATS CV + Chrome PDF + recruiter review
+  cv.py                  # Markdown CV + Chrome PDF + recruiter review
+  md_render.py           # Narrow markdown → ATS-HTML converter
   commands/
     core.py              # add, list, show, update, delete, search, init, setup-agent
     analytics.py         # stats, gaps, trends, pipeline, compare, plan, salary
@@ -284,10 +285,14 @@ applyr/
   templates/
     AGENT_INSTRUCTIONS.md
 tests/
-  test_scoring.py        # 54 unit tests
-  test_config.py
-  test_db.py
-  test_validators.py
+  test_cli_routing.py    # 115 tests, cli router coverage
+  test_cv.py             # CV pipeline tests
+  test_md_render.py      # Markdown renderer tests
+  test_db.py             # Schema + migration tests
+  test_scoring.py        # Scoring engine tests
+  test_config.py         # Config loading tests
+  test_validators.py     # Input validation tests
+  ...
 ```
 
 ## Development
@@ -296,7 +301,7 @@ tests/
 git clone https://github.com/DeibyGS/applyr.git
 cd applyr
 pip install -e ".[dev]"
-pytest                             # 54 tests, ~0.1s
+pytest                             # 296 tests, ~3s
 ```
 
 ---
@@ -309,7 +314,7 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 |-------------|------------------------------|
 | Domain model & 28-column schema | Python implementation |
 | Scoring engine & threshold logic | CLI scaffolding |
-| ATS CV template & locked CSS | Test suite (54 tests) |
+| ATS CV template & locked CSS | Test suite (296 tests) |
 | Architecture & code review | Module split & CI |
 
 **Process:** `Spec (SDD) → AI implementation → Human review → Test → Merge`
@@ -327,10 +332,10 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 
 | | |
 |---|---|
-| PRs | 17 (all human-reviewed) |
-| Tests | 54 unit (scoring, config, db, validators) |
+| PRs | 37 (all human-reviewed) |
+| Tests | 296 (cli, cv, md_render, db, scoring, config, validators) |
 | Commands | 21 + 5 aliases |
-| Schema | 31 columns, 4 tables, migration system |
+| Schema | 31 columns, 3 tables, migration system |
 | Models | Claude Opus 4.6, DeepSeek V4 Flash |
 
 _Measured with [ClaudeStat](https://github.com/DeibyGS/claudestat)._
