@@ -1,8 +1,9 @@
-"""Tests for three-state recommendation logic."""
+"""Tests for three-state recommendation logic and match breakdown."""
 
 import pytest
 
-from applyr.commands.core import _get_recommendation, _get_recommendation_label
+from applyr.commands.core import _get_recommendation, _get_recommendation_label, _show_match_breakdown, _get_match_breakdown
+from applyr.commands._helpers import _classify_topic, _classify_icon
 
 
 class TestGetRecommendation:
@@ -54,3 +55,48 @@ class TestGetRecommendationLabel:
 
     def test_low_match(self):
         assert "LOW MATCH" in _get_recommendation_label("low_match")
+
+
+class TestClassifyTopic:
+    def test_strong(self):
+        assert _classify_topic(95) == "strong"
+        assert _classify_topic(80) == "strong"
+
+    def test_partial(self):
+        assert _classify_topic(79) == "partial"
+        assert _classify_topic(50) == "partial"
+
+    def test_missing(self):
+        assert _classify_topic(49) == "missing"
+        assert _classify_topic(0) == "missing"
+
+
+class TestClassifyIcon:
+    def test_strong(self):
+        assert _classify_icon("strong") == "✓"
+
+    def test_partial(self):
+        assert _classify_icon("partial") == "△"
+
+    def test_missing(self):
+        assert _classify_icon("missing") == "✕"
+
+
+class TestGetMatchBreakdown:
+    def test_empty(self):
+        result = _get_match_breakdown([])
+        assert result == {"strong": [], "partial": [], "missing": []}
+
+    def test_mixed(self):
+        topics = [
+            {"topic": "tech_stack", "score": 90, "detail": "Python expert"},
+            {"topic": "experience", "score": 60, "detail": "2 years"},
+            {"topic": "projects", "score": 30, "detail": "No relevant projects"},
+        ]
+        result = _get_match_breakdown(topics)
+        assert len(result["strong"]) == 1
+        assert len(result["partial"]) == 1
+        assert len(result["missing"]) == 1
+        assert result["strong"][0]["topic"] == "tech_stack"
+        assert result["partial"][0]["topic"] == "experience"
+        assert result["missing"][0]["topic"] == "projects"

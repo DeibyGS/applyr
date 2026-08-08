@@ -36,7 +36,7 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score
-from applyr.commands._helpers import _bar, _today, _truncate
+from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _classify_icon
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
 
@@ -110,6 +110,70 @@ def _get_recommendation_label(recommendation: str) -> str:
         "low_match": "LOW MATCH: SKIP",
     }
     return labels.get(recommendation, recommendation.upper())
+
+
+def _show_match_breakdown(topics: list[dict], topic_labels: dict) -> None:
+    """Show skill-level match breakdown (Strong/Partial/Missing)."""
+    if not topics:
+        return
+
+    strong = []
+    partial = []
+    missing = []
+
+    for t in topics:
+        score = t.get("score", 0)
+        classification = _classify_topic(score)
+        entry = {
+            "topic": t["topic"],
+            "score": score,
+            "detail": t.get("detail", ""),
+            "label": topic_labels.get(t["topic"], t["topic"]),
+        }
+        if classification == "strong":
+            strong.append(entry)
+        elif classification == "partial":
+            partial.append(entry)
+        else:
+            missing.append(entry)
+
+    if strong:
+        print("\n  Strong:")
+        for e in strong:
+            detail = f" ({e['detail']})" if e["detail"] else ""
+            print(f"    ✓ {e['label']}: {e['score']}%{detail}")
+
+    if partial:
+        print("\n  Partial:")
+        for e in partial:
+            detail = f" ({e['detail']})" if e["detail"] else ""
+            print(f"    △ {e['label']}: {e['score']}%{detail}")
+
+    if missing:
+        print("\n  Missing:")
+        for e in missing:
+            detail = f" ({e['detail']})" if e["detail"] else ""
+            print(f"    ✕ {e['label']}: {e['score']}%{detail}")
+
+
+def _get_match_breakdown(topics: list[dict]) -> dict:
+    """Get match breakdown as dict for JSON output."""
+    strong = []
+    partial = []
+    missing = []
+
+    for t in topics:
+        score = t.get("score", 0)
+        classification = _classify_topic(score)
+        entry = {"topic": t["topic"], "score": score, "detail": t.get("detail", "")}
+        if classification == "strong":
+            strong.append(entry)
+        elif classification == "partial":
+            partial.append(entry)
+        else:
+            missing.append(entry)
+
+    return {"strong": strong, "partial": partial, "missing": missing}
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -501,13 +565,19 @@ def cmd_add(raw: str, force: bool = False) -> None:
     rec_label_text = _get_recommendation_label(recommendation)
     print(f"\n  >> {icon} {rec_label_text} (score {compatibility_pct}%)")
 
+    # --- Skill-level breakdown ---------------------------------------------
+    topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", "")}
+                   for k, v in topics.items()]
+    if topics_list:
+        _show_match_breakdown(topics_list, TOPIC_LABELS)
+
     if recommendation == "apply":
-        print(f"     Next: 'applyr cv generate {offer_id}' to create a tailored CV")
+        print(f"\n     Next: 'applyr cv generate {offer_id}' to create a tailored CV")
     elif recommendation == "maybe":
-        print(f"     Consider: review the gaps above before deciding")
+        print(f"\n     Consider: review the gaps above before deciding")
         print(f"     Next: 'applyr cv generate {offer_id}' to create a tailored CV")
     else:
-        print(f"     Consider: 'applyr update {offer_id} discarded' to archive this offer")
+        print(f"\n     Consider: 'applyr update {offer_id} discarded' to archive this offer")
 
 
 # ---------------------------------------------------------------------------
@@ -681,6 +751,14 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
             bar = _bar(t["score"])
             detail = f"  ({t['detail']})" if t["detail"] else ""
             print(f"    {label:<18} {t['score']:>3}%  {bar}{detail}")
+
+        # Skill-level breakdown
+        _show_match_breakdown(topics, topic_labels)
+
+    # Recommendation
+    recommendation, icon = _get_recommendation(row["compatibility_pct"], config)
+    rec_label_text = _get_recommendation_label(recommendation)
+    print(f"\n  >> {icon} {rec_label_text} (score {row['compatibility_pct']}%)")
 
     print()
 
