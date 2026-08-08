@@ -13,7 +13,7 @@ applyr is the storage layer; your AI coding agent is the brain. Paste a job offe
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
-[![tests](https://img.shields.io/badge/tests-296%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
+[![tests](https://img.shields.io/badge/tests-329%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-purple)](CONTRIBUTING.md)
 
 [Features](#features) •
@@ -66,8 +66,12 @@ applyr is the **storage layer**. Your AI agent is the **brain**.
 
 ## Features
 
+- **Three-state recommendation** — APPLY (>=80%), MAYBE (60-79%), LOW MATCH (<60%) with configurable thresholds
+- **Skill-level breakdown** — Strong/Partial/Missing per topic with icons (✓/△/✕)
+- **"Why you match"** — Executive summary of strengths and weaknesses
 - **Weighted scoring** — 6 configurable topics (tech stack 30%, projects 20%, experience 15%, education 15%, english 10%, cultural fit 10%)
-- **Threshold gate** — automatic APPLY/SKIP based on your minimum score (default: 65%)
+- **Score breakdown** — Weighted contribution per topic so you understand why 78%
+- **CV tailoring hints** — What to emphasize, what to de-emphasize in your CV
 - **Duplicate detection** — same company+title? applyr catches it before you waste time
 - **ATS-safe CVs** — locked single-column CSS, standard fonts, no images. Your agent fills content, never touches structure
 - **Recruiter review** — built-in prompt scores your CV 0-100 with specific improvements
