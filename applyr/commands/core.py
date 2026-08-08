@@ -805,10 +805,10 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
             print(f"    {label:<18} {t['score']:>3}%  {bar}{detail}")
 
         # Skill-level breakdown
-        _show_match_breakdown(topics, topic_labels)
+        _show_match_breakdown([dict(t) for t in topics], topic_labels)
 
         # Score breakdown
-        _show_score_breakdown(topics, config.get("weights", {}))
+        _show_score_breakdown([dict(t) for t in topics], config.get("weights", {}))
 
     # Recommendation
     recommendation, icon = _get_recommendation(row["compatibility_pct"], config)
