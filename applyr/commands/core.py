@@ -440,23 +440,9 @@ def cmd_add(raw: str, force: bool = False) -> None:
                 "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (?, ?, ?, ?)",
                 (offer_id, topic_key, score, detail),
             )
-            # Track gaps: topics below threshold
+            # Track gaps: topics below threshold (for in-memory notice only)
             if isinstance(score, (int, float)) and score < threshold:
                 skill_gaps.append((topic_key, threshold - score))
-
-        # --- Update skill_gaps table --------------------------------------
-        for skill, gap in skill_gaps:
-            conn.execute(
-                """
-                INSERT INTO skill_gaps (skill, frequency, total_gap, last_seen)
-                VALUES (?, 1, ?, ?)
-                ON CONFLICT(skill) DO UPDATE SET
-                    frequency = frequency + 1,
-                    total_gap = total_gap + excluded.total_gap,
-                    last_seen = excluded.last_seen
-                """,
-                (skill, gap, _today()),
-            )
 
         conn.commit()
     finally:

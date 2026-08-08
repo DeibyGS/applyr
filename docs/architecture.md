@@ -74,8 +74,8 @@ applyr doesn't call LLM APIs. Instead, it provides:
 
 ### SQLite Schema
 
-31 columns in the `offers` table, 4 total tables (`offers`, `offer_topics`,
-`skill_gaps`, `schema_version`). Migration system for forward-compatible schema
+31 columns in the `offers` table, 3 total tables (`offers`, `offer_topics`,
+`schema_version`). Migration system for forward-compatible schema
 changes — see [`contracts.md`](contracts.md) for the exact procedure.
 
 ## File Tree
