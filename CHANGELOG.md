@@ -4,6 +4,35 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.3] — 2026-08-08
+
+`setup-agent` copies applyr's instructions into other projects' AI config, so a
+stale local copy never stayed local — it propagated outdated guidance everywhere
+it was run.
+
+### Fixed
+- **`AGENT_INSTRUCTIONS.md` no longer goes stale forever.** `init` wrote
+  `~/.applyr/AGENT_INSTRUCTIONS.md` only when it was missing, and
+  `_get_agent_instructions()` preferred that local copy unconditionally. Upgrading
+  applyr therefore changed nothing: `setup-agent` kept emitting whatever the first
+  install happened to ship. Instructions are now stamped with the applyr version
+  that wrote them, and a stale copy is bypassed in favour of the packaged one
+
+### Added
+- **`doctor` reports instruction drift** as a `note` — visible, but not blocking.
+  A stale copy does not invalidate the setup, because `setup-agent` already serves
+  the packaged version, so it must not gate `applyr doctor && applyr cv generate`
+- 23 tests covering stamping, staleness comparison and the distribution rules
+
+### Notes
+- The local file is **never rewritten**. It is the user's and may carry hand
+  edits; silently overwriting it would be the mirror image of the bug being fixed.
+  To refresh it, delete it and run `applyr init`
+- A copy stamped by a *newer* applyr (the user downgraded) counts as current.
+  Warning about the future is noise
+- The stamp is applied when the file is written, not stored in the shipped
+  template, so a release cannot ship a template claiming the wrong version
+
 ## [0.8.2] — 2026-08-07
 
 `doctor` was the command v0.8.1 told every agent to run first, and it could not

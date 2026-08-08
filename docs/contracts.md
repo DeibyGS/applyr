@@ -106,6 +106,26 @@ register offers you have not applied to yet.
 A rejection counts as a *response* but not as an *interview*: being rejected
 means the CV was read.
 
+## Agent instructions distribution
+
+`~/.applyr/AGENT_INSTRUCTIONS.md` is written once by `init` and carries a version
+stamp on its first line (`<!-- applyr-version: X.Y.Z -->`). The stamp is applied
+at write time, not stored in the shipped template.
+
+Two rules hold together, and neither may be relaxed without the other:
+
+- **A stale copy is bypassed, never obeyed.** When the stamp is older than the
+  installed package — or absent, as in every file written before 0.8.3 —
+  `setup-agent` emits the packaged instructions and warns on stderr. Serving
+  outdated instructions is a bug, because `setup-agent` writes them into other
+  projects.
+- **A stale copy is bypassed, never rewritten.** The file belongs to the user and
+  may hold hand edits. No command overwrites it; refreshing means deleting it and
+  running `init` again.
+
+A stamp from a newer applyr counts as current. `doctor` reports drift as a
+`note`, not an `issue`: the setup still works, so it must not gate.
+
 ## Invariants
 
 Properties that must hold after every change. A failing invariant is a bug, not

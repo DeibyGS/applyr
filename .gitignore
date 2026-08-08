@@ -8,7 +8,8 @@ build/
 .DS_Store
 .claude/
 HANDOFF.md
-specs/
+# specs/ is versioned: design docs belong with the code they describe, the same
+# way docs/adr/ does. HANDOFF.md stays out — that one is session state, not design.
 
 # Coverage artifacts
 .coverage
