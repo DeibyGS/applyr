@@ -30,13 +30,12 @@ agents. Adding a key is backward compatible; renaming or removing one is not.
 
 ### Database schema
 
-`SCHEMA_SQL` in `applyr/db.py` defines four tables:
+`SCHEMA_SQL` in `applyr/db.py` defines three tables:
 
 | Table | Purpose |
 |-------|---------|
 | `offers` | Main record — 31 columns |
 | `offer_topics` | Per-topic scores, cascades on offer delete |
-| `skill_gaps` | Aggregated missing skills, keyed by skill name |
 | `schema_version` | Single-row migration tracker |
 
 Schema changes go through the migration system, never through direct edits to
