@@ -146,6 +146,12 @@ def main():
     # path the database was recreated before the check, so its "NOT FOUND"
     # branch was unreachable and a missing database always reported OK.
     if cmd not in ("init", "doctor"):
+        from applyr.config import APPLYR_DIR
+        db_path = APPLYR_DIR / "jobs.db"
+        if not db_path.exists():
+            die("Database not found. Run 'applyr init' to set up applyr.",
+                code="not_initialized",
+                text="  Try running: applyr init")
         try:
             init_db()
         except Exception as e:
