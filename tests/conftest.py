@@ -1,5 +1,6 @@
 """Shared fixtures for applyr tests."""
 
+import sys
 import pytest
 from pathlib import Path
 
@@ -31,3 +32,26 @@ def tmp_db(tmp_applyr):
     db_path = str(tmp_applyr / "jobs.db")
     init_db(db_path)
     return db_path
+
+
+@pytest.fixture
+def run_cli(tmp_applyr, monkeypatch):
+    """Run cli.main() with patched sys.argv and isolated APPLYR_HOME.
+
+    Returns a callable: run_cli(["command", "arg1", ...]) -> None
+    Raises SystemExit on die() calls.
+    """
+    import applyr.commands.core as core_mod
+    import applyr.commands.workflow as workflow_mod
+    import applyr.cv as cv_mod
+
+    # Patch APPLYR_DIR in modules that have it
+    for mod in (core_mod, workflow_mod, cv_mod):
+        monkeypatch.setattr(mod, "APPLYR_DIR", tmp_applyr)
+
+    def _run(args: list[str]):
+        monkeypatch.setattr(sys, "argv", ["applyr"] + args)
+        from applyr.cli import main
+        main()
+
+    return _run

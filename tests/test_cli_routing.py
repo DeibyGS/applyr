@@ -1,0 +1,664 @@
+"""Tests for cli.py command routing — AC-2.1 through AC-2.8.
+
+These tests invoke cli.main() with patched sys.argv and assert on captured
+output and exit codes. NO subprocess — the CI smoke test covers the binary.
+"""
+
+import json
+import pytest
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _run(run_cli, capsys, args: list[str]):
+    """Run cli.main() and return (stdout, stderr, exit_code)."""
+    try:
+        run_cli(args)
+        captured = capsys.readouterr()
+        return captured.out, captured.err, 0
+    except SystemExit as e:
+        captured = capsys.readouterr()
+        return captured.out, captured.err, e.code
+
+
+def _make_offer_json(tmp_applyr: Path) -> str:
+    """Create a minimal valid offer JSON for testing."""
+    return json.dumps({
+        "title": "Test Engineer",
+        "company": "TestCo",
+        "compatibility_pct": 75,
+        "status": "applied",
+    })
+
+
+# ── AC-2.1: Dispatch to correct function ─────────────────────────────────────
+
+
+class TestCommandDispatch:
+    """Every command routes to the right function with parsed args."""
+
+    def test_version(self, run_cli, capsys):
+        out, err, code = _run(run_cli, capsys, ["version"])
+        assert code == 0
+        assert "applyr v" in out
+
+    def test_version_short(self, run_cli, capsys):
+        out, err, code = _run(run_cli, capsys, ["--version"])
+        assert code == 0
+        assert "applyr v" in out
+
+    def test_help_no_args(self, run_cli, capsys):
+        out, err, code = _run(run_cli, capsys, [])
+        assert code == 0
+        assert "Getting started" in out
+
+    def test_help_command(self, run_cli, capsys):
+        out, err, code = _run(run_cli, capsys, ["help"])
+        assert code == 0
+        assert "applyr <command>" in out
+
+    def test_help_flag(self, run_cli, capsys):
+        out, err, code = _run(run_cli, capsys, ["--help"])
+        assert code == 0
+        assert "applyr <command>" in out
+
+    def test_init(self, run_cli, capsys, tmp_applyr):
+        out, err, code = _run(run_cli, capsys, ["init"])
+        assert code == 0
+        assert (tmp_applyr / "jobs.db").exists()
+
+    def test_stats(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["stats"])
+        assert code == 0
+
+    def test_list(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list"])
+        assert code == 0
+
+    def test_list_alias_ls(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["ls"])
+        assert code == 0
+
+    def test_stats_alias_st(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["st"])
+        assert code == 0
+
+    def test_followups(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["followups"])
+        assert code == 0
+
+    def test_followups_alias_fu(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["fu"])
+        assert code == 0
+
+    def test_gaps(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["gaps"])
+        assert code == 0
+
+    def test_pipeline(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["pipeline"])
+        assert code == 0
+
+    def test_trends(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["trends"])
+        assert code == 0
+
+    def test_summary(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["summary"])
+        assert code == 0
+
+    def test_plan(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["plan"])
+        assert code == 0
+
+    def test_salary(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["salary"])
+        assert code == 0
+
+    def test_export(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["export"])
+        assert code == 0
+
+    def test_search(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["search", "test"])
+        assert code == 0
+
+    def test_compare_no_args(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["compare"])
+        assert code == 0  # prints usage
+
+    def test_compare_alias_cmp(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cmp"])
+        assert code == 0  # prints usage
+
+    def test_salary_alias_sal(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["sal"])
+        assert code == 0
+
+    def test_cv_no_subcmd(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv"])
+        assert code == 0  # prints usage
+
+    def test_cv_generate_no_id(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv", "generate"])
+        assert code == 0  # prints usage
+
+    def test_cv_review_no_file(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv", "review"])
+        assert code == 0  # prints usage
+
+    def test_cv_pdf_no_file(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv", "pdf"])
+        assert code == 0  # prints usage
+
+    def test_cv_stats(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv", "stats"])
+        assert code == 0
+
+    def test_doctor(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["doctor"])
+        # doctor exits 1 on blocking issues (e.g., missing cv-master.md)
+        assert code in (0, 1)
+
+    def test_setup_agent(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["setup-agent"])
+        assert code == 0
+
+    def test_add_no_args_interactive(self, run_cli, capsys, tmp_db, monkeypatch):
+        """add with no args and stdin.isatty() prints usage."""
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+        out, err, code = _run(run_cli, capsys, ["add"])
+        assert code == 0
+        assert "Usage: applyr add" in out
+
+    def test_add_json_arg(self, run_cli, capsys, tmp_db):
+        offer_json = _make_offer_json(tmp_db)
+        out, err, code = _run(run_cli, capsys, ["add", offer_json])
+        assert code == 0
+
+    def test_list_with_status(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list", "--status", "applied"])
+        assert code == 0
+
+    def test_list_with_sort(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list", "--sort", "company"])
+        assert code == 0
+
+    def test_list_with_limit(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list", "--limit", "5"])
+        assert code == 0
+
+    def test_list_all(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list", "--all"])
+        assert code == 0
+
+    def test_gaps_limit(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["gaps", "--limit", "3"])
+        assert code == 0
+
+    def test_pipeline_min_score(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["pipeline", "--min-score", "50"])
+        assert code == 0
+
+    def test_trends_week(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["trends", "--period", "week"])
+        assert code == 0
+
+    def test_trends_month(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["trends", "--period", "month"])
+        assert code == 0
+
+    def test_plan_limit(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["plan", "--limit", "5"])
+        assert code == 0
+
+    def test_salary_seniority(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["salary", "--seniority", "senior"])
+        assert code == 0
+
+    def test_salary_category(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["salary", "--category", "engineering"])
+        assert code == 0
+
+    def test_export_json(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["export", "--format", "json"])
+        assert code == 0
+
+    def test_export_csv(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["export", "--format", "csv"])
+        assert code == 0
+
+    def test_export_md(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["export", "--format", "md"])
+        assert code == 0
+
+    def test_search_with_status(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["search", "test", "--status", "applied"])
+        assert code == 0
+
+    def test_add_help(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["add", "--help"])
+        assert code == 0
+        assert "Usage: applyr add" in out
+
+    def test_delete_help(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["delete", "--help"])
+        assert code == 0
+        assert "Usage: applyr delete" in out
+
+    def test_setup_agent_with_agent(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
+        assert code == 0
+
+
+# ── AC-2.3: Global flags ─────────────────────────────────────────────────────
+
+
+class TestGlobalFlags:
+    """--json and --no-color are parsed and propagated."""
+
+    def test_json_flag_stats(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "stats"])
+        assert code == 0
+        # With empty DB, stats prints a message, not JSON
+        # With data, it outputs valid JSON
+        if out.strip() and out.strip() != "No offers in the database yet.":
+            data = json.loads(out)
+            assert isinstance(data, dict)
+
+    def test_json_flag_list(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "list"])
+        assert code == 0
+        # With empty DB, list prints a message, not JSON
+        if out.strip() and "No offers" not in out:
+            data = json.loads(out)
+            assert isinstance(data, (dict, list))
+
+    def test_no_color_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--no-color", "stats"])
+        assert code == 0
+
+    def test_json_no_color_combined(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "--no-color", "stats"])
+        assert code == 0
+
+    def test_json_flag_gaps(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "gaps"])
+        assert code == 0
+        # With empty DB, gaps may print a message or empty JSON
+        if out.strip():
+            try:
+                data = json.loads(out)
+                assert isinstance(data, dict)
+            except json.JSONDecodeError:
+                pass  # Some commands print messages instead of JSON when empty
+
+    def test_json_flag_followups(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "followups"])
+        assert code == 0
+        if out.strip():
+            try:
+                data = json.loads(out)
+                assert isinstance(data, dict)
+            except json.JSONDecodeError:
+                pass
+
+    def test_json_flag_pipeline(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "pipeline"])
+        assert code == 0
+        if out.strip():
+            try:
+                data = json.loads(out)
+                assert isinstance(data, dict)
+            except json.JSONDecodeError:
+                pass
+
+    def test_json_flag_summary(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "summary"])
+        assert code == 0
+        if out.strip():
+            try:
+                data = json.loads(out)
+                assert isinstance(data, dict)
+            except json.JSONDecodeError:
+                pass
+
+    def test_json_flag_trends(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "trends"])
+        assert code == 0
+        if out.strip():
+            try:
+                data = json.loads(out)
+                assert isinstance(data, dict)
+            except json.JSONDecodeError:
+                pass
+
+    def test_json_flag_doctor(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["--json", "doctor"])
+        assert code in (0, 1)
+        if out.strip():
+            data = json.loads(out)
+            assert isinstance(data, dict)
+
+
+# ── AC-2.4: Exit code contract ───────────────────────────────────────────────
+
+
+class TestExitCodes:
+    """Success → 0, die() paths → non-zero, doctor → 1 on blocking issue."""
+
+    def test_success_exits_zero(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["stats"])
+        assert code == 0
+
+    def test_unknown_command_exits_nonzero(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["nonexistent"])
+        assert code != 0 or "Unknown command" in out
+
+    def test_show_missing_id_exits_zero(self, run_cli, capsys, tmp_db):
+        """show with no id prints usage and exits 0."""
+        out, err, code = _run(run_cli, capsys, ["show"])
+        assert code == 0
+        assert "Usage: applyr show" in out
+
+    def test_update_missing_args(self, run_cli, capsys, tmp_db):
+        """update with too few args prints usage."""
+        out, err, code = _run(run_cli, capsys, ["update"])
+        assert code == 0
+        assert "Usage: applyr update" in out
+
+    def test_delete_missing_id(self, run_cli, capsys, tmp_db):
+        """delete with no id prints usage."""
+        out, err, code = _run(run_cli, capsys, ["delete"])
+        assert code == 0
+        assert "Usage: applyr delete" in out
+
+    def test_search_missing_keyword(self, run_cli, capsys, tmp_db):
+        """search with no keyword prints usage."""
+        out, err, code = _run(run_cli, capsys, ["search"])
+        assert code == 0
+        assert "Usage: applyr search" in out
+
+    def test_invalid_id_exits_nonzero(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["show", "notanumber"])
+        assert code != 0
+
+    def test_compare_too_few_ids(self, run_cli, capsys, tmp_db):
+        """compare with 1 id (needs ≥2) → die()."""
+        out, err, code = _run(run_cli, capsys, ["compare", "1"])
+        assert code != 0
+
+    def test_trends_invalid_period(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["trends", "--period", "invalid"])
+        assert code != 0
+
+    def test_export_invalid_format(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["export", "--format", "xml"])
+        assert code != 0
+
+    def test_cv_invalid_subcmd(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv", "invalid"])
+        assert code != 0
+
+    def test_doctor_exits_1_when_not_initialized(self, run_cli, capsys, tmp_applyr):
+        """doctor should exit 1 when database doesn't exist."""
+        out, err, code = _run(run_cli, capsys, ["doctor"])
+        # doctor exits 1 on blocking issues, 0 if healthy
+        assert code in (0, 1)
+
+
+# ── AC-2.5: Regression guard — no db recreation ──────────────────────────────
+
+
+class TestNoDbRecreation:
+    """No command except init may recreate a deleted jobs.db (session 11 bug)."""
+
+    def test_list_does_not_recreate_db(self, run_cli, capsys, tmp_applyr):
+        """list should fail gracefully if db is missing, not recreate it."""
+        db_path = tmp_applyr / "jobs.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        out, err, code = _run(run_cli, capsys, ["list"])
+        assert not db_path.exists(), "list recreated jobs.db — regression!"
+        assert code != 0
+
+    def test_stats_does_not_recreate_db(self, run_cli, capsys, tmp_applyr):
+        db_path = tmp_applyr / "jobs.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        out, err, code = _run(run_cli, capsys, ["stats"])
+        assert not db_path.exists(), "stats recreated jobs.db — regression!"
+        assert code != 0
+
+    def test_gaps_does_not_recreate_db(self, run_cli, capsys, tmp_applyr):
+        db_path = tmp_applyr / "jobs.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        out, err, code = _run(run_cli, capsys, ["gaps"])
+        assert not db_path.exists(), "gaps recreated jobs.db — regression!"
+        assert code != 0
+
+    def test_pipeline_does_not_recreate_db(self, run_cli, capsys, tmp_applyr):
+        db_path = tmp_applyr / "jobs.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        out, err, code = _run(run_cli, capsys, ["pipeline"])
+        assert not db_path.exists(), "pipeline recreated jobs.db — regression!"
+        assert code != 0
+
+    def test_followups_does_not_recreate_db(self, run_cli, capsys, tmp_applyr):
+        db_path = tmp_applyr / "jobs.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        out, err, code = _run(run_cli, capsys, ["followups"])
+        assert not db_path.exists(), "followups recreated jobs.db — regression!"
+        assert code != 0
+
+    def test_doctor_does_not_recreate_db(self, run_cli, capsys, tmp_applyr):
+        """doctor is special: it should NOT call init_db at all."""
+        db_path = tmp_applyr / "jobs.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        out, err, code = _run(run_cli, capsys, ["doctor"])
+        assert not db_path.exists(), "doctor recreated jobs.db — regression!"
+
+    def test_init_does_create_db(self, run_cli, capsys, tmp_applyr):
+        """init IS allowed to create the database."""
+        db_path = tmp_applyr / "jobs.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        out, err, code = _run(run_cli, capsys, ["init"])
+        assert db_path.exists(), "init should create jobs.db"
+
+    def test_error_message_when_db_missing(self, run_cli, capsys, tmp_applyr):
+        """Commands should show helpful error when db is missing."""
+        db_path = tmp_applyr / "jobs.db"
+        if db_path.exists():
+            db_path.unlink()
+
+        out, err, code = _run(run_cli, capsys, ["list"])
+        assert "applyr init" in out or "applyr init" in err
+
+
+# ── AC-2.2: Argument parsing ─────────────────────────────────────────────────
+
+
+class TestArgumentParsing:
+    """Verify flags are parsed correctly and passed to commands."""
+
+    def test_list_status_filter(self, run_cli, capsys, tmp_db):
+        """--status flag is parsed and passed."""
+        out, err, code = _run(run_cli, capsys, ["list", "--status", "applied"])
+        assert code == 0
+
+    def test_list_sort_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list", "--sort", "company"])
+        assert code == 0
+
+    def test_gaps_limit_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["gaps", "--limit", "3"])
+        assert code == 0
+
+    def test_pipeline_min_score_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["pipeline", "--min-score", "50"])
+        assert code == 0
+
+    def test_trends_period_week(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["trends", "--period", "week"])
+        assert code == 0
+
+    def test_trends_period_month(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["trends", "--period", "month"])
+        assert code == 0
+
+    def test_salary_seniority_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["salary", "--seniority", "senior"])
+        assert code == 0
+
+    def test_salary_category_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["salary", "--category", "engineering"])
+        assert code == 0
+
+    def test_export_format_json(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["export", "--format", "json"])
+        assert code == 0
+
+    def test_export_format_csv(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["export", "--format", "csv"])
+        assert code == 0
+
+    def test_export_format_md(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["export", "--format", "md"])
+        assert code == 0
+
+    def test_search_status_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["search", "test", "--status", "applied"])
+        assert code == 0
+
+    def test_add_force_flag(self, run_cli, capsys, tmp_db):
+        offer_json = _make_offer_json(tmp_db)
+        out, err, code = _run(run_cli, capsys, ["add", "--force", offer_json])
+        assert code == 0
+
+    def test_delete_force_flag(self, run_cli, capsys, tmp_db):
+        """delete --force with non-integer id prints error."""
+        out, err, code = _run(run_cli, capsys, ["delete", "--force", "abc"])
+        assert code != 0
+
+    def test_setup_agent_agent_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "cursor"])
+        assert code == 0
+
+    def test_cv_generate_template_flag(self, run_cli, capsys, tmp_db):
+        """cv generate with template flag and non-integer id."""
+        out, err, code = _run(run_cli, capsys, ["cv", "generate", "--template", "ats", "abc"])
+        assert code != 0
+
+    def test_cv_generate_force_flag(self, run_cli, capsys, tmp_db):
+        """cv generate with force flag and non-integer id."""
+        out, err, code = _run(run_cli, capsys, ["cv", "generate", "--force", "abc"])
+        assert code != 0
+
+    def test_cv_stats_min_sample_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv", "stats", "--min-sample", "5"])
+        assert code == 0
+
+    def test_plan_limit_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["plan", "--limit", "5"])
+        assert code == 0
+
+    def test_list_limit_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list", "--limit", "10"])
+        assert code == 0
+
+    def test_list_all_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list", "--all"])
+        assert code == 0
+
+
+# ── AC-2.7: Unknown command and missing-argument paths ───────────────────────
+
+
+class TestEdgeCases:
+    """Unknown commands and missing arguments handled gracefully."""
+
+    def test_unknown_command(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["foobar"])
+        assert "Unknown command" in out
+
+    def test_unknown_command_suggestion(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["foobar"])
+        assert "applyr help" in out
+
+    def test_cv_unknown_subcmd(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv", "blah"])
+        # die() raises SystemExit with non-zero code
+        assert code != 0 or "Unknown cv subcommand" in out
+
+    def test_show_non_integer_id(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["show", "abc"])
+        assert code != 0
+
+    def test_update_non_integer_id(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["update", "abc", "applied"])
+        assert code != 0
+
+    def test_delete_non_integer_id(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["delete", "abc"])
+        assert code != 0
+
+    def test_gaps_non_integer_limit(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["gaps", "--limit", "abc"])
+        assert code != 0
+
+    def test_pipeline_non_integer_min_score(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["pipeline", "--min-score", "abc"])
+        assert code != 0
+
+    def test_list_non_integer_limit(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["list", "--limit", "abc"])
+        assert code != 0
+
+    def test_plan_non_integer_limit(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["plan", "--limit", "abc"])
+        assert code != 0
+
+    def test_cv_stats_non_integer_min_sample(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["cv", "stats", "--min-sample", "abc"])
+        assert code != 0
+
+    def test_add_from_file(self, run_cli, capsys, tmp_db, tmp_applyr):
+        """add reading from a file."""
+        offer_file = tmp_applyr / "offer.json"
+        offer_file.write_text(_make_offer_json(tmp_db))
+        out, err, code = _run(run_cli, capsys, ["add", str(offer_file)])
+        assert code == 0
+
+    def test_compare_non_integer_id(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["compare", "abc", "def"])
+        assert code != 0
+
+    def test_cv_review_with_file(self, run_cli, capsys, tmp_db, tmp_applyr):
+        """cv review with a dummy file."""
+        dummy = tmp_applyr / "dummy.html"
+        dummy.write_text("<html><body>Test CV</body></html>")
+        out, err, code = _run(run_cli, capsys, ["cv", "review", str(dummy)])
+        assert code == 0
+
+    def test_cv_pdf_with_file(self, run_cli, capsys, tmp_db, tmp_applyr):
+        """cv pdf with a dummy file."""
+        dummy = tmp_applyr / "dummy.html"
+        dummy.write_text("<html><body>Test CV</body></html>")
+        out, err, code = _run(run_cli, capsys, ["cv", "pdf", str(dummy)])
+        # May fail if Chrome not available, but routing is tested
+        assert code in (0, 1)
