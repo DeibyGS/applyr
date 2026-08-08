@@ -4,6 +4,39 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] — 2026-08-08
+
+### Changed
+
+- **BREAKING: `cv generate` outputs `.md` instead of `.html`.** CVs are now
+  drafted as markdown files with YAML frontmatter (offer_id, topic_scores,
+  cv_master, date). The agent reads and edits markdown directly — no more
+  stripping HTML tags to find the editable content
+
+- **`cv_used` stores basename without extension.** The `offers.cv_used` column
+  now stores `cv-acme-engineer` instead of `cv-acme-engineer.html`. Existing
+  `.html` values are migrated via schema v2→v3
+
+- **`cv review` and `cv pdf` accept both `.md` and `.html` files.** The commands
+  dispatch by file extension. Legacy HTML files continue to work unchanged
+
+### Added
+
+- **`applyr/md_render.py`**: Narrow markdown→ATS-HTML converter. Supports
+  headings (h1-h6), paragraphs, unordered lists, bold, italic, and links.
+  Rejects tables, images, and ATX closing headings with stable error codes
+
+- **ADR 008**: Documents rationale for markdown-first pipeline
+
+- Schema migration v2→v3: strips `.html` extension from `cv_used` values
+
+- 11 tests for `md_render` module, 2 tests updated for markdown output
+
+### Fixed
+
+- `cv_used` no longer stores file extensions, preventing double-extension
+  bugs when agents pass the value to `cv review` or `cv pdf`
+
 ## [0.8.4] — 2026-08-08
 
 ### Fixed
