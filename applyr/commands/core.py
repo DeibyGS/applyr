@@ -78,6 +78,39 @@ _AGENT_DETECT_ORDER = [
     ("generic",  "AGENTS.md"),
 ]
 
+
+# ---------------------------------------------------------------------------
+# Recommendation helpers
+# ---------------------------------------------------------------------------
+
+def _get_recommendation(score: int, config: dict) -> tuple[str, str]:
+    """Get recommendation state and icon based on score and thresholds.
+
+    Returns:
+        Tuple of (recommendation, icon) where recommendation is
+        "apply", "maybe", or "low_match" and icon is the display emoji.
+    """
+    general = config.get("general", {})
+    threshold_apply = general.get("threshold_apply", 80)
+    threshold_maybe = general.get("threshold_maybe", 60)
+
+    if score >= threshold_apply:
+        return "apply", "✅"
+    elif score >= threshold_maybe:
+        return "maybe", "⚠️"
+    else:
+        return "low_match", "❌"
+
+
+def _get_recommendation_label(recommendation: str) -> str:
+    """Get human-readable label for recommendation."""
+    labels = {
+        "apply": "STRONG MATCH: APPLY",
+        "maybe": "GOOD MATCH: MAYBE",
+        "low_match": "LOW MATCH: SKIP",
+    }
+    return labels.get(recommendation, recommendation.upper())
+
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
@@ -463,12 +496,17 @@ def cmd_add(raw: str, force: bool = False) -> None:
         gap_names = [gap_labels.get(s, s) for s, _ in skill_gaps]
         print(f"  Skill gaps  : {', '.join(gap_names)}")
 
-    # --- Threshold recommendation ------------------------------------------
-    if compatibility_pct >= threshold:
-        print(f"\n  >> RECOMMENDATION: APPLY (score {compatibility_pct}% >= {threshold}% threshold)")
+    # --- Three-state recommendation ----------------------------------------
+    recommendation, icon = _get_recommendation(compatibility_pct, config)
+    rec_label_text = _get_recommendation_label(recommendation)
+    print(f"\n  >> {icon} {rec_label_text} (score {compatibility_pct}%)")
+
+    if recommendation == "apply":
+        print(f"     Next: 'applyr cv generate {offer_id}' to create a tailored CV")
+    elif recommendation == "maybe":
+        print(f"     Consider: review the gaps above before deciding")
         print(f"     Next: 'applyr cv generate {offer_id}' to create a tailored CV")
     else:
-        print(f"\n  >> RECOMMENDATION: SKIP (score {compatibility_pct}% < {threshold}% threshold)")
         print(f"     Consider: 'applyr update {offer_id} discarded' to archive this offer")
 
 

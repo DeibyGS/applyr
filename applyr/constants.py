@@ -24,6 +24,8 @@ FOLLOWUP_TITLE_WIDTH = 28
 # Business logic thresholds
 # ---------------------------------------------------------------------------
 DEFAULT_THRESHOLD = 65
+DEFAULT_THRESHOLD_APPLY = 80
+DEFAULT_THRESHOLD_MAYBE = 60
 DEFAULT_FOLLOWUP_DAYS = 10
 DEFAULT_LIST_LIMIT = 50
 FOLLOWUP_UPCOMING_DAYS = 5
