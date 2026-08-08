@@ -84,7 +84,7 @@ class TestMigrationV1ToV2:
         assert "schema_version" in names
 
         row = conn.execute("SELECT version FROM schema_version").fetchone()
-        assert row["version"] == 2
+        assert row["version"] == 3
         conn.close()
 
     def test_migration_idempotent(self, tmp_db):

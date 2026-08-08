@@ -105,19 +105,19 @@ class TestCvGenerate:
         with pytest.raises(SystemExit):
             cmd_cv_generate(offer_id)
 
-    def test_keeps_topic_scores_out_of_the_html(self, offer_id, tmp_applyr):
+    def test_keeps_topic_scores_out_of_the_md(self, offer_id, tmp_applyr):
         """Candid self-assessment must not ship inside the recruiter's file."""
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(offer_id)
-        html = next((tmp_applyr / "cv").glob("*.html")).read_text()
-        assert "no professional experience" not in html
-        assert "Topic Scores" not in html
+        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        assert "no professional experience" not in md
+        assert "Topic Scores" not in md
 
-    def test_embeds_offer_id_marker(self, offer_id, tmp_applyr):
+    def test_embeds_offer_id_in_frontmatter(self, offer_id, tmp_applyr):
         """cv review resolves scores from the database through this marker."""
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(offer_id)
-        html = next((tmp_applyr / "cv").glob("*.html")).read_text()
-        assert f"applyr:offer-id={offer_id}" in html
+        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        assert f"offer_id: {offer_id}" in md

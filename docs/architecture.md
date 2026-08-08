@@ -22,8 +22,10 @@ flowchart TD
     Core --> Scoring[scoring.py]
     Scoring --> Config[config.py]
     Core --> CV[cv.py]
-    CV --> Chrome[Chrome Headless]
-    CV -->|HTML| PDF[PDF Output]
+    CV -->|Markdown| MD[Markdown CV]
+    MD -->|md_render| HTML[ATS-Safe HTML]
+    HTML --> Chrome[Chrome Headless]
+    HTML --> PDF[PDF Output]
 ```
 
 ## Module Responsibilities
@@ -36,7 +38,8 @@ flowchart TD
 | `scoring.py` | 36 | Weighted compatibility calculation — **no database access**, reads config for weights |
 | `errors.py` | 20 | `error()`, `warn()`, `die()` — all output to stderr |
 | `duplicates.py` | 95 | Title normalization and similarity matching for `add` |
-| `cv.py` | 416 | ATS HTML skeleton, Chrome PDF export, recruiter review prompt |
+| `cv.py` | 416 | Markdown CV generation, Chrome PDF export, recruiter review prompt |
+| `md_render.py` | ~150 | Narrow markdown→ATS-HTML converter (headings, paragraphs, ul, bold, italic, links) |
 | `colors.py` | ~40 | Colorama wrapper, respects `NO_COLOR` |
 | `constants.py` | 67 | All magic numbers, thresholds, column widths |
 | `commands/core.py` | 756 | init, setup-agent, add, list, show, update, delete, search |

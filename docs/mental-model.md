@@ -19,7 +19,7 @@ from numbers you give it, and prints tables or JSON.
 | It is not | Because |
 |-----------|---------|
 | An AI tool | It contains zero model calls. `grep -r "openai\|anthropic\|requests" applyr/` returns nothing |
-| A CV writer | `cv generate` emits an empty ATS-safe HTML skeleton. The writing is done elsewhere |
+| A CV writer | `cv generate` emits a markdown CV with YAML frontmatter. HTML+PDF is a render step |
 | An ATS analyzer | It never parses or scores a job posting. It stores the score somebody else decided |
 | A job scraper | It has no network layer at all. Offers arrive as JSON you hand to `applyr add` |
 | A web app | No server, no API, no auth. One SQLite file at `~/.applyr/jobs.db` |

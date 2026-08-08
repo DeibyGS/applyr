@@ -10,6 +10,9 @@ reverses one of them.
 | [003](003-no-llm-calls.md) | No LLM API calls — the agent reasons, applyr remembers | Accepted |
 | [004](004-weighted-scoring.md) | Configurable weighted scoring over six topics | Accepted |
 | [005](005-single-cli.md) | A single CLI on the standard library, one dependency | Accepted |
+| [006](006-errors-to-stderr.md) | Errors and warnings to stderr, data to stdout | Accepted |
+| [007](007-structured-json-errors.md) | Structured JSON errors on stderr with stable codes | Accepted |
+| [008](008-md-first-cv-pipeline.md) | MD-first CV pipeline — markdown drafts, HTML+PDF at render | Accepted |
 
 ## Conventions
 

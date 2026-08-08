@@ -188,29 +188,36 @@ applyr salary --category engineering
 
 ### `applyr cv generate <id> [--template ats]`
 
-Generate ATS-safe HTML CV from your profile.
+Generate markdown CV from your profile with YAML frontmatter.
 
 ```bash
 applyr cv generate 1
 applyr cv generate 1 --template ats
 ```
 
-### `applyr cv review <html-file>`
+Output: `.md` file (not `.html`). The `cv_used` field stores basename without extension.
 
-Generate recruiter review prompt with ATS scoring rubric.
+### `applyr cv review <file>`
+
+Generate recruiter review prompt with ATS scoring rubric. Accepts `.md` or `.html` files.
 
 ```bash
-applyr cv review cv.html
-applyr cv review cv.html --json
+applyr cv review cv.md
+applyr cv review cv.md --json
+applyr cv review cv.html  # Legacy HTML files still work
 ```
 
-### `applyr cv pdf <html-file> [--output file.pdf]`
+### `applyr cv pdf <file> [--output file.pdf]`
 
-Convert HTML to PDF via Chrome headless.
+Convert CV to PDF via Chrome headless. Accepts `.md` or `.html` files.
+
+For `.md` files: renders markdown → ATS-safe HTML → PDF in one invocation.
+For `.html` files: renders directly to PDF (legacy support).
 
 ```bash
-applyr cv pdf cv.html
-applyr cv pdf cv.html --output my_cv.pdf
+applyr cv pdf cv.md
+applyr cv pdf cv.md --output my_cv.pdf
+applyr cv pdf cv.html  # Legacy HTML files still work
 ```
 
 ## System

@@ -5,12 +5,16 @@ from pathlib import Path
 
 from applyr.config import load_config
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
 MIGRATIONS: dict[tuple[int, int], list[str]] = {
     (1, 2): ["DROP TABLE IF EXISTS skill_gaps"],
+    (2, 3): [
+        # Strip file extensions from cv_used values (AC-3.10)
+        "UPDATE offers SET cv_used = REPLACE(REPLACE(cv_used, '.html', ''), '.md', '') WHERE cv_used IS NOT NULL"
+    ],
 }
 
 SCHEMA_SQL = """\
