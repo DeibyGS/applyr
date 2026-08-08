@@ -36,7 +36,7 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score
-from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _classify_icon
+from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _classify_icon, _show_score_breakdown
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
 
@@ -806,6 +806,9 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 
         # Skill-level breakdown
         _show_match_breakdown(topics, topic_labels)
+
+        # Score breakdown
+        _show_score_breakdown(topics, config.get("weights", {}))
 
     # Recommendation
     recommendation, icon = _get_recommendation(row["compatibility_pct"], config)

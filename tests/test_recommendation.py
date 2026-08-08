@@ -140,3 +140,34 @@ class TestGetWhyYouMatch:
         topic_labels = {"tech_stack": "Tech Stack", "projects": "Projects", "education": "Education", "english": "English"}
         why_match, weakness = _get_why_you_match(topics, topic_labels)
         assert len(why_match) == 3  # Only top 3
+
+
+from applyr.commands._helpers import _show_score_breakdown
+
+
+class TestShowScoreBreakdown:
+    def test_empty(self, capsys):
+        _show_score_breakdown([], {})
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_single_topic(self, capsys):
+        topics = [{"topic": "tech_stack", "score": 80}]
+        weights = {"tech_stack": 0.3}
+        _show_score_breakdown(topics, weights)
+        captured = capsys.readouterr()
+        assert "Technical skills" in captured.out
+        assert "80%" in captured.out
+        assert "24.0" in captured.out  # 80 * 0.3
+
+    def test_multiple_topics(self, capsys):
+        topics = [
+            {"topic": "tech_stack", "score": 80},
+            {"topic": "experience", "score": 60},
+        ]
+        weights = {"tech_stack": 0.3, "experience": 0.15}
+        _show_score_breakdown(topics, weights)
+        captured = capsys.readouterr()
+        assert "Technical skills" in captured.out
+        assert "Experience" in captured.out
+        assert "Total" in captured.out
