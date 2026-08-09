@@ -9,8 +9,9 @@ from pathlib import Path
 from applyr import __version__
 from applyr.agent_instructions import is_stale, stamped_version
 from applyr.config import APPLYR_DIR, load_config
-from applyr.constants import CV_MASTER_MIN_SIZE, CV_STATS_NAME_WIDTH
+from applyr.constants import CV_STATS_NAME_WIDTH
 from applyr.cv import get_cv_master_path
+from applyr.cv_master import inspect_cv_master
 from applyr.cv_stats import build_report
 from applyr.db import get_conn
 from applyr.errors import die
@@ -131,12 +132,12 @@ def _check_cv_master() -> dict:
     if not cv_master.exists():
         return _issue("CV Master", f"NOT FOUND — {cv_master}",
                       "Run 'applyr init' to create a template.")
-    size = cv_master.stat().st_size
-    if size < CV_MASTER_MIN_SIZE:
+    report = inspect_cv_master(cv_master.read_text())
+    if not report.filled:
         return _issue("CV Master",
-                      f"WARNING — file exists but looks empty ({size} bytes)",
+                      f"WARNING — {report.reason}",
                       f"Edit {cv_master} with your professional profile.")
-    return _ok("CV Master", f"OK ({cv_master}, {size:,} bytes)")
+    return _ok("CV Master", f"OK ({cv_master}, {report.content_words} words of content)")
 
 
 def _check_agent_instructions() -> dict:

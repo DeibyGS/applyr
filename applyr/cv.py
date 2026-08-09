@@ -6,7 +6,8 @@ import subprocess
 from pathlib import Path
 
 from applyr.config import APPLYR_DIR, load_config
-from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, CV_MASTER_MIN_SIZE
+from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS
+from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error
 
 
@@ -259,12 +260,13 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
     # An unfilled template is worse than a missing one: generation succeeds and
     # the agent has nothing to fill the placeholders from, so the failure is
     # silent. setup-agent already warns about this; refuse it here too.
-    cv_master_size = cv_master.stat().st_size
-    if cv_master_size < CV_MASTER_MIN_SIZE:
-        error(f"Error: cv-master.md looks empty ({cv_master_size} bytes).")
+    report = inspect_cv_master(cv_master.read_text())
+    if not report.filled:
+        error(f"Error: cv-master.md is {report.reason}.")
         die("cv-master.md is still the unfilled template.", code="empty_cv_master",
-            details={"path": str(cv_master), "size": cv_master_size,
-                     "min_size": CV_MASTER_MIN_SIZE},
+            details={"path": str(cv_master),
+                     "placeholder_sections": list(report.placeholder_sections),
+                     "content_words": report.content_words},
             text=f"  Fill {cv_master} with your profile before generating a CV.")
     output_dir = get_output_dir()
     slug = _make_slug(row["company"], row["title"])
