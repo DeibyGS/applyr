@@ -702,3 +702,120 @@ Be specific. Reference exact lines from the CV. Do not be vague."""
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(prompt)
+
+
+# ---------------------------------------------------------------------------
+# cmd_cv_review_blind
+# ---------------------------------------------------------------------------
+
+def cmd_cv_review_blind(offer_id: int, as_json: bool = False) -> None:
+    """Independently evaluate cv-master.md against a job offer without referencing
+    the Matcher's compatibility score.
+
+    This is the Recruiter agent: it reads cv-master.md fresh, evaluates it
+    against the offer, and returns an ATS assessment with verdict.
+    """
+    import json
+
+    from applyr.config import load_config
+    from applyr.db import get_conn
+
+    # Load thresholds from config
+    config = load_config()
+    threshold_apply = config["general"].get("threshold", 80)
+    threshold_maybe = config["general"].get("maybe_threshold", 60)
+
+    # 1. Load offer from DB (WITHOUT compatibility_pct — blind)
+    conn = get_conn()
+    try:
+        offer = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
+        if not offer:
+            die(f"Error: offer #{offer_id} not found.", code="not_found")
+        topics = conn.execute(
+            "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ? ORDER BY score DESC",
+            (offer_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # 2. Read cv-master.md fresh
+    cv_master_path = APPLYR_DIR / "cv-master.md"
+    if not cv_master_path.exists():
+        die("Error: cv-master.md not found. Run 'applyr init' first.", code="cv_master_missing")
+
+    cv_master_text = cv_master_path.read_text(encoding="utf-8")
+    report = inspect_cv_master(cv_master_text)
+    if not report.filled:
+        die(f"Error: cv-master.md is {report.reason}.", code="cv_master_missing")
+
+    # Parse cv-master.md for review
+    cv_text = _parse_markdown_for_review(cv_master_text)
+
+    # 3. Build offer context (WITHOUT compatibility_pct — blind)
+    offer_lines = [
+        f"Target Position : {offer['title']}",
+        f"Company         : {offer['company'] or 'Not specified'}",
+        f"Work Mode       : {offer['work_mode'] or 'Not specified'}",
+        f"Location        : {offer['location'] or 'Not specified'}",
+        f"Seniority       : {offer['seniority_level'] or 'Not specified'}",
+        f"Tech Stack Req. : {offer['tech_stack'] or 'Not specified'}",
+    ]
+    if offer["summary"]:
+        offer_lines.append(f"Job Summary     : {offer['summary']}")
+    if topics:
+        offer_lines.append("")
+        offer_lines.append("Required Skills (from job posting):")
+        offer_lines += [f"  {t['topic']}: importance implied by job posting" for t in topics]
+    offer_context = "\n".join(offer_lines)
+
+    # 4. Generate review prompt (independent evaluation)
+    prompt = f"""\
+You are a senior technical recruiter with 10+ years of experience reviewing CVs for tech roles. You are thorough, fair, and direct.
+
+## Task
+Independently evaluate the following candidate profile against the target position.
+You do NOT know the candidate's self-assessed compatibility score — evaluate purely based on the profile and job requirements.
+
+## Target position context
+{offer_context}
+
+## Candidate profile (cv-master.md)
+{cv_text}
+
+{_REVIEW_RUBRIC}
+
+{_REVIEW_OUTPUT_FORMAT}
+
+Be specific. Reference exact sections from the profile. Do not be vague."""
+
+    # 5. Determine verdict based on thresholds (from config)
+    # The agent will parse the ATS SCORE from the prompt output and classify
+    # For JSON output, we include the thresholds so the agent can classify
+    if as_json:
+        payload = {
+            "offer_id": offer_id,
+            "cv_master_file": str(cv_master_path),
+            "cv_text": cv_text,
+            "offer_context": offer_context,
+            "prompt": prompt,
+            "thresholds": {
+                "apply": threshold_apply,
+                "maybe": threshold_maybe,
+            },
+            "instructions": (
+                "Parse ATS SCORE from the prompt output. "
+                f"If score >= {threshold_apply}: verdict = STRONG_MATCH. "
+                f"If score >= {threshold_maybe} and < {threshold_apply}: verdict = CLOSE_MATCH, include conditional_advice. "
+                f"If score < {threshold_maybe}: verdict = NO_MATCH, include gaps."
+            ),
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(prompt)
+        print()
+        print(f"---")
+        print(f"Thresholds from config: APPLY >= {threshold_apply}%, MAYBE >= {threshold_maybe}%")
+        print(f"After evaluating, classify as:")
+        print(f"  STRONG_MATCH  if score >= {threshold_apply}")
+        print(f"  CLOSE_MATCH   if score >= {threshold_maybe} and < {threshold_apply}")
+        print(f"  NO_MATCH      if score < {threshold_maybe}")

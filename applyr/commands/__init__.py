@@ -20,6 +20,9 @@ from applyr.commands.analytics import (
     cmd_compare,
     cmd_plan,
     cmd_salary,
+    cmd_gaps_save,
+    cmd_gaps_list,
+    cmd_gaps_stats,
 )
 from applyr.commands.workflow import cmd_export, cmd_doctor, cmd_cv_stats
 
@@ -42,6 +45,9 @@ __all__ = [
     "cmd_compare",
     "cmd_plan",
     "cmd_salary",
+    "cmd_gaps_save",
+    "cmd_gaps_list",
+    "cmd_gaps_stats",
     "cmd_export",
     "cmd_doctor",
 ]

@@ -25,7 +25,7 @@ from applyr.constants import (
     TREND_BAR_WIDTH,
     TREND_HISTORY_LIMIT,
 )
-from applyr.db import STATUS_LABELS, get_conn
+from applyr.db import STATUS_LABELS, VALID_SEVERITIES, get_conn
 from applyr.commands._helpers import _bar, _today, _truncate
 from applyr.errors import die
 
@@ -765,5 +765,216 @@ def cmd_salary(seniority: str | None = None, category: str | None = None, as_jso
                 continue
             s_min, s_max, s_avg, s_med = stats
             print(f"  {cat:<14}  {len(cat_groups[cat]):>5}  {s_min:>8,}  {s_max:>8,}  {s_avg:>8,}  {s_med:>8,}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# cmd_gaps_save
+# ---------------------------------------------------------------------------
+
+def cmd_gaps_save(offer_id: int, gaps_json: str, as_json: bool = False) -> None:
+    """Save learning gaps for a job offer."""
+    try:
+        data = json.loads(gaps_json)
+    except json.JSONDecodeError as exc:
+        die(f"Error: invalid JSON — {exc}", code="invalid_json")
+
+    gaps = data.get("gaps", [])
+    if not gaps:
+        die("Error: gaps array is empty or missing.", code="missing_field")
+
+    conn = get_conn()
+    try:
+        offer = conn.execute("SELECT id, title, company FROM offers WHERE id = ?", (offer_id,)).fetchone()
+        if not offer:
+            die(f"Error: offer #{offer_id} not found.", code="not_found")
+
+        saved = 0
+        for gap in gaps:
+            topic = gap.get("topic", "")
+            gap_detail = gap.get("gap_detail", "")
+            severity = gap.get("severity", "medium")
+            suggested_action = gap.get("suggested_action")
+
+            if not topic:
+                die("Error: each gap must have a 'topic' field.", code="missing_field")
+            if not gap_detail:
+                die("Error: each gap must have a 'gap_detail' field.", code="missing_field")
+            if topic not in TOPIC_LABELS:
+                die(f"Error: topic must be one of {list(TOPIC_LABELS.keys())}.", code="invalid_value")
+            if severity not in VALID_SEVERITIES:
+                die(f"Error: severity must be one of {VALID_SEVERITIES}.", code="invalid_value")
+
+            conn.execute(
+                "INSERT INTO learning_gaps (offer_id, topic, gap_detail, severity, suggested_action) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (offer_id, topic, gap_detail, severity, suggested_action),
+            )
+            saved += 1
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    company = offer["company"] or "—"
+    title = offer["title"]
+    if as_json:
+        print(json.dumps({"offer_id": offer_id, "gaps_saved": saved}))
+    else:
+        print(f"Saved {saved} gap{'s' if saved != 1 else ''} for offer #{offer_id} ({title} @ {company})")
+
+
+# ---------------------------------------------------------------------------
+# cmd_gaps_list
+# ---------------------------------------------------------------------------
+
+def cmd_gaps_list(topic: str | None = None, severity: str | None = None, as_json: bool = False) -> None:
+    """List learning gaps with optional filters."""
+    topic_labels: dict = TOPIC_LABELS
+
+    query = """
+        SELECT lg.id, lg.offer_id, lg.topic, lg.gap_detail, lg.severity,
+               lg.suggested_action, lg.created_at,
+               o.title AS offer_title, o.company
+        FROM learning_gaps lg
+        JOIN offers o ON o.id = lg.offer_id
+    """
+    params: list = []
+    conditions: list = []
+
+    if topic:
+        conditions.append("lg.topic = ?")
+        params.append(topic)
+    if severity:
+        conditions.append("lg.severity = ?")
+        params.append(severity)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY lg.created_at DESC"
+
+    conn = get_conn()
+    try:
+        rows = conn.execute(query, params).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        if as_json:
+            print(json.dumps({"total": 0, "gaps": []}))
+        else:
+            print("No learning gaps found.")
+        return
+
+    if as_json:
+        payload = {
+            "total": len(rows),
+            "gaps": [
+                {
+                    "id": r["id"],
+                    "offer_id": r["offer_id"],
+                    "offer_title": r["offer_title"],
+                    "company": r["company"],
+                    "topic": r["topic"],
+                    "gap_detail": r["gap_detail"],
+                    "severity": r["severity"],
+                    "suggested_action": r["suggested_action"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    severity_colors = {"high": "red", "medium": "yellow", "low": "dim"}
+
+    print(f"\nLearning Gaps ({len(rows)} total)\n")
+    print(f"  {'#':<4}  {'Offer':<30}  {'Topic':<14}  {'Severity':<8}  Gap Detail")
+    print(f"  {'—'*4}  {'—'*30}  {'—'*14}  {'—'*8}  {'—'*30}")
+
+    for r in rows:
+        label = topic_labels.get(r["topic"], r["topic"])
+        sev_color = severity_colors.get(r["severity"], "white")
+        company = r["company"] or "—"
+        offer_label = _truncate(f"{company} - {r['offer_title']}", 30)
+        gap_text = _truncate(r["gap_detail"], 40)
+        sev = r["severity"]
+        print(f"  {r['id']:<4}  {offer_label:<30}  {label:<14}  {color(f'{sev:<8}', sev_color)}  {gap_text}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# cmd_gaps_stats
+# ---------------------------------------------------------------------------
+
+def cmd_gaps_stats(as_json: bool = False) -> None:
+    """Show summary statistics of learning gaps."""
+    topic_labels: dict = TOPIC_LABELS
+
+    conn = get_conn()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM learning_gaps").fetchone()[0]
+        if total == 0:
+            if as_json:
+                print(json.dumps({"total": 0, "by_topic": {}, "by_severity": {}, "top_gaps": []}))
+            else:
+                print("No learning gaps recorded yet.")
+            return
+
+        by_topic = conn.execute(
+            "SELECT topic, COUNT(*) as cnt FROM learning_gaps GROUP BY topic ORDER BY cnt DESC"
+        ).fetchall()
+
+        by_severity = conn.execute(
+            "SELECT severity, COUNT(*) as cnt FROM learning_gaps GROUP BY severity ORDER BY cnt DESC"
+        ).fetchall()
+
+        top_gaps = conn.execute(
+            "SELECT gap_detail, COUNT(*) as cnt FROM learning_gaps GROUP BY gap_detail ORDER BY cnt DESC LIMIT 5"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if as_json:
+        payload = {
+            "total": total,
+            "by_topic": {r["topic"]: r["cnt"] for r in by_topic},
+            "by_severity": {r["severity"]: r["cnt"] for r in by_severity},
+            "top_gaps": [{"detail": r["gap_detail"], "count": r["cnt"]} for r in top_gaps],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    print("\nLearning Gaps Summary\n")
+    print(f"  Total gaps: {total}\n")
+
+    # By topic with bar chart
+    print("  By Topic:")
+    max_freq = max(r["cnt"] for r in by_topic) if by_topic else 1
+    for r in by_topic:
+        label = topic_labels.get(r["topic"], r["topic"])
+        bar_width = round(r["cnt"] / max_freq * 20) if max_freq else 0
+        bar = "█" * bar_width
+        print(f"    {label:<16} {r['cnt']:>3}  {bar}")
+
+    # By severity with bar chart
+    print("\n  By Severity:")
+    max_sev = max(r["cnt"] for r in by_severity) if by_severity else 1
+    severity_colors = {"high": "red", "medium": "yellow", "low": "dim"}
+    for r in by_severity:
+        bar_width = round(r["cnt"] / max_sev * 20) if max_sev else 0
+        bar = "█" * bar_width
+        sev_color = severity_colors.get(r["severity"], "white")
+        sev = r["severity"]
+        print(f"    {color(f'{sev:<10}', sev_color)} {r['cnt']:>3}  {bar}")
+
+    # Top gaps
+    if top_gaps:
+        print("\n  Top Gaps (by frequency):")
+        for i, r in enumerate(top_gaps, 1):
+            print(f"    {i}. {r['gap_detail']}  ({r['cnt']} offer{'s' if r['cnt'] != 1 else ''})")
 
     print()
