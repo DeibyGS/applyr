@@ -900,7 +900,8 @@ def cmd_gaps_list(topic: str | None = None, severity: str | None = None, as_json
         company = r["company"] or "—"
         offer_label = _truncate(f"{company} - {r['offer_title']}", 30)
         gap_text = _truncate(r["gap_detail"], 40)
-        print(f"  {r['id']:<4}  {offer_label:<30}  {label:<14}  {color(f'{r['severity']:<8}', sev_color)}  {gap_text}")
+        sev = r["severity"]
+        print(f"  {r['id']:<4}  {offer_label:<30}  {label:<14}  {color(f'{sev:<8}', sev_color)}  {gap_text}")
 
     print()
 
@@ -967,7 +968,8 @@ def cmd_gaps_stats(as_json: bool = False) -> None:
         bar_width = round(r["cnt"] / max_sev * 20) if max_sev else 0
         bar = "█" * bar_width
         sev_color = severity_colors.get(r["severity"], "white")
-        print(f"    {color(f'{r['severity']:<10}', sev_color)} {r['cnt']:>3}  {bar}")
+        sev = r["severity"]
+        print(f"    {color(f'{sev:<10}', sev_color)} {r['cnt']:>3}  {bar}")
 
     # Top gaps
     if top_gaps:
