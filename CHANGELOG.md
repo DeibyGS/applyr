@@ -4,6 +4,32 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-08-09
+
+### Added
+
+- **`language` field on offers** (`en`, `es`): the language a CV is written in is
+  a fact about the vacancy, so it is recorded with the offer rather than passed
+  as a flag at generation time. `cv generate` writes the skeleton's headings in
+  that language and tells the filling agent to use it throughout.
+  - Falls back to `[cv] language` in `applyr.toml` (default `en`) when an offer
+    does not declare one, so offers recorded before this release keep working.
+  - Schema v4. `applyr show` displays it; `add` rejects a language applyr has no
+    headings for, rather than silently producing an English CV.
+
+### Fixed
+
+- **`doctor` and `cv generate` accepted an unfilled cv-master.md.** Both judged
+  the file by size (< 100 bytes meant "empty") and the template `init` writes
+  weighs 94 — replacing the placeholder name with a real one was enough to make
+  both report a filled profile. They now read the file: a section still holding
+  the template's `...` placeholder is unfilled at any size. The check never
+  matches section names, so profiles in any language pass.
+- **Generated CVs mixed languages.** The skeleton hardcoded English headings
+  while the agent wrote content in the language of the offer, delivering Spanish
+  bullets under "Work Experience" — incoherent to the recruiter and invisible to
+  an ATS scanning for "EXPERIENCIA".
+
 ## [1.0.0] — 2026-08-08
 
 ### Added

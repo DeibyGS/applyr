@@ -5,7 +5,7 @@ from pathlib import Path
 
 from applyr.config import load_config
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -15,6 +15,10 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         # Strip file extensions from cv_used values (AC-3.10)
         "UPDATE offers SET cv_used = REPLACE(REPLACE(cv_used, '.html', ''), '.md', '') WHERE cv_used IS NOT NULL"
     ],
+    # Offers recorded before v1.1.0 carry no language; they are left NULL rather
+    # than backfilled with a guess, so `cv generate` falls back to the configured
+    # default instead of asserting a language nobody chose.
+    (3, 4): ["ALTER TABLE offers ADD COLUMN language TEXT"],
 }
 
 SCHEMA_SQL = """\
@@ -47,6 +51,7 @@ CREATE TABLE IF NOT EXISTS offers (
     seniority_level   TEXT,
     role_category     TEXT,
     tech_stack        TEXT,
+    language          TEXT,
     -- Materials
     cover_letter      INTEGER DEFAULT 0,
     cover_letter_file TEXT,
@@ -77,6 +82,11 @@ VALID_CHANNELS = ("linkedin_easy", "linkedin_direct", "email", "portal", "referr
 VALID_WORK_MODES = ("remote", "hybrid", "onsite")
 VALID_SENIORITY = ("trainee", "entry_level", "junior", "mid", "senior", "lead", "director")
 VALID_ROLE_CATEGORIES = ("backend", "frontend", "fullstack", "ai", "devops", "data", "mobile", "qa", "other")
+# Only languages applyr can write a CV in. Validated at `add` time rather than
+# accepting any ISO code, because an unknown language would silently fall back to
+# English headings — the mixed-language CV this field exists to prevent. Adding a
+# language means adding its headings to CV_HEADINGS in cv.py; nothing else.
+VALID_LANGUAGES = ("en", "es")
 
 STATUS_LABELS = {
     "pending": "Pending",
@@ -117,7 +127,17 @@ def _run_migrations(conn: sqlite3.Connection, current: int, target: int) -> None
                 f"Database may need manual intervention."
             )
         for sql in steps:
-            conn.execute(sql)
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError as exc:
+                # init_db runs SCHEMA_SQL before migrating, and its
+                # `CREATE TABLE IF NOT EXISTS` already gives a newly created
+                # database every current column. An ADD COLUMN migration is then
+                # a no-op rather than a failure — SQLite has no
+                # `ADD COLUMN IF NOT EXISTS` to say so. Every other operational
+                # error is real and must surface.
+                if "duplicate column name" not in str(exc):
+                    raise
         version = next_version
     conn.execute("UPDATE schema_version SET version = ?", (target,))
 

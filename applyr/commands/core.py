@@ -27,6 +27,7 @@ from applyr.constants import (
 from applyr.db import (
     STATUS_LABELS,
     VALID_CHANNELS,
+    VALID_LANGUAGES,
     VALID_ROLE_CATEGORIES,
     VALID_SENIORITY,
     VALID_STATUSES,
@@ -451,6 +452,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
     seniority_level: str | None = data.get("seniority_level")
     role_category: str | None = data.get("role_category")
     tech_stack: str | None = data.get("tech_stack")
+    language: str | None = data.get("language")
     cover_letter: int = 1 if data.get("cover_letter") else 0
     cover_letter_file: str | None = data.get("cover_letter_file")
     contact_name: str | None = data.get("contact_name")
@@ -478,6 +480,8 @@ def cmd_add(raw: str, force: bool = False) -> None:
         die(f"Error: invalid seniority_level '{seniority_level}'. Valid: {', '.join(VALID_SENIORITY)}", code="invalid_value", details={"field": "seniority_level", "value": seniority_level, "valid": list(VALID_SENIORITY)})
     if role_category and role_category not in VALID_ROLE_CATEGORIES:
         die(f"Error: invalid role_category '{role_category}'. Valid: {', '.join(VALID_ROLE_CATEGORIES)}", code="invalid_value", details={"field": "role_category", "value": role_category, "valid": list(VALID_ROLE_CATEGORIES)})
+    if language and language not in VALID_LANGUAGES:
+        die(f"Error: invalid language '{language}'. Valid: {', '.join(VALID_LANGUAGES)}", code="invalid_value", details={"field": "language", "value": language, "valid": list(VALID_LANGUAGES)})
     # --- Duplicate detection -----------------------------------------------
     conn = get_conn()
     try:
@@ -539,7 +543,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
                 compatibility_pct, status, canal, cv_used,
                 follow_up_date, follow_up_done, follow_up_notes,
                 work_mode, location, salary_min, salary_max, salary_period,
-                seniority_level, role_category, tech_stack,
+                seniority_level, role_category, tech_stack, language,
                 cover_letter, cover_letter_file,
                 contact_name, contact_role, job_url, rejection_reason, notes
             ) VALUES (
@@ -547,7 +551,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
                 ?, ?, ?, ?,
                 ?, 0, ?,
                 ?, ?, ?, ?, ?,
-                ?, ?, ?,
+                ?, ?, ?, ?,
                 ?, ?,
                 ?, ?, ?, ?, ?
             )
@@ -557,7 +561,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
                 compatibility_pct, status, canal, cv_used,
                 follow_up_date, data.get("follow_up_notes"),
                 work_mode, location, salary_min, salary_max, salary_period,
-                seniority_level, role_category, tech_stack,
+                seniority_level, role_category, tech_stack, language,
                 cover_letter, cover_letter_file,
                 contact_name, contact_role, job_url, rejection_reason, notes,
             ),
@@ -740,6 +744,7 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
     _field("Seniority", row["seniority_level"])
     _field("Role Category", row["role_category"])
     _field("Tech Stack", row["tech_stack"])
+    _field("Language", row["language"])
     print()
 
     _field("Date Received", row["date_received"])

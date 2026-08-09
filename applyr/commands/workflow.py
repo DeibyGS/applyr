@@ -132,7 +132,7 @@ def _check_cv_master() -> dict:
     if not cv_master.exists():
         return _issue("CV Master", f"NOT FOUND — {cv_master}",
                       "Run 'applyr init' to create a template.")
-    report = inspect_cv_master(cv_master.read_text())
+    report = inspect_cv_master(cv_master.read_text(encoding="utf-8"))
     if not report.filled:
         return _issue("CV Master",
                       f"WARNING — {report.reason}",

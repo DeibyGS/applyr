@@ -62,6 +62,66 @@ p { margin-bottom: 4px; }
 }"""
 
 
+# Section headings per language, and the labels that survive into the delivered
+# CV rather than being replaced by the agent filling the skeleton.
+#
+# Until v1.1.0 these were hardcoded in English while the agent wrote the content
+# in the language of the offer, so a Spanish application arrived with Spanish
+# bullets under "Work Experience". That reads as machine-made to the recruiter,
+# and an ATS scanning a Spanish CV for "EXPERIENCIA" matches nothing.
+#
+# Adding a language means adding an entry here and to VALID_LANGUAGES in db.py.
+CV_HEADINGS = {
+    "en": {
+        "name": "English",
+        "summary": "Professional Summary",
+        "experience": "Work Experience",
+        "projects": "Projects",
+        "education": "Education",
+        "certifications": "Certifications",
+        "skills": "Technical Skills",
+        "languages": "Languages",
+        "stack": "Stack",
+        "backend": "Backend",
+        "frontend": "Frontend",
+        "databases": "Databases",
+        "devops": "DevOps",
+        "other": "Other",
+    },
+    "es": {
+        "name": "Spanish",
+        "summary": "Perfil Profesional",
+        "experience": "Experiencia Profesional",
+        "projects": "Proyectos",
+        "education": "Formación",
+        "certifications": "Certificaciones",
+        "skills": "Habilidades Técnicas",
+        "languages": "Idiomas",
+        "stack": "Stack",
+        "backend": "Backend",
+        "frontend": "Frontend",
+        "databases": "Bases de datos",
+        "devops": "DevOps",
+        "other": "Otros",
+    },
+}
+
+
+def resolve_cv_language(offer_language: str | None) -> str:
+    """Pick the language a CV is written in: the offer's, else the configured default.
+
+    The offer wins because the language is a fact about the vacancy, not about
+    the machine generating the CV. An unrecognised value — a hand-edited config,
+    or a language added to the config before its headings exist — falls back to
+    English rather than failing: a CV in the wrong language is recoverable, a
+    command that refuses to run mid-application is not.
+    """
+    if offer_language in CV_HEADINGS:
+        return offer_language
+    configured = load_config()["cv"].get("language", "en")
+    return configured if configured in CV_HEADINGS else "en"
+
+
 def _make_slug(company: str | None, title: str) -> str:
     """Create a filesystem-safe slug from company and title.
 
@@ -260,7 +320,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
     # An unfilled template is worse than a missing one: generation succeeds and
     # the agent has nothing to fill the placeholders from, so the failure is
     # silent. setup-agent already warns about this; refuse it here too.
-    report = inspect_cv_master(cv_master.read_text())
+    report = inspect_cv_master(cv_master.read_text(encoding="utf-8"))
     if not report.filled:
         error(f"Error: cv-master.md is {report.reason}.")
         die("cv-master.md is still the unfilled template.", code="empty_cv_master",
@@ -281,6 +341,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
         f"location: \"{row['location'] or 'Not specified'}\"",
         f"seniority: \"{row['seniority_level'] or 'Not specified'}\"",
         f"role_category: \"{row['role_category'] or 'Not specified'}\"",
+        f"language: \"{resolve_cv_language(row['language'])}\"",
         f"tech_stack: \"{row['tech_stack'] or 'Not specified'}\"",
         f"compatibility: {row['compatibility_pct']}",
     ]
@@ -306,23 +367,27 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
     highlight, de_emphasize, not_included = _get_tailoring_hints(row["tech_stack"], topics_dict)
     tailoring_hints = _format_tailoring_hints(highlight, de_emphasize, not_included)
 
+    language = resolve_cv_language(row["language"])
+    headings = CV_HEADINGS[language]
+
     md = f"""\
 {frontmatter}
 
 {tailoring_hints}
+<!-- LANGUAGE: write every line of this CV in {headings['name']}, headings included. -->
 
 # [FULL NAME]
 
 [City, Country] | [EMAIL] | [PHONE] | [linkedin.com/in/PROFILE] | [github.com/USERNAME] | [WEBSITE]
 
-## Professional Summary
+## {headings['summary']}
 
 [2-3 sentences tailored to {row['title']} at {row['company'] or 'this company'}.
 Highlight relevant skills for: {row['tech_stack'] or 'the role'}.
 Match keywords from the job description.
 Include both acronyms and full terms.]
 
-## Work Experience
+## {headings['experience']}
 
 ### [Job Title] - [Company], [Location], [Mode]
 [MM/YYYY - MM/YYYY]
@@ -332,35 +397,35 @@ Include both acronyms and full terms.]
 
 <!-- Add more positions from cv-master.md if relevant to {row['title']} -->
 
-## Projects
+## {headings['projects']}
 
 ### [Project Name]
-**Stack:** [Technologies] | [REPO_URL]
+**{headings['stack']}:** [Technologies] | [REPO_URL]
 
 - [What it does and key technical decisions relevant to {row['tech_stack'] or 'the role'}]
 
 <!-- Add more projects from cv-master.md if relevant -->
 
-## Education
+## {headings['education']}
 
 ### [Degree]
 [Institution] | [MM/YYYY - MM/YYYY]
 
-## Certifications
+## {headings['certifications']}
 
 - [Certification] - [Issuer] ([MM/YYYY])
 
 <!-- Include only certifications relevant to {row['role_category'] or 'the role'} -->
 
-## Technical Skills
+## {headings['skills']}
 
-**Backend:** [list — prioritize skills matching: {row['tech_stack'] or 'job requirements'}]
-**Frontend:** [list]
-**Databases:** [list]
-**DevOps:** [list]
-**Other:** [list]
+**{headings['backend']}:** [list — prioritize skills matching: {row['tech_stack'] or 'job requirements'}]
+**{headings['frontend']}:** [list]
+**{headings['databases']}:** [list]
+**{headings['devops']}:** [list]
+**{headings['other']}:** [list]
 
-## Languages
+## {headings['languages']}
 
 - [Language] - [Level]
 """
@@ -374,7 +439,10 @@ Include both acronyms and full terms.]
             text="  It would be overwritten with an empty skeleton.\n"
                  "  Pass --force to replace it, or rename the existing file first.")
 
-    md_path.write_text(md)
+    # Explicit UTF-8: the skeleton now carries accented headings ("Formación"),
+    # so relying on the platform's default encoding would corrupt or fail to
+    # write a CV in every language applyr supports but English.
+    md_path.write_text(md, encoding="utf-8")
 
     # Record which CV was used for this offer, so `applyr cv stats` can later
     # correlate CVs with outcomes. Store basename without extension (AC-3.10).
@@ -389,6 +457,8 @@ Include both acronyms and full terms.]
     print(f"CV draft generated: {md_path}")
     print(f"  Offer    : #{offer_id} — {row['title']} @ {row['company'] or '?'}")
     print(f"  Template : {template} (ATS-safe)")
+    source = "from the offer" if row["language"] else "configured default"
+    print(f"  Language : {headings['name']} ({source})")
     print(f"  CV Master: {cv_master}")
     print(f"  Recorded : cv_used = {md_path.stem}")
 
