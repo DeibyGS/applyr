@@ -33,7 +33,7 @@ cat offer.json | applyr add -
 
 **Required fields:** `title`
 
-**Optional fields:** `company`, `summary`, `date_received`, `date_applied`, `compatibility_pct`, `status`, `canal`, `work_mode`, `location`, `salary_min`, `salary_max`, `salary_period`, `seniority_level`, `role_category`, `tech_stack`, `cover_letter`, `job_url`, `contact_name`, `contact_role`, `topics`, `notes`
+**Optional fields:** `company`, `summary`, `date_received`, `date_applied`, `compatibility_pct`, `status`, `canal`, `work_mode`, `location`, `salary_min`, `salary_max`, `salary_period`, `seniority_level`, `role_category`, `tech_stack`, `language`, `cover_letter`, `job_url`, `contact_name`, `contact_role`, `topics`, `notes`
 
 ### `applyr list [--status S] [--sort F] [--limit N] [--all]`
 

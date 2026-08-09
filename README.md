@@ -261,6 +261,7 @@ cultural_fit = 10
 | `salary_period` | string | `annual` `monthly` `hourly` | No |
 | `seniority_level` | string | `trainee` `entry_level` `junior` `mid` `senior` `lead` `director` | No |
 | `role_category` | string | `backend` `frontend` `fullstack` `ai` `devops` `data` `mobile` `qa` `other` | No |
+| `language` | string | `en` `es` — the language the CV is written in. Defaults to `[cv] language` in applyr.toml | No |
 | `tech_stack` | string | Comma-separated | No |
 | `job_url` | string | URL | No |
 | `contact_name` / `contact_role` | string | Any | No |

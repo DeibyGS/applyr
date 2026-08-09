@@ -43,8 +43,13 @@ cultural_fit = 10
 # output_dir — where generated CVs are written.
 # Both accept any path, e.g. a private repo you already version. If you point
 # them at a repo, make sure it is gitignored — CVs contain personal data.
+# language   — the language generated CVs are written in when an offer does not
+#              declare its own. Set it to the market you apply in most; an offer
+#              in another language overrides it via "language" in 'applyr add'.
+#              Supported: en, es.
 cv_master = "__APPLYR_DIR__/cv-master.md"
 output_dir = "__APPLYR_DIR__/cv"
+language = "en"
 """
 
 
@@ -101,6 +106,7 @@ def _build_defaults() -> dict:
             "chrome_path": _detect_chrome(),
             "cv_master": str(APPLYR_DIR / "cv-master.md"),
             "output_dir": str(APPLYR_DIR / "cv"),
+            "language": "en",
         },
     }
 

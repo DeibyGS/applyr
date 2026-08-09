@@ -105,6 +105,23 @@ class TestCvGenerate:
         with pytest.raises(SystemExit):
             cmd_cv_generate(offer_id)
 
+    def test_refuses_a_stub_that_is_not_small(self, offer_id, tmp_applyr):
+        """The refusal must read the file, not weigh it.
+
+        Until v1.0.0 this guard was a size threshold, so a stub padded with
+        anything at all — here, a long name and a filled-in contact block —
+        passed while every section it would draw from was still empty.
+        """
+        from applyr.cv import cmd_cv_generate
+
+        (tmp_applyr / "cv-master.md").write_text(
+            "# CV Master — Deiby Gorrin Santana\n\n"
+            "## Contact\nMadrid, Spain | deiby@example.com | linkedin.com/in/example\n\n"
+            "## Summary\n...\n\n## Experience\n...\n"
+        )
+        with pytest.raises(SystemExit):
+            cmd_cv_generate(offer_id)
+
     def test_keeps_topic_scores_out_of_the_md(self, offer_id, tmp_applyr):
         """Candid self-assessment must not ship inside the recruiter's file."""
         from applyr.cv import cmd_cv_generate

@@ -91,6 +91,8 @@ Weights are configurable in `~/.applyr/applyr.toml` under `[weights]`. The formu
 
 **Scoring rules:** Be honest (inflated scores waste applications). Always explain WHY in the `detail` field. If the offer doesn't mention a requirement, score 100.
 
+**Set `language` to the language the offer is written in.** It decides the language of the CV `cv generate` produces, headings included — a Spanish vacancy answered with a CV titled "Work Experience" reads as machine-made, and an ATS looking for "EXPERIENCIA" matches nothing. Omit it only when the offer's language is genuinely unclear; applyr then falls back to `[cv] language` in applyr.toml.
+
 #### JSON template
 
 Required: `title`. All others optional — fill what you can extract:
@@ -105,6 +107,7 @@ Required: `title`. All others optional — fill what you can extract:
   "location": "Berlin",
   "seniority_level": "junior",
   "role_category": "backend",
+  "language": "es",
   "tech_stack": "Python, FastAPI, AWS",
   "salary_min": 30000, "salary_max": 40000, "salary_period": "annual",
   "canal": "linkedin_easy",
@@ -130,6 +133,7 @@ Required: `title`. All others optional — fill what you can extract:
 | `work_mode` | `remote` `hybrid` `onsite` |
 | `seniority_level` | `trainee` `entry_level` `junior` `mid` `senior` `lead` `director` |
 | `role_category` | `backend` `frontend` `fullstack` `ai` `devops` `data` `mobile` `qa` `other` |
+| `language` | `en` `es` |
 | `salary_period` | `annual` `monthly` `hourly` |
 
 </details>
