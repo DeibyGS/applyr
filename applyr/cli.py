@@ -27,7 +27,7 @@ from applyr.commands import (
     cmd_trends,
     cmd_update,
 )
-from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_ats_check, cmd_cv_keywords
+from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_ats_check, cmd_cv_keywords, cmd_cv_bullet_optimize, cmd_cv_cover_letter
 from applyr.db import init_db, VALID_STATUSES
 from applyr.errors import die, error, set_json_mode
 
@@ -329,6 +329,8 @@ def main():
             print("  applyr cv pdf <html-file> [--output f.pdf] HTML to PDF via Chrome")
             print("  applyr cv ats-check <html-file>           Check ATS compatibility")
             print("  applyr cv keywords <id>                   Match keywords vs CV")
+            print("  applyr cv bullet-optimize <html-file>     Optimize bullet points")
+            print("  applyr cv cover-letter <id>               Generate cover letter")
             return
         subcmd = args[1]
         if subcmd == "generate":
@@ -362,6 +364,17 @@ def main():
                 return
             offer_id = _safe_int(args[2])
             cmd_cv_keywords(offer_id, as_json=as_json)
+        elif subcmd == "bullet-optimize":
+            if len(args) < 3:
+                print("Usage: applyr cv bullet-optimize <html-file>")
+                return
+            cmd_cv_bullet_optimize(args[2], as_json=as_json)
+        elif subcmd == "cover-letter":
+            if len(args) < 3:
+                print("Usage: applyr cv cover-letter <offer-id>")
+                return
+            offer_id = _safe_int(args[2])
+            cmd_cv_cover_letter(offer_id, as_json=as_json)
         elif subcmd == "stats":
             min_sample = 1
             raw = _get_flag(args, "--min-sample")
@@ -370,8 +383,8 @@ def main():
             cmd_cv_stats(min_sample=min_sample, as_json=as_json)
         else:
             die(f"Unknown cv subcommand: '{subcmd}'", code="invalid_value",
-                details={"value": subcmd, "valid": ["generate", "review", "pdf", "ats-check", "keywords", "stats"]})
-            print("  Available: generate, review, pdf, ats-check, keywords")
+                details={"value": subcmd, "valid": ["generate", "review", "pdf", "ats-check", "keywords", "bullet-optimize", "cover-letter", "stats"]})
+            print("  Available: generate, review, pdf, ats-check, keywords, bullet-optimize, cover-letter")
 
     elif cmd == "ls":
         cmd_list(as_json=as_json)
