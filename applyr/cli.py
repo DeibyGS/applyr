@@ -14,6 +14,9 @@ from applyr.commands import (
     cmd_export,
     cmd_followups,
     cmd_gaps,
+    cmd_gaps_list,
+    cmd_gaps_save,
+    cmd_gaps_stats,
     cmd_init,
     cmd_list,
     cmd_pipeline,
@@ -27,7 +30,7 @@ from applyr.commands import (
     cmd_trends,
     cmd_update,
 )
-from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review
+from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_review_blind
 from applyr.db import init_db, VALID_STATUSES
 from applyr.errors import die, error, set_json_mode
 
@@ -263,11 +266,25 @@ def main():
         cmd_stats(as_json=as_json)
 
     elif cmd == "gaps":
-        limit = 10
-        raw = _get_flag(args, "--limit")
-        if raw is not None:
-            limit = _safe_int(raw, "--limit")
-        cmd_gaps(limit=limit, as_json=as_json)
+        if len(args) >= 2 and args[1] == "save":
+            if len(args) < 4:
+                print("Usage: applyr gaps save <offer_id> '<json>'")
+                return
+            offer_id = _safe_int(args[2])
+            gaps_json = args[3]
+            cmd_gaps_save(offer_id, gaps_json, as_json=as_json)
+        elif len(args) >= 2 and args[1] == "list":
+            topic = _get_flag(args, "--topic")
+            severity = _get_flag(args, "--severity")
+            cmd_gaps_list(topic=topic, severity=severity, as_json=as_json)
+        elif len(args) >= 2 and args[1] == "stats":
+            cmd_gaps_stats(as_json=as_json)
+        else:
+            limit = 10
+            raw = _get_flag(args, "--limit")
+            if raw is not None:
+                limit = _safe_int(raw, "--limit")
+            cmd_gaps(limit=limit, as_json=as_json)
 
     elif cmd == "followups":
         cmd_followups(as_json=as_json)
@@ -326,6 +343,7 @@ def main():
             print("  applyr cv generate <id> [--template ats] [--force]")
             print("                                            Generate CV for offer")
             print("  applyr cv review <html-file>              Recruiter review prompt")
+            print("  applyr cv review-blind <id>               Blind recruiter evaluation")
             print("  applyr cv pdf <html-file> [--output f.pdf] HTML to PDF via Chrome")
             return
         subcmd = args[1]
@@ -342,6 +360,13 @@ def main():
                 print("Usage: applyr cv review <html-file>")
                 return
             cmd_cv_review(args[2], as_json=as_json)
+        elif subcmd == "review-blind":
+            if len(args) < 3 or args[2] in ("--help", "-h"):
+                print("Usage: applyr cv review-blind <id>")
+                print("  Blind recruiter evaluation — reads cv-master.md independently")
+                return
+            offer_id = _safe_int(args[2])
+            cmd_cv_review_blind(offer_id, as_json=as_json)
         elif subcmd == "pdf":
             if len(args) < 3:
                 print("Usage: applyr cv pdf <html-file> [--output file.pdf]")
@@ -357,7 +382,7 @@ def main():
             cmd_cv_stats(min_sample=min_sample, as_json=as_json)
         else:
             die(f"Unknown cv subcommand: '{subcmd}'", code="invalid_value",
-                details={"value": subcmd, "valid": ["generate", "review", "pdf", "stats"]})
+                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "pdf", "stats"]})
             print("  Available: generate, review, pdf")
 
     elif cmd == "ls":

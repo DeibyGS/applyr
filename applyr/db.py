@@ -5,7 +5,7 @@ from pathlib import Path
 
 from applyr.config import load_config
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -19,6 +19,20 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
     # than backfilled with a guess, so `cv generate` falls back to the configured
     # default instead of asserting a language nobody chose.
     (3, 4): ["ALTER TABLE offers ADD COLUMN language TEXT"],
+    (4, 5): [
+        """CREATE TABLE IF NOT EXISTS learning_gaps (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            offer_id        INTEGER REFERENCES offers(id) ON DELETE CASCADE,
+            topic           TEXT NOT NULL,
+            gap_detail      TEXT NOT NULL,
+            severity        TEXT DEFAULT 'medium',
+            suggested_action TEXT,
+            created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_learning_gaps_offer_id ON learning_gaps(offer_id)",
+        "CREATE INDEX IF NOT EXISTS idx_learning_gaps_topic ON learning_gaps(topic)",
+        "CREATE INDEX IF NOT EXISTS idx_learning_gaps_severity ON learning_gaps(severity)",
+    ],
 }
 
 SCHEMA_SQL = """\
@@ -75,6 +89,20 @@ CREATE TABLE IF NOT EXISTS offer_topics (
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY
 );
+
+CREATE TABLE IF NOT EXISTS learning_gaps (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    offer_id        INTEGER REFERENCES offers(id) ON DELETE CASCADE,
+    topic           TEXT NOT NULL,
+    gap_detail      TEXT NOT NULL,
+    severity        TEXT DEFAULT 'medium',
+    suggested_action TEXT,
+    created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_learning_gaps_offer_id ON learning_gaps(offer_id);
+CREATE INDEX IF NOT EXISTS idx_learning_gaps_topic ON learning_gaps(topic);
+CREATE INDEX IF NOT EXISTS idx_learning_gaps_severity ON learning_gaps(severity);
 """
 
 VALID_STATUSES = ("pending", "applied", "waiting", "in_process", "rejected", "discarded", "offer")
@@ -87,6 +115,7 @@ VALID_ROLE_CATEGORIES = ("backend", "frontend", "fullstack", "ai", "devops", "da
 # English headings — the mixed-language CV this field exists to prevent. Adding a
 # language means adding its headings to CV_HEADINGS in cv.py; nothing else.
 VALID_LANGUAGES = ("en", "es")
+VALID_SEVERITIES = ("low", "medium", "high")
 
 STATUS_LABELS = {
     "pending": "Pending",
