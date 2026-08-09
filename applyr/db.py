@@ -5,7 +5,7 @@ from pathlib import Path
 
 from applyr.config import load_config
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -33,6 +33,8 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         "CREATE INDEX IF NOT EXISTS idx_learning_gaps_topic ON learning_gaps(topic)",
         "CREATE INDEX IF NOT EXISTS idx_learning_gaps_severity ON learning_gaps(severity)",
     ],
+    # Phase 3 Analytics: response tracking
+    (5, 6): ["ALTER TABLE offers ADD COLUMN response_status TEXT DEFAULT 'no_response'"],
 }
 
 SCHEMA_SQL = """\
@@ -74,6 +76,7 @@ CREATE TABLE IF NOT EXISTS offers (
     contact_role      TEXT,
     job_url           TEXT,
     rejection_reason  TEXT,
+    response_status   TEXT    DEFAULT 'no_response',
     notes             TEXT,
     created_at        TEXT    DEFAULT CURRENT_TIMESTAMP
 );

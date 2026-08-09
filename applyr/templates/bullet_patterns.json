@@ -1,0 +1,46 @@
+{
+  "weak_verbs": [
+    "responsible for",
+    "helped",
+    "worked on",
+    "assisted",
+    "participated in",
+    "involved in",
+    "handled",
+    "managed",
+    "dealt with",
+    "took care of"
+  ],
+  "strong_verbs": {
+    "responsible for": ["Orchestrated", "Spearheaded", "Led", "Directed", "Governed"],
+    "helped": ["Facilitated", "Enabled", "Empowered", "Accelerated"],
+    "worked on": ["Developed", "Built", "Engineered", "Implemented", "Designed"],
+    "assisted": ["Supported", "Enabled", "Streamlined", "Optimized"],
+    "participated in": ["Contributed to", "Collaborated on", "Co-developed"],
+    "involved in": ["Engaged in", "Participated in", "Active contributor to"],
+    "handled": ["Managed", "Administered", "Orchestrated", "Coordinated"],
+    "managed": ["Directed", "Led", "Governed", "Supervised"],
+    "dealt with": ["Resolved", "Addressed", "Tackled", "Conquered"],
+    "took care of": ["Maintained", "Administered", "Oversaw", "Managed"]
+  },
+  "metric_patterns": [
+    {"pattern": "increased.*by.*%", "type": "percentage"},
+    {"pattern": "reduced.*by.*%", "type": "percentage"},
+    {"pattern": "improved.*by.*%", "type": "percentage"},
+    {"pattern": "reduc.*by.*%", "type": "percentage"},
+    {"pattern": "increas.*by.*%", "type": "percentage"},
+    {"pattern": "improv.*by.*%", "type": "percentage"},
+    {"pattern": "\\d+.*users", "type": "users"},
+    {"pattern": "\\d+.*transactions", "type": "transactions"},
+    {"pattern": "\\d+.*requests", "type": "requests"},
+    {"pattern": "\\d+.*tests", "type": "tests"},
+    {"pattern": "\\$\\d+", "type": "currency"},
+    {"pattern": "€\\d+", "type": "currency"},
+    {"pattern": "\\d+.*team", "type": "team"}
+  ],
+  "car_formula": {
+    "challenge": "What was the problem or challenge?",
+    "action": "What did you do to solve it?",
+    "result": "What was the measurable outcome?"
+  }
+}

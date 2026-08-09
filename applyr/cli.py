@@ -30,7 +30,8 @@ from applyr.commands import (
     cmd_trends,
     cmd_update,
 )
-from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_review_blind
+from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_review_blind, cmd_cv_ats_check, cmd_cv_keywords, cmd_cv_bullet_optimize, cmd_cv_cover_letter
+from applyr.analytics import compare_cvs, response_rate
 from applyr.db import init_db, VALID_STATUSES
 from applyr.errors import die, error, set_json_mode
 
@@ -59,6 +60,8 @@ Commands:
   salary [--seniority S]        Salary insights by seniority/category
   export [--format csv|json|md]  Export all data
   cv stats [--min-sample N]     Compare CVs by response and interview rate
+  cv compare <v1> <v2>          Compare two CV versions (ATS, keywords)
+  response-rate [--json]        Application response rate and trends
   doctor [--json]               Check configuration and database health (exit 1 if unhealthy)
   version                       Show version
   help                          Show this help
@@ -345,6 +348,10 @@ def main():
             print("  applyr cv review <html-file>              Recruiter review prompt")
             print("  applyr cv review-blind <id>               Blind recruiter evaluation")
             print("  applyr cv pdf <html-file> [--output f.pdf] HTML to PDF via Chrome")
+            print("  applyr cv ats-check <html-file>           Check ATS compatibility")
+            print("  applyr cv keywords <id>                   Match keywords vs CV")
+            print("  applyr cv bullet-optimize <html-file>     Optimize bullet points")
+            print("  applyr cv cover-letter <id>               Generate cover letter")
             return
         subcmd = args[1]
         if subcmd == "generate":
@@ -374,16 +381,61 @@ def main():
             html_file = args[2]
             output = _get_flag(args, "--output")
             cmd_cv_pdf(html_file, output=output)
+        elif subcmd == "ats-check":
+            if len(args) < 3:
+                print("Usage: applyr cv ats-check <html-file>")
+                return
+            cmd_cv_ats_check(args[2], as_json=as_json)
+        elif subcmd == "keywords":
+            if len(args) < 3:
+                print("Usage: applyr cv keywords <offer-id>")
+                return
+            offer_id = _safe_int(args[2])
+            cmd_cv_keywords(offer_id, as_json=as_json)
+        elif subcmd == "bullet-optimize":
+            if len(args) < 3:
+                print("Usage: applyr cv bullet-optimize <html-file>")
+                return
+            cmd_cv_bullet_optimize(args[2], as_json=as_json)
+        elif subcmd == "cover-letter":
+            if len(args) < 3:
+                print("Usage: applyr cv cover-letter <offer-id>")
+                return
+            offer_id = _safe_int(args[2])
+            cmd_cv_cover_letter(offer_id, as_json=as_json)
         elif subcmd == "stats":
             min_sample = 1
             raw = _get_flag(args, "--min-sample")
             if raw is not None:
                 min_sample = _safe_int(raw, "--min-sample")
             cmd_cv_stats(min_sample=min_sample, as_json=as_json)
+        elif subcmd == "compare":
+            if len(args) < 4:
+                print("Usage: applyr cv compare <v1.html> <v2.html>")
+                return
+            result = compare_cvs(args[2], args[3])
+            if as_json:
+                import json
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"\n📊 CV Comparison:")
+                print(f"  v1: {result['v1']['ats_score']}% ATS, {result['v1']['word_count']} words, {result['v1']['keywords']} keywords")
+                print(f"  v2: {result['v2']['ats_score']}% ATS, {result['v2']['word_count']} words, {result['v2']['keywords']} keywords")
+                delta = result['score_delta']
+                sign = "+" if delta > 0 else ""
+                print(f"\n  Score delta: {sign}{delta}%")
+                if result['keywords_gained']:
+                    print(f"  Keywords gained: {', '.join(result['keywords_gained'][:5])}")
+                if result['keywords_lost']:
+                    print(f"  Keywords lost: {', '.join(result['keywords_lost'][:5])}")
+                print(f"\n  {' '.join(result['recommendations'])}")
         else:
             die(f"Unknown cv subcommand: '{subcmd}'", code="invalid_value",
-                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "pdf", "stats"]})
-            print("  Available: generate, review, pdf")
+                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "pdf", "ats-check", "keywords", "bullet-optimize", "cover-letter", "stats", "compare"]})
+            print("  Available: generate, review, review-blind, pdf, ats-check, keywords, bullet-optimize, cover-letter, stats, compare")
+
+    elif cmd in ("response-rate", "rr"):
+        response_rate(as_json=as_json)
 
     elif cmd == "ls":
         cmd_list(as_json=as_json)

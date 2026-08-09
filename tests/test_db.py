@@ -260,7 +260,7 @@ class TestMigrationV4ToV5:
         assert "learning_gaps" in names
 
         row = conn.execute("SELECT version FROM schema_version").fetchone()
-        assert row["version"] == 5
+        assert row["version"] == 6
         conn.close()
 
     def test_migration_idempotent(self, tmp_db):

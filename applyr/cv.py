@@ -819,3 +819,488 @@ Be specific. Reference exact sections from the profile. Do not be vague."""
         print(f"  STRONG_MATCH  if score >= {threshold_apply}")
         print(f"  CLOSE_MATCH   if score >= {threshold_maybe} and < {threshold_apply}")
         print(f"  NO_MATCH      if score < {threshold_maybe}")
+
+
+def cmd_cv_ats_check(cv_file: str, as_json: bool = False) -> None:
+    """Check CV for ATS compatibility issues.
+
+    Validates:
+    - Single column layout
+    - Standard section headers
+    - No images, tables, text boxes
+    - Contact info placement
+    - Date format consistency
+
+    Args:
+        cv_file: Path to CV markdown file
+        as_json: Output as JSON if True
+    """
+    from applyr.ats import validate_ats_format
+
+    cv_path = Path(cv_file)
+    if not cv_path.exists():
+        die(f"CV file not found: {cv_file}", code="file_not_found")
+
+    cv_text = cv_path.read_text()
+    report = validate_ats_format(cv_text)
+
+    if as_json:
+        payload = {
+            "cv_file": str(cv_path),
+            "score": report.score,
+            "format_ok": report.format_ok,
+            "headers_ok": report.headers_ok,
+            "content_ok": report.content_ok,
+            "issues": [
+                {"category": i.category, "severity": i.severity, "message": i.message, "fix": i.fix}
+                for i in report.issues
+            ],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"ATS SCORE: {report.score}/100")
+        print()
+
+        if report.issues:
+            print("ISSUES:")
+            for issue in report.issues:
+                icon = "✗" if issue.severity == "critical" else "△" if issue.severity == "warning" else "ℹ"
+                print(f"  {icon} [{issue.severity}] {issue.message}")
+                print(f"    Fix: {issue.fix}")
+            print()
+        else:
+            print("✓ No ATS issues detected")
+            print()
+
+        if report.score >= 80:
+            print("VERDICT: READY TO SEND")
+        elif report.score >= 60:
+            print("VERDICT: NEEDS MINOR EDITS")
+        else:
+            print("VERDICT: NEEDS MAJOR REVISION")
+
+
+def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
+    """Extract keywords from offer and match against CV.
+
+    Shows matched, missing, and extra keywords.
+
+    Args:
+        offer_id: Offer ID to extract keywords from
+        as_json: Output as JSON if True
+    """
+    from applyr.ats import extract_keywords, match_keywords
+    from applyr.db import get_conn
+
+    conn = get_conn()
+    try:
+        cursor = conn.execute(
+            "SELECT * FROM offers WHERE id = ?", (offer_id,)
+        )
+        offer = cursor.fetchone()
+    finally:
+        conn.close()
+
+    if not offer is None:
+        die(f"Offer #{offer_id} not found", code="not_found")
+
+    offer_data = dict(offer)
+    keywords = extract_keywords(offer_data)
+
+    if not keywords:
+        die("No keywords found in offer (missing tech_stack)", code="no_keywords")
+
+    # Find the CV file for this offer
+    cv_dir = APPLYR_DIR / "cv"
+    cv_files = list(cv_dir.glob(f"*offer_{offer_id}*"))
+    if not cv_files:
+        die(f"No CV found for offer #{offer_id}. Run 'applyr cv generate {offer_id}' first.", code="no_cv")
+
+    cv_text = cv_files[0].read_text()
+    report = match_keywords(cv_text, keywords)
+
+    if as_json:
+        payload = {
+            "offer_id": offer_id,
+            "keywords": keywords,
+            "match_rate": report.match_rate,
+            "matched": [{"keyword": m.keyword, "context": m.context} for m in report.matched],
+            "missing": [{"keyword": m.keyword, "suggestion": m.context} for m in report.missing],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"KEYWORD MATCH: {report.match_rate}%")
+        print(f"  Matched: {len(report.matched)}/{len(keywords)}")
+        print()
+
+        if report.matched:
+            print("MATCHED:")
+            for m in report.matched:
+                print(f"  ✓ {m.keyword}")
+            print()
+
+        if report.missing:
+            print("MISSING:")
+            for m in report.missing:
+                print(f"  ✕ {m.keyword}")
+                print(f"    Suggestion: {m.context}")
+            print()
+
+        if report.match_rate >= 80:
+            print("KEYWORD STATUS: STRONG")
+        elif report.match_rate >= 60:
+            print("KEYWORD STATUS: ADEQUATE — consider adding missing keywords")
+        else:
+            print("KEYWORD STATUS: WEAK — add missing keywords to improve ATS score")
+
+
+def analyze_bullets(bullets: list[str]) -> dict:
+    """Analyze bullet points for quality issues.
+
+    Detects:
+    - Weak verbs (responsible for, worked on, helped)
+    - Missing metrics (no numbers, percentages, amounts)
+    - Strong bullets (have action verbs + metrics)
+
+    Args:
+        bullets: List of bullet point strings
+
+    Returns:
+        Dict with weak, strong, and no_metrics lists
+    """
+    import json as json_module
+
+    patterns_path = Path(__file__).parent / "templates" / "bullet_patterns.json"
+    with open(patterns_path) as f:
+        patterns = json_module.load(f)
+
+    weak = []
+    strong = []
+    no_metrics = []
+
+    for bullet in bullets:
+        bullet_lower = bullet.lower()
+        has_weak_verb = False
+        matched_weak = None
+
+        for weak_verb in patterns["weak_verbs"]:
+            if weak_verb in bullet_lower:
+                has_weak_verb = True
+                matched_weak = weak_verb
+                break
+
+        has_metric = False
+        for metric in patterns["metric_patterns"]:
+            if re.search(metric["pattern"], bullet_lower):
+                has_metric = True
+                break
+
+        if has_weak_verb:
+            weak.append({"original": bullet, "weak_verb": matched_weak})
+        elif has_metric:
+            strong.append({"original": bullet})
+        else:
+            no_metrics.append({"original": bullet})
+
+    return {"weak": weak, "strong": strong, "no_metrics": no_metrics}
+
+
+def suggest_improvements(bullet: str) -> list[dict]:
+    """Suggest improvements for a bullet point.
+
+    Args:
+        bullet: Single bullet point string
+
+    Returns:
+        List of suggestions with type and suggestion text
+    """
+    import json as json_module
+
+    patterns_path = Path(__file__).parent / "templates" / "bullet_patterns.json"
+    with open(patterns_path) as f:
+        patterns = json_module.load(f)
+
+    suggestions = []
+    bullet_lower = bullet.lower()
+
+    # Check for weak verbs
+    for weak_verb, strong_verbs in patterns["strong_verbs"].items():
+        if weak_verb in bullet_lower:
+            for strong_verb in strong_verbs[:2]:
+                suggestions.append({
+                    "type": "strong_verb",
+                    "original": weak_verb,
+                    "suggestion": f"Replace '{weak_verb}' with '{strong_verb}'"
+                })
+            break
+
+    # Check for missing metrics
+    has_metric = False
+    for metric in patterns["metric_patterns"]:
+        if re.search(metric["pattern"], bullet_lower):
+            has_metric = True
+            break
+
+    if not has_metric:
+        suggestions.append({
+            "type": "metric",
+            "suggestion": "Add measurable outcome (%, $, users, time saved)"
+        })
+
+    return suggestions
+
+
+def cmd_cv_bullet_optimize(cv_file: str, as_json: bool = False) -> None:
+    """Analyze and suggest improvements for CV bullet points.
+
+    Args:
+        cv_file: Path to CV markdown file
+        as_json: Output as JSON if True
+    """
+    cv_path = Path(cv_file)
+    if not cv_path.exists():
+        die(f"CV file not found: {cv_file}", code="file_not_found")
+
+    cv_text = cv_path.read_text()
+
+    # Extract bullet points (lines starting with -)
+    bullets = []
+    for line in cv_text.split('\n'):
+        line = line.strip()
+        if line.startswith('- '):
+            bullets.append(line[2:])
+
+    if not bullets:
+        die("No bullet points found in CV", code="no_bullets")
+
+    analysis = analyze_bullets(bullets)
+
+    if as_json:
+        payload = {
+            "cv_file": str(cv_path),
+            "total_bullets": len(bullets),
+            "weak_count": len(analysis["weak"]),
+            "strong_count": len(analysis["strong"]),
+            "no_metrics_count": len(analysis["no_metrics"]),
+            "weak": analysis["weak"],
+            "strong": analysis["strong"],
+            "no_metrics": analysis["no_metrics"],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"BULLET ANALYSIS: {len(bullets)} bullets found")
+        print()
+
+        if analysis["weak"]:
+            print(f"WEAK VERBS ({len(analysis['weak'])}):")
+            for w in analysis["weak"]:
+                print(f"  △ \"{w['original']}\"")
+                print(f"    Weak verb: '{w['weak_verb']}'")
+                suggestions = suggest_improvements(w["original"])
+                for s in suggestions:
+                    print(f"    {s['suggestion']}")
+            print()
+
+        if analysis["no_metrics"]:
+            print(f"MISSING METRICS ({len(analysis['no_metrics'])}):")
+            for n in analysis["no_metrics"]:
+                print(f"  △ \"{n['original']}\"")
+                print(f"    Add: percentage, dollar amount, users served, or time saved")
+            print()
+
+        if analysis["strong"]:
+            print(f"STRONG ({len(analysis['strong'])}):")
+            for s in analysis["strong"]:
+                print(f"  ✓ \"{s['original']}\"")
+            print()
+
+        total_issues = len(analysis["weak"]) + len(analysis["no_metrics"])
+        if total_issues == 0:
+            print("VERDICT: ALL BULLETS ARE STRONG")
+        elif total_issues <= 2:
+            print("VERDICT: NEEDS MINOR EDITS")
+        else:
+            print("VERDICT: NEEDS SIGNIFICANT IMPROVEMENT")
+
+
+def generate_cover_letter(offer_data: dict, cv_master: dict) -> str:
+    """Generate a tailored cover letter from offer and profile data.
+
+    Args:
+        offer_data: Dict with offer fields (title, company, tech_stack, summary)
+        cv_master: Dict with profile data (name, email, phone, skills, projects)
+
+    Returns:
+        Generated cover letter text
+    """
+    from datetime import datetime
+
+    template_path = Path(__file__).parent / "templates" / "cover_letter.md"
+    template = template_path.read_text()
+
+    # Extract key skills from offer
+    tech_stack = offer_data.get("tech_stack", "")
+    key_skills = ", ".join([s.strip() for s in tech_stack.split(",")[:3]]) if tech_stack else "relevant technologies"
+
+    # Extract top 3 achievements from projects
+    projects = cv_master.get("projects", [])
+    achievements = []
+    for i, project in enumerate(projects[:3]):
+        desc = project.get("description", project.get("name", ""))
+        achievements.append(f"{i+1}. {project.get('name', 'Project')}: {desc}")
+
+    # Fill template
+    letter = template.format(
+        company=offer_data.get("company", "[Company]"),
+        title=offer_data.get("title", "[Position]"),
+        date=datetime.now().strftime("%B %d, %Y"),
+        key_skills=key_skills,
+        achievement_1=achievements[0] if len(achievements) > 0 else "1. [Your top achievement]",
+        achievement_2=achievements[1] if len(achievements) > 1 else "2. [Your second achievement]",
+        achievement_3=achievements[2] if len(achievements) > 2 else "3. [Your third achievement]",
+        company_reason=offer_data.get("summary", "your company's mission and values"),
+        name=cv_master.get("name", "[Your Name]"),
+        email=cv_master.get("email", "[Your Email]"),
+        phone=cv_master.get("phone", "[Your Phone]"),
+    )
+
+    return letter
+
+
+def cmd_cv_cover_letter(offer_id: int, as_json: bool = False) -> None:
+    """Generate a tailored cover letter for an offer.
+
+    Args:
+        offer_id: Offer ID to generate cover letter for
+        as_json: Output as JSON if True
+    """
+    from applyr.db import get_conn
+
+    conn = get_conn()
+    try:
+        cursor = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,))
+        offer = cursor.fetchone()
+    finally:
+        conn.close()
+
+    if offer is None:
+        die(f"Offer #{offer_id} not found", code="not_found")
+
+    offer_data = dict(offer)
+
+    # Load cv-master
+    cv_master_path = APPLYR_DIR / "cv-master.md"
+    if not cv_master_path.exists():
+        die("cv-master.md not found. Run 'applyr init' first.", code="no_cv_master")
+
+    # Parse cv-master (simple extraction)
+    cv_text = cv_master_path.read_text()
+    cv_master = {
+        "name": "",
+        "email": "",
+        "phone": "",
+        "skills": "",
+        "projects": []
+    }
+
+    # Extract name
+    name_match = re.search(r'^\*\*(.+?)\*\*', cv_text, re.MULTILINE)
+    if name_match:
+        cv_master["name"] = name_match.group(1)
+
+    # Extract email
+    email_match = re.search(r'[\w.-]+@[\w.-]+\.\w+', cv_text)
+    if email_match:
+        cv_master["email"] = email_match.group(0)
+
+    # Extract phone
+    phone_match = re.search(r'\+?\d[\d\s()-]{8,}', cv_text)
+    if phone_match:
+        cv_master["phone"] = phone_match.group(0)
+
+    # Extract projects (simple: look for ### headers under PROYECTOS)
+    in_projects = False
+    current_project = None
+    for line in cv_text.split('\n'):
+        if 'PROYECTOS' in line.upper() or 'PROJECTS' in line.upper():
+            in_projects = True
+            continue
+        if in_projects and line.startswith('### '):
+            if current_project:
+                cv_master["projects"].append(current_project)
+            project_name = line[4:].strip()
+            current_project = {"name": project_name, "description": ""}
+        elif in_projects and current_project and line.startswith('Stack:'):
+            current_project["description"] = line[6:].strip()
+    if current_project:
+        cv_master["projects"].append(current_project)
+
+    # Generate cover letter
+    letter = generate_cover_letter(offer_data, cv_master)
+
+    # Save to file
+    company_slug = offer_data.get("company", "unknown").lower().replace(" ", "-")
+    output_path = APPLYR_DIR / "cv" / f"cover-letter-{company_slug}.txt"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(letter)
+
+    if as_json:
+        payload = {
+            "offer_id": offer_id,
+            "company": offer_data.get("company"),
+            "output_file": str(output_path),
+            "letter": letter,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"Cover letter generated: {output_path}")
+        print()
+        print(letter)
+
+
+def cmd_cv_ats_check(cv_file: str, as_json: bool = False) -> None:
+    """Check CV for ATS compatibility issues.
+
+    Validates:
+    - Single column layout
+    - Standard section headers
+    - No images, tables, text boxes
+    - Contact info placement
+    - Date format consistency
+
+    Args:
+        cv_file: Path to CV markdown file
+        as_json: Output as JSON if True
+    """
+    from applyr.ats import validate_ats_format
+
+    cv_path = Path(cv_file)
+    if not cv_path.exists():
+        die(f"CV file not found: {cv_file}", code="file_not_found")
+
+    cv_text = cv_path.read_text()
+    report = validate_ats_format(cv_text)
+
+    if as_json:
+        payload = {
+            "cv_file": str(cv_path),
+            "score": report.score,
+            "format_ok": report.format_ok,
+            "headers_ok": report.headers_ok,
+            "content_ok": report.content_ok,
+            "issues": [
+                {"category": i.category, "severity": i.severity, "message": i.message, "fix": i.fix}
+                for i in report.issues
+            ],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"ATS SCORE: {report.score}/100")
+        print()
+
+        if report.issues:
+            print("ISSUES:")
+            for issue in report.issues:
+                icon = "✗" if issue.severity == "critical" else "△" if issue.severity == "warning" else "ℹ"
+                print(f"  {icon} [{issue.severity}] {issue.message}")
+                print(f"    Fix: {issue.fix}")
