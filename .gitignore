@@ -19,3 +19,9 @@ htmlcov/
 # Personal data — never commit (public repo)
 cv/
 *.pdf
+
+# Agent instructions written by `applyr setup-agent` when it runs inside this repo.
+# They are generated copies of templates/AGENT_INSTRUCTIONS.md, not sources.
+CLAUDE.md
+.cursorrules
+.worktrees/
