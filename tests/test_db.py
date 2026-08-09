@@ -3,7 +3,7 @@
 import pytest
 import sqlite3
 
-from applyr.db import init_db, get_conn, SCHEMA_VERSION, VALID_STATUSES, VALID_CHANNELS
+from applyr.db import init_db, get_conn, SCHEMA_VERSION, VALID_STATUSES, VALID_CHANNELS, VALID_SEVERITIES
 
 
 @pytest.mark.unit
@@ -19,6 +19,7 @@ class TestInitDb:
             assert "offers" in names
             assert "offer_topics" in names
             assert "schema_version" in names
+            assert "learning_gaps" in names
             assert "skill_gaps" not in names
         finally:
             conn.close()
@@ -231,3 +232,110 @@ class TestEnumConstants:
     def test_valid_channels(self):
         assert "linkedin_easy" in VALID_CHANNELS
         assert len(VALID_CHANNELS) == 6
+
+    def test_valid_severities(self):
+        assert "low" in VALID_SEVERITIES
+        assert "medium" in VALID_SEVERITIES
+        assert "high" in VALID_SEVERITIES
+        assert len(VALID_SEVERITIES) == 3
+
+
+@pytest.mark.unit
+class TestMigrationV4ToV5:
+
+    def test_creates_learning_gaps_table(self, tmp_db):
+        """Migration from v4 to v5 creates learning_gaps table."""
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 4")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        names = {r["name"] for r in tables}
+        assert "learning_gaps" in names
+
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        assert row["version"] == 6
+        conn.close()
+
+    def test_migration_idempotent(self, tmp_db):
+        """Running migration twice should not crash."""
+        init_db(tmp_db)
+        init_db(tmp_db)
+        conn = get_conn(tmp_db)
+        try:
+            row = conn.execute("SELECT version FROM schema_version").fetchone()
+            assert row["version"] == SCHEMA_VERSION
+        finally:
+            conn.close()
+
+
+@pytest.mark.unit
+class TestLearningGapsCrud:
+
+    def test_insert_and_query(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+            conn.execute(
+                "INSERT INTO learning_gaps (offer_id, topic, gap_detail, severity, suggested_action) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (1, "tech_stack", "Missing LangChain", "high", "Build a RAG project"),
+            )
+            conn.commit()
+            rows = conn.execute("SELECT * FROM learning_gaps WHERE offer_id = 1").fetchall()
+            assert len(rows) == 1
+            assert rows[0]["topic"] == "tech_stack"
+            assert rows[0]["gap_detail"] == "Missing LangChain"
+            assert rows[0]["severity"] == "high"
+            assert rows[0]["suggested_action"] == "Build a RAG project"
+        finally:
+            conn.close()
+
+    def test_cascade_delete(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+            conn.execute(
+                "INSERT INTO learning_gaps (offer_id, topic, gap_detail) VALUES (?, ?, ?)",
+                (1, "tech_stack", "Missing skill"),
+            )
+            conn.commit()
+            conn.execute("DELETE FROM offers WHERE id = 1")
+            conn.commit()
+            rows = conn.execute("SELECT * FROM learning_gaps WHERE offer_id = 1").fetchall()
+            assert len(rows) == 0
+        finally:
+            conn.close()
+
+    def test_default_severity(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+            conn.execute(
+                "INSERT INTO learning_gaps (offer_id, topic, gap_detail) VALUES (?, ?, ?)",
+                (1, "english", "Needs B2"),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM learning_gaps WHERE id = 1").fetchone()
+            assert row["severity"] == "medium"
+        finally:
+            conn.close()
+
+    def test_indexes_exist(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            indexes = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='learning_gaps'"
+            ).fetchall()
+            names = {r["name"] for r in indexes}
+            assert "idx_learning_gaps_offer_id" in names
+            assert "idx_learning_gaps_topic" in names
+            assert "idx_learning_gaps_severity" in names
+        finally:
+            conn.close()

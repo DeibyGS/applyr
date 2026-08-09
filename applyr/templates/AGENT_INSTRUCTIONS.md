@@ -1,5 +1,7 @@
 # applyr — Agent Instructions
 
+<!-- applyr-version: 1.2.0 -->
+
 > Add this to your AI agent's context (CLAUDE.md, .cursorrules, AGENTS.md, etc.).
 
 ## Core Principles
@@ -9,6 +11,7 @@
 3. **CLI output is authoritative** — trust applyr's scoring, thresholds, and validations.
 4. **Respect the user's threshold** — never override the configured minimum compatibility.
 5. **Every CV must pass review** — never deliver a CV without running `applyr cv review`.
+6. **The Recruiter is blind** — when running `applyr cv review-blind`, do NOT reveal the Matcher's compatibility score.
 
 ## Setup
 
@@ -66,7 +69,7 @@ applyr search "<company name>"
 
 If the company+title already exists: show the existing offer (`applyr show <id>`), STOP.
 
-### Step 3 — Evaluate and register
+### Step 3 — Evaluate and register (Matcher role)
 
 Score each topic 0-100 using the rubric, then register:
 
@@ -147,7 +150,38 @@ The CLI prints `APPLY` or `SKIP`. Follow it:
 
 STOP here if the user decides not to apply.
 
-### Step 5 — Generate and review CV
+### Step 5 — Recruiter evaluation (blind)
+
+**This step runs for BOTH scores (>= and < threshold).** The Recruiter evaluates independently without knowing the Matcher's score.
+
+```bash
+applyr cv review-blind <id>
+```
+
+The command outputs:
+1. A review prompt for the Recruiter agent to execute
+2. Thresholds from config for verdict classification
+
+Execute the prompt yourself as the Recruiter agent. Parse the ATS SCORE and classify:
+
+| Score Range | Verdict | Action |
+|-------------|---------|--------|
+| >= threshold_apply (default 80) | STRONG_MATCH | Proceed to Step 6 |
+| >= threshold_maybe (default 60) and < threshold_apply | CLOSE_MATCH | Include conditional_advice in Step 6 |
+| < threshold_maybe | NO_MATCH | Save gaps (Step 5b), explain why |
+
+#### Step 5b — Save gaps (when NO_MATCH or CLOSE_MATCH)
+
+When the Recruiter identifies gaps, save them for future reference:
+
+```bash
+applyr gaps save <id> '{"gaps": [{"topic": "tech_stack", "gap_detail": "Missing LangChain", "severity": "high", "suggested_action": "Build a RAG project"}]}'
+```
+
+Valid topics: `tech_stack`, `projects`, `experience`, `education`, `english`, `cultural_fit`
+Valid severity: `low`, `medium`, `high`
+
+### Step 6 — Generate and review CV
 
 Only when the user confirms they want to apply:
 
@@ -156,7 +190,7 @@ applyr update <id> applied --canal <channel>
 applyr cv generate <id>
 ```
 
-Fill all `[PLACEHOLDER]` values from cv-master.md following ATS rules (see below). Then:
+Fill all `[PLACEHOLDER]` values from cv-master.md following ATS rules (see below). Apply the Recruiter's recommendations from Step 5. Then:
 
 ```bash
 applyr cv review <path-to-html>
@@ -170,7 +204,7 @@ Execute the output prompt yourself. Based on the verdict:
 | NEEDS MINOR EDITS | Apply top 2-3 fixes, re-review (max 2 iterations) |
 | NEEDS MAJOR REVISION | Apply all fixes, re-review (max 2 iterations) |
 
-### Step 6 — Deliver
+### Step 7 — Deliver
 
 Present the final CV with:
 1. ATS score from last review
@@ -205,7 +239,7 @@ Use `confidence: low` when the offer has sparse information (no tech stack, no r
 ```
 User: "Here's a Python backend job at Acme Corp [paste]"
 
-Agent:
+Agent (Matcher):
 1. cat ~/.applyr/cv-master.md
 2. applyr search "Acme"               → no duplicates
 3. Evaluate topics against cv-master
@@ -217,8 +251,22 @@ Agent:
    STRENGTHS: Python expert, 3 relevant projects
    GAPS: Missing AWS (tech_stack -20%)
    RECOMMENDATION: APPLY
-   NEXT ACTION: Generate tailored CV?
-6. User confirms → cv generate → fill → cv review → deliver
+   NEXT ACTION: Run blind recruiter evaluation?
+
+User: "yes"
+
+Agent (Recruiter — blind):
+6. applyr cv review-blind 42
+   → Execute the review prompt
+   → ATS SCORE: 74/100 → CLOSE_MATCH
+   → Recommendations: highlight Python API experience, add LangChain project
+
+Agent (Matcher — apply recommendations):
+7. Apply Recruiter's recommendations to CV
+8. applyr cv review cv-acme-backend.md
+   → READY TO SEND (ATS: 87/100)
+9. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
+10. Deliver CV with score and recommendations
 ```
 
 ## Command reference
@@ -231,6 +279,9 @@ Agent:
 | Offer details | `applyr show <id>` |
 | Stats / funnel | `applyr stats` |
 | Skill gaps | `applyr gaps` |
+| Save learning gaps | `applyr gaps save <id> '<json>'` |
+| List learning gaps | `applyr gaps list [--topic T] [--severity S]` |
+| Gap stats | `applyr gaps stats` |
 | Follow-ups due | `applyr followups` |
 | Trends | `applyr trends` |
 | Weekly summary | `applyr summary [--json]` |
@@ -240,6 +291,7 @@ Agent:
 | Salary stats | `applyr salary [--seniority X]` |
 | Export | `applyr export --format json` |
 | Review CV | `applyr cv review <file>` |
+| Blind recruiter evaluation | `applyr cv review-blind <id>` |
 | Discover commands | `applyr --help` |
 
 ## Error recovery
