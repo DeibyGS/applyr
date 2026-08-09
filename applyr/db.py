@@ -5,7 +5,7 @@ from pathlib import Path
 
 from applyr.config import load_config
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -19,6 +19,8 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
     # than backfilled with a guess, so `cv generate` falls back to the configured
     # default instead of asserting a language nobody chose.
     (3, 4): ["ALTER TABLE offers ADD COLUMN language TEXT"],
+    # Phase 3 Analytics: response tracking
+    (4, 5): ["ALTER TABLE offers ADD COLUMN response_status TEXT DEFAULT 'no_response'"],
 }
 
 SCHEMA_SQL = """\
@@ -60,6 +62,7 @@ CREATE TABLE IF NOT EXISTS offers (
     contact_role      TEXT,
     job_url           TEXT,
     rejection_reason  TEXT,
+    response_status   TEXT    DEFAULT 'no_response',
     notes             TEXT,
     created_at        TEXT    DEFAULT CURRENT_TIMESTAMP
 );
