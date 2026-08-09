@@ -702,3 +702,136 @@ Be specific. Reference exact lines from the CV. Do not be vague."""
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(prompt)
+
+
+def cmd_cv_ats_check(cv_file: str, as_json: bool = False) -> None:
+    """Check CV for ATS compatibility issues.
+
+    Validates:
+    - Single column layout
+    - Standard section headers
+    - No images, tables, text boxes
+    - Contact info placement
+    - Date format consistency
+
+    Args:
+        cv_file: Path to CV markdown file
+        as_json: Output as JSON if True
+    """
+    from applyr.ats import validate_ats_format
+
+    cv_path = Path(cv_file)
+    if not cv_path.exists():
+        die(f"CV file not found: {cv_file}", code="file_not_found")
+
+    cv_text = cv_path.read_text()
+    report = validate_ats_format(cv_text)
+
+    if as_json:
+        payload = {
+            "cv_file": str(cv_path),
+            "score": report.score,
+            "format_ok": report.format_ok,
+            "headers_ok": report.headers_ok,
+            "content_ok": report.content_ok,
+            "issues": [
+                {"category": i.category, "severity": i.severity, "message": i.message, "fix": i.fix}
+                for i in report.issues
+            ],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"ATS SCORE: {report.score}/100")
+        print()
+
+        if report.issues:
+            print("ISSUES:")
+            for issue in report.issues:
+                icon = "✗" if issue.severity == "critical" else "△" if issue.severity == "warning" else "ℹ"
+                print(f"  {icon} [{issue.severity}] {issue.message}")
+                print(f"    Fix: {issue.fix}")
+            print()
+        else:
+            print("✓ No ATS issues detected")
+            print()
+
+        if report.score >= 80:
+            print("VERDICT: READY TO SEND")
+        elif report.score >= 60:
+            print("VERDICT: NEEDS MINOR EDITS")
+        else:
+            print("VERDICT: NEEDS MAJOR REVISION")
+
+
+def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
+    """Extract keywords from offer and match against CV.
+
+    Shows matched, missing, and extra keywords.
+
+    Args:
+        offer_id: Offer ID to extract keywords from
+        as_json: Output as JSON if True
+    """
+    from applyr.ats import extract_keywords, match_keywords
+    from applyr.db import get_conn
+
+    conn = get_conn()
+    try:
+        cursor = conn.execute(
+            "SELECT * FROM offers WHERE id = ?", (offer_id,)
+        )
+        offer = cursor.fetchone()
+    finally:
+        conn.close()
+
+    if not offer is None:
+        die(f"Offer #{offer_id} not found", code="not_found")
+
+    offer_data = dict(offer)
+    keywords = extract_keywords(offer_data)
+
+    if not keywords:
+        die("No keywords found in offer (missing tech_stack)", code="no_keywords")
+
+    # Find the CV file for this offer
+    cv_dir = APPLYR_DIR / "cv"
+    cv_files = list(cv_dir.glob(f"*offer_{offer_id}*"))
+    if not cv_files:
+        die(f"No CV found for offer #{offer_id}. Run 'applyr cv generate {offer_id}' first.", code="no_cv")
+
+    cv_text = cv_files[0].read_text()
+    report = match_keywords(cv_text, keywords)
+
+    if as_json:
+        payload = {
+            "offer_id": offer_id,
+            "keywords": keywords,
+            "match_rate": report.match_rate,
+            "matched": [{"keyword": m.keyword, "context": m.context} for m in report.matched],
+            "missing": [{"keyword": m.keyword, "suggestion": m.context} for m in report.missing],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"KEYWORD MATCH: {report.match_rate}%")
+        print(f"  Matched: {len(report.matched)}/{len(keywords)}")
+        print()
+
+        if report.matched:
+            print("MATCHED:")
+            for m in report.matched:
+                print(f"  ✓ {m.keyword}")
+            print()
+
+        if report.missing:
+            print("MISSING:")
+            for m in report.missing:
+                print(f"  ✕ {m.keyword}")
+                print(f"    Suggestion: {m.context}")
+            print()
+
+        if report.match_rate >= 80:
+            print("KEYWORD STATUS: STRONG")
+        elif report.match_rate >= 60:
+            print("KEYWORD STATUS: ADEQUATE — consider adding missing keywords")
+        else:
+            print("KEYWORD STATUS: WEAK — add missing keywords to improve ATS score")

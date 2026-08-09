@@ -1,0 +1,49 @@
+{
+  "standard_headers": [
+    "Professional Summary",
+    "Summary",
+    "Objective",
+    "Work Experience",
+    "Employment History",
+    "Experience",
+    "Projects",
+    "Portfolio",
+    "Education",
+    "Certifications",
+    "Skills",
+    "Technical Skills",
+    "Core Competencies",
+    "Languages",
+    "References",
+    "Contact Information"
+  ],
+  "allowed_headers": [
+    "Perfil Profesional",
+    "Experiencia Profesional",
+    "Formación",
+    "Habilidades Técnicas",
+    "Idiomas",
+    "Certificaciones",
+    "Proyectos",
+    "STACK",
+    "Stack"
+  ],
+  "forbidden_formats": [
+    "tables",
+    "columns",
+    "text_boxes",
+    "images",
+    "graphics",
+    "icons",
+    "logos",
+    "headers_and_footers"
+  ],
+  "recommended_date_format": "MM/YYYY",
+  "max_bullets_per_role": 6,
+  "max_pages": {
+    "junior": 1,
+    "mid": 1,
+    "senior": 2,
+    "lead": 2
+  }
+}
