@@ -13,7 +13,7 @@ applyr is the storage layer; your AI coding agent is the brain. Paste a job offe
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
-[![tests](https://img.shields.io/badge/tests-329%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
+[![tests](https://img.shields.io/badge/tests-412%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-purple)](CONTRIBUTING.md)
 
 [Features](#features) •
@@ -56,7 +56,9 @@ applyr:  74% compatibility (>= 65% threshold)
          v
 
 Agent: generates tailored CV from cv-master.md
-       runs recruiter review (ATS score: 87/100)
+       runs applyr cv ats-check (ATS score: 87/100)
+       runs applyr cv bullet-optimize (quality: A)
+       runs applyr cv cover-letter (tailored letter)
        delivers PDF ready to send
 ```
 
@@ -74,8 +76,14 @@ applyr is the **storage layer**. Your AI agent is the **brain**.
 - **CV tailoring hints** — What to emphasize, what to de-emphasize in your CV
 - **Duplicate detection** — same company+title? applyr catches it before you waste time
 - **ATS-safe CVs** — locked single-column CSS, standard fonts, no images. Your agent fills content, never touches structure
+- **ATS compatibility check** — validates CV against ATS rules (headers, formatting, keywords)
+- **Keyword extraction** — pulls keywords from job offers and matches against your CV
+- **Bullet point optimization** — analyzes weak verbs, suggests strong alternatives, detects missing metrics
+- **Cover letter generation** — tailored letters from your profile + offer data
+- **CV comparison** — compare two CV versions (ATS score delta, keyword coverage)
 - **Recruiter review** — built-in prompt scores your CV 0-100 with specific improvements
-- **21 commands** — pipeline, stats, gaps, trends, salary insights, follow-ups, compare, export, and more
+- **Response rate tracking** — measure application performance with monthly trends
+- **27 commands** — pipeline, stats, gaps, trends, salary insights, follow-ups, compare, export, and more
 - **Local and private** — SQLite on your machine. No API keys, no subscriptions, nothing leaves your system
 - **Agent-native** — ships with `AGENT_INSTRUCTIONS.md` that tells Claude/Cursor/OpenCode exactly what to do
 
@@ -167,7 +175,20 @@ applyr followups                   # Overdue + upcoming
 ```bash
 applyr cv generate <id>            # Markdown CV with YAML frontmatter
 applyr cv review <file.md>         # Recruiter review prompt (accepts .md or .html)
+applyr cv review-blind <id>        # Independent CV evaluation (no score bias)
 applyr cv pdf <file.md>            # Markdown → ATS-HTML → PDF via Chrome
+applyr cv ats-check <file.html>    # Check ATS compatibility (0-100 score)
+applyr cv keywords <id>            # Extract & match keywords vs CV
+applyr cv bullet-optimize <file>   # Analyze bullet points (weak verbs, metrics)
+applyr cv cover-letter <id>        # Generate tailored cover letter
+applyr cv compare <v1.html> <v2.html>  # Compare two CV versions
+applyr cv stats                    # CV performance analytics
+```
+
+### Response tracking
+
+```bash
+applyr response-rate               # Application response rate + trends
 ```
 
 ### System
@@ -279,9 +300,11 @@ cultural_fit = 10
 applyr/
   cli.py                 # Entry point
   config.py              # TOML config
-  db.py                  # SQLite schema (offers: 31 columns)
+  db.py                  # SQLite schema (offers: 32 columns, 6 tables)
   scoring.py             # Weighted scoring engine
   cv.py                  # Markdown CV + Chrome PDF + recruiter review
+  ats.py                 # ATS compatibility checking + keyword matching
+  analytics.py           # CV comparison + response rate tracking
   md_render.py           # Narrow markdown → ATS-HTML converter
   commands/
     core.py              # add, list, show, update, delete, search, init, setup-agent
@@ -289,9 +312,16 @@ applyr/
     workflow.py          # export, doctor
   templates/
     AGENT_INSTRUCTIONS.md
+    ats_rules.json       # ATS validation rules
+    bullet_patterns.json # Bullet optimization patterns
+    cover_letter.md      # Cover letter template
 tests/
-  test_cli_routing.py    # 115 tests, cli router coverage
+  test_cli_routing.py    # CLI router coverage
   test_cv.py             # CV pipeline tests
+  test_ats.py            # ATS compatibility tests
+  test_analytics.py      # Analytics tests
+  test_cv_bullets.py     # Bullet optimization tests
+  test_cover_letter.py   # Cover letter tests
   test_md_render.py      # Markdown renderer tests
   test_db.py             # Schema + migration tests
   test_scoring.py        # Scoring engine tests
@@ -306,7 +336,7 @@ tests/
 git clone https://github.com/DeibyGS/applyr.git
 cd applyr
 pip install -e ".[dev]"
-pytest                             # 296 tests, ~3s
+pytest                             # 412 tests, ~4s
 ```
 
 ---
@@ -317,9 +347,9 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 
 | Human-owned | AI-assisted (human-reviewed) |
 |-------------|------------------------------|
-| Domain model & 28-column schema | Python implementation |
+| Domain model & 32-column schema | Python implementation |
 | Scoring engine & threshold logic | CLI scaffolding |
-| ATS CV template & locked CSS | Test suite (296 tests) |
+| ATS CV template & locked CSS | Test suite (412 tests) |
 | Architecture & code review | Module split & CI |
 
 **Process:** `Spec (SDD) → AI implementation → Human review → Test → Merge`
@@ -337,10 +367,10 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 
 | | |
 |---|---|
-| PRs | 37 (all human-reviewed) |
-| Tests | 296 (cli, cv, md_render, db, scoring, config, validators) |
-| Commands | 21 + 5 aliases |
-| Schema | 31 columns, 3 tables, migration system |
+| PRs | 42 (all human-reviewed) |
+| Tests | 412 (cli, cv, ats, analytics, bullets, cover_letter, md_render, db, scoring, config, validators) |
+| Commands | 27 + 5 aliases |
+| Schema | 32 columns, 6 tables, migration system |
 | Models | Claude Opus 4.6, DeepSeek V4 Flash |
 
 _Measured with [ClaudeStat](https://github.com/DeibyGS/claudestat)._
