@@ -117,7 +117,7 @@ Docs: https://github.com/DeibyGS/applyr
 def _is_initialized() -> bool:
     """Check if applyr has been initialized."""
     from applyr.config import APPLYR_DIR
-    return (APPLYR_DIR / "jobs.db").exists() or (APPLYR_DIR / "applyr.toml").exists()
+    return (APPLYR_DIR / "jobs.db").exists()
 
 
 def main():

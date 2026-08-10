@@ -118,10 +118,29 @@ class TestReviewBlind:
         """Should use thresholds from config."""
         cmd_cv_review_blind(1)
         captured = capsys.readouterr()
-        # Thresholds are loaded from config (default: 65 apply, 60 maybe)
+        # Thresholds are loaded from config (default: 80 apply, 60 maybe)
         assert "APPLY >=" in captured.out
         assert "MAYBE >=" in captured.out
         # Should include the verdict classification instructions
         assert "STRONG_MATCH" in captured.out
         assert "CLOSE_MATCH" in captured.out
         assert "NO_MATCH" in captured.out
+
+    def test_review_blind_reads_apply_threshold_from_config(
+        self, tmp_db, offer_for_review, cv_master_valid, tmp_applyr, capsys
+    ):
+        """Thresholds must come from threshold_apply/threshold_maybe, not legacy keys.
+
+        Until v1.4.0 the command read `general.threshold` (the legacy 65%)
+        and a `maybe_threshold` key that does not exist, so its verdicts could
+        disagree with the rest of applyr.
+        """
+        (tmp_applyr / "applyr.toml").write_text(
+            "[general]\nthreshold_apply = 90\nthreshold_maybe = 70\n"
+        )
+        cmd_cv_review_blind(1)
+        captured = capsys.readouterr()
+        assert "APPLY >= 90%" in captured.out
+        assert "MAYBE >= 70%" in captured.out
+        assert "STRONG_MATCH  if score >= 90" in captured.out
+        assert "CLOSE_MATCH   if score >= 70" in captured.out

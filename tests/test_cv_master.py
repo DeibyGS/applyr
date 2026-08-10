@@ -7,7 +7,7 @@ v1.0.0 bug was a size threshold that the very first edit a new user makes —
 typing their own name — was enough to satisfy.
 """
 
-from applyr.commands.core import _CV_MASTER_TEMPLATE
+from applyr.commands.core import _cv_master_template_text
 from applyr.cv_master import MIN_CONTENT_WORDS, inspect_cv_master
 
 
@@ -16,11 +16,16 @@ def _profile(words: int = 60) -> str:
     return "# CV Master — Real Person\n\n## Experience\n" + "Shipped a thing. " * words
 
 
+def _shipped_template() -> str:
+    """The cv-master.md that `applyr init` actually writes."""
+    return _cv_master_template_text()
+
+
 class TestUnfilledTemplate:
     """The skeleton `applyr init` writes must never read as a profile."""
 
     def test_shipped_template_is_not_filled(self):
-        report = inspect_cv_master(_CV_MASTER_TEMPLATE.format(name="Your Name"))
+        report = inspect_cv_master(_shipped_template())
         assert not report.filled
 
     def test_naming_the_template_does_not_make_it_filled(self):
@@ -29,14 +34,27 @@ class TestUnfilledTemplate:
         Typing your own name is the first edit anyone makes, and it left the
         sections as empty as before — so it must not flip the verdict.
         """
-        report = inspect_cv_master(_CV_MASTER_TEMPLATE.format(name="Deiby Gorrin Santana"))
+        personalised = _shipped_template().replace(
+            "CV Master — Your Name", "CV Master — Deiby Gorrin Santana"
+        )
+        report = inspect_cv_master(personalised)
         assert not report.filled
 
     def test_names_the_sections_left_unfilled(self):
         """Refusing is not enough — the report has to say what to write."""
-        report = inspect_cv_master(_CV_MASTER_TEMPLATE.format(name="Your Name"))
-        assert set(report.placeholder_sections) == {"Summary", "Experience", "Education", "Skills"}
-        assert "Summary" in report.reason
+        report = inspect_cv_master(_shipped_template())
+        assert set(report.placeholder_sections) == {
+            "CONTACT",
+            "PROFESSIONAL SUMMARY",
+            "WORK EXPERIENCE",
+            "EDUCATION",
+            "PROJECTS",
+            "CERTIFICATIONS",
+            "TECHNICAL SKILLS",
+            "LANGUAGES",
+            "ADDITIONAL",
+        }
+        assert "PROFESSIONAL SUMMARY" in report.reason
 
     def test_one_placeholder_left_among_real_content_still_fails(self):
         """A half-filled profile invents whatever the untouched section covers."""

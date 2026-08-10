@@ -722,8 +722,8 @@ def cmd_cv_review_blind(offer_id: int, as_json: bool = False) -> None:
 
     # Load thresholds from config
     config = load_config()
-    threshold_apply = config["general"].get("threshold", 80)
-    threshold_maybe = config["general"].get("maybe_threshold", 60)
+    threshold_apply = config["general"].get("threshold_apply", 80)
+    threshold_maybe = config["general"].get("threshold_maybe", 60)
 
     # 1. Load offer from DB (WITHOUT compatibility_pct — blind)
     conn = get_conn()
@@ -901,7 +901,7 @@ def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
     finally:
         conn.close()
 
-    if not offer is None:
+    if offer is None:
         die(f"Offer #{offer_id} not found", code="not_found")
 
     offer_data = dict(offer)
@@ -1256,51 +1256,3 @@ def cmd_cv_cover_letter(offer_id: int, as_json: bool = False) -> None:
         print(f"Cover letter generated: {output_path}")
         print()
         print(letter)
-
-
-def cmd_cv_ats_check(cv_file: str, as_json: bool = False) -> None:
-    """Check CV for ATS compatibility issues.
-
-    Validates:
-    - Single column layout
-    - Standard section headers
-    - No images, tables, text boxes
-    - Contact info placement
-    - Date format consistency
-
-    Args:
-        cv_file: Path to CV markdown file
-        as_json: Output as JSON if True
-    """
-    from applyr.ats import validate_ats_format
-
-    cv_path = Path(cv_file)
-    if not cv_path.exists():
-        die(f"CV file not found: {cv_file}", code="file_not_found")
-
-    cv_text = cv_path.read_text()
-    report = validate_ats_format(cv_text)
-
-    if as_json:
-        payload = {
-            "cv_file": str(cv_path),
-            "score": report.score,
-            "format_ok": report.format_ok,
-            "headers_ok": report.headers_ok,
-            "content_ok": report.content_ok,
-            "issues": [
-                {"category": i.category, "severity": i.severity, "message": i.message, "fix": i.fix}
-                for i in report.issues
-            ],
-        }
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
-    else:
-        print(f"ATS SCORE: {report.score}/100")
-        print()
-
-        if report.issues:
-            print("ISSUES:")
-            for issue in report.issues:
-                icon = "✗" if issue.severity == "critical" else "△" if issue.severity == "warning" else "ℹ"
-                print(f"  {icon} [{issue.severity}] {issue.message}")
-                print(f"    Fix: {issue.fix}")
