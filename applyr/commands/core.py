@@ -46,7 +46,7 @@ from applyr.errors import die, error, warn
 # ---------------------------------------------------------------------------
 
 _CV_MASTER_TEMPLATE = """\
-# CV Master — {name}
+# CV Master — Your Name
 
 ## Summary
 ...
@@ -60,6 +60,22 @@ _CV_MASTER_TEMPLATE = """\
 ## Skills
 ...
 """
+
+
+def _cv_master_template_text() -> str:
+    """Return the starter cv-master.md: the packaged template if present.
+
+    The full template lives in `templates/cv-master-template.md` so it can be
+    edited alongside the other shipped files; this constant is only a fallback
+    for installations that lack it. Keeping a bare `...` per section matters:
+    `inspect_cv_master()` flags those as unfilled, so the guard that stops `cv
+    generate` from building a CV on nothing keeps working on a fresh template.
+    """
+    src = Path(__file__).parent.parent / "templates" / "cv-master-template.md"
+    if src.exists():
+        return src.read_text()
+    return _CV_MASTER_TEMPLATE
+
 
 _STATUS_ORDER = ["applied", "waiting", "in_process", "offer", "pending", "discarded", "rejected"]
 
@@ -320,7 +336,7 @@ def cmd_init() -> None:
     # Copy a starter cv-master.md only if one does not already exist
     cv_master_path = APPLYR_DIR / "cv-master.md"
     if not cv_master_path.exists():
-        cv_master_path.write_text(_CV_MASTER_TEMPLATE.format(name="Your Name"))
+        cv_master_path.write_text(_cv_master_template_text())
         print(f"  Created {cv_master_path}  (edit this with your master CV content)")
     else:
         print(f"  {cv_master_path} already exists — skipped")
@@ -344,6 +360,30 @@ def cmd_init() -> None:
 # ---------------------------------------------------------------------------
 # cmd_setup_agent
 # ---------------------------------------------------------------------------
+
+def _warn_if_profile_empty() -> None:
+    """Warn when cv-master.md cannot produce a truthful CV.
+
+    `setup-agent` can succeed today while `cv generate` still refuses to run —
+    the profile simply has nothing in it. The first time a user meets that
+    failure is inside a job application; better to surface the missing piece
+    now, while setting up, than at the moment it matters.
+    """
+    from applyr.cv import get_cv_master_path
+    from applyr.cv_master import inspect_cv_master
+
+    cv_master = get_cv_master_path()
+    if not cv_master.exists():
+        warn(f"Warning: {cv_master} not found.")
+        warn("  Run 'applyr init' to create the template, then fill it with "
+             "your professional profile before generating CVs.")
+        return
+    report = inspect_cv_master(cv_master.read_text(encoding="utf-8"))
+    if not report.filled:
+        warn(f"Warning: {cv_master} is {report.reason}.")
+        warn("  Edit it with your professional profile before generating CVs — "
+             "applyr refuses to build a CV on nothing.")
+
 
 def cmd_setup_agent(agent: str | None = None) -> None:
     """Write applyr agent instructions into the current project's AI config file."""
@@ -373,6 +413,8 @@ def cmd_setup_agent(agent: str | None = None) -> None:
         die(f"Unknown agent '{agent}'", code="invalid_value",
             details={"value": agent, "valid": list(_AGENT_TARGETS)},
             text=f"  Supported: {', '.join(_AGENT_TARGETS.keys())}")
+
+    _warn_if_profile_empty()
 
     rel_path = _AGENT_TARGETS[agent][0]
     target = cwd / rel_path

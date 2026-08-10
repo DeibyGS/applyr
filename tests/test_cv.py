@@ -138,3 +138,29 @@ class TestCvGenerate:
         cmd_cv_generate(offer_id)
         md = next((tmp_applyr / "cv").glob("*.md")).read_text()
         assert f"offer_id: {offer_id}" in md
+
+
+class TestCvKeywords:
+    """`applyr cv keywords <id>` must tell a missing offer apart from a missing CV."""
+
+    def test_missing_offer_dies(self, tmp_db, tmp_applyr):
+        """A non-existent offer must fail loudly, not be treated as found.
+
+        Until v1.4.0 the null check was inverted (`if not offer is None`), so a
+        missing offer slipped past the guard and crashed on `dict(None)`.
+        """
+        from applyr.cv import cmd_cv_keywords
+
+        with pytest.raises(SystemExit):
+            cmd_cv_keywords(999)
+
+    def test_existing_offer_proceeds_past_null_check(self, offer_id, capsys):
+        """The inverted check killed existing offers as 'not found'. An existing
+        offer must reach the CV lookup instead, failing there for its own reason."""
+        from applyr.cv import cmd_cv_keywords
+
+        with pytest.raises(SystemExit):
+            cmd_cv_keywords(offer_id)
+        err = capsys.readouterr().err
+        assert "not found" not in err
+        assert "No CV found" in err

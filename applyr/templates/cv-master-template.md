@@ -1,80 +1,45 @@
 # CV Master — Your Name
 
-> This is your source of truth. The AI agent reads this file to generate
-> tailored CVs for each job application. Keep it complete and up to date.
-> Never invent content — only reorganize and prioritize what's here.
+> This is your single source of truth. The AI agent reads this file to score job
+> offers and write tailored CVs. Keep it complete and up to date. Never invent
+> content — replace each `...` below with your real professional details, then
+> delete the guidance line.
 
 ---
 
 ## CONTACT
-
-**Your Full Name**
-City, Country
-email@example.com · +00 000 000 000
-linkedin.com/in/yourprofile · github.com/yourusername · yourwebsite.com
-
----
+...
+Your full name, city, country, email, phone, LinkedIn, GitHub and website.
 
 ## PROFESSIONAL SUMMARY
-
-<!-- 2-3 sentences summarizing your profile, key skills, and availability -->
-
----
+...
+2-3 sentences: who you are, your strongest area, seniority and the roles you target.
 
 ## WORK EXPERIENCE
-
-### Job Title
-**Company** · City · Remote/Hybrid/Onsite · MM/YYYY – MM/YYYY
-
-- Achievement or responsibility with measurable impact
-- Technologies used: ...
-
----
+...
+For each role: **Job Title — Company** — City — Remote/Hybrid/Onsite — MM/YYYY–MM/YYYY,
+then 2-4 bullets with measurable results (e.g. "Cut API latency by 42%").
 
 ## EDUCATION
-
-### Degree / Certification
-**Institution** · MM/YYYY – MM/YYYY
-
----
+...
+For each degree: **Degree — Institution** — MM/YYYY–MM/YYYY.
 
 ## PROJECTS
-
-### Project Name
-**Tech stack:** Language, Framework, Database
-**Links:** [GitHub](url) · [Live](url)
-
-- What it does and why it matters
-- Key technical decisions
-
----
+...
+For each project: **Name — Stack** — URL, then what it does and its key technical decisions.
 
 ## CERTIFICATIONS
-
-- Certification Name — Issuer (MM/YYYY)
-
----
+...
+Certifications with issuer and year.
 
 ## TECHNICAL SKILLS
-
-**Languages:** Python, JavaScript, TypeScript, ...
-**Frontend:** React, Next.js, ...
-**Backend:** Node.js, FastAPI, ...
-**Databases:** PostgreSQL, MongoDB, SQLite, ...
-**DevOps:** Docker, CI/CD, ...
-**Other:** Git, Linux, ...
-
----
+...
+Grouped by area: Languages, Backend, Frontend, Databases, DevOps.
 
 ## LANGUAGES
-
-- Spanish — Native
-- English — B2/C1
-
----
+...
+Your languages with proficiency level.
 
 ## ADDITIONAL
-
-- Availability: Immediate
-- Work preferences: Remote, Hybrid, Onsite
-- Location preferences: ...
+...
+Availability, work preferences and location preferences.

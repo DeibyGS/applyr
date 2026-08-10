@@ -55,6 +55,16 @@ class TestCommandDispatch:
         assert code == 0
         assert "Getting started" in out
 
+    def test_help_no_args_with_config_but_no_db(self, run_cli, capsys, tmp_applyr):
+        """A lone applyr.toml (e.g. copied from the docs) must NOT count as
+        initialized — without jobs.db the user still gets the onboarding help,
+        not a bare usage string."""
+        (tmp_applyr / "applyr.toml").write_text("[general]\n")
+        out, err, code = _run(run_cli, capsys, [])
+        assert code == 0
+        assert "Getting started" in out
+        assert "applyr init" in out
+
     def test_help_command(self, run_cli, capsys):
         out, err, code = _run(run_cli, capsys, ["help"])
         assert code == 0
@@ -252,6 +262,22 @@ class TestCommandDispatch:
     def test_setup_agent_with_agent(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
         assert code == 0
+
+    def test_setup_agent_warns_when_profile_missing(self, run_cli, capsys, tmp_db):
+        """A missing cv-master.md must warn during setup, not only at cv generate.
+        Otherwise the first a user hears of it is a failed application."""
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
+        assert code == 0
+        assert "cv-master.md" in err
+        assert "not found" in err
+
+    def test_setup_agent_warns_when_profile_unfilled(self, run_cli, capsys, tmp_db):
+        """A cv-master.md from 'applyr init' (blank placeholders) is not a real
+        profile; setup-agent should still say so."""
+        _run(run_cli, capsys, ["init"])
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
+        assert code == 0
+        assert "cv-master.md" in err
 
 
 # ── AC-2.3: Global flags ─────────────────────────────────────────────────────
