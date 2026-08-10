@@ -4,6 +4,81 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-08-10
+
+### Fixed
+
+- **`cv keywords` crashed on existing offers.** The null check was inverted
+  (`if not offer is None`), so a present offer slipped past the guard and died
+  with an internal error instead of an answer; a missing offer reported
+  "found" and crashed on `dict(None)`. The check now reads `if offer is None`
+  and fails with a clear `not_found` code.
+- **`cv review-blind` read stale config keys.** Verdicts were computed from
+  `general.threshold` (the legacy 65% default) and a nonexistent
+  `maybe_threshold`, so they could disagree with the rest of applyr. It now
+  reads `threshold_apply` (default 80) and `threshold_maybe` (default 60), the
+  keys used since v1.0.0.
+- **Two `cv ats-check` handlers were registered.** The duplicate definition at
+  the end of `cv.py` shadowed nothing but confused readers; removed, one
+  handler remains.
+
+### Changed
+
+- **A lone `applyr.toml` no longer counts as initialized.** `_is_initialized()`
+  checks only that `jobs.db` exists, so a user who copied the example config
+  still gets the "Getting started" onboarding instead of a bare usage string.
+- **`applyr init` ships the full cv-master template.** The rich packaged
+  template (`templates/cv-master-template.md`) was dead code — `init` wrote a
+  bare stub from `core.py`. It is now loaded via `_cv_master_template_text()`
+  with the packaged file as source of truth and the stub as fallback. Sections
+  keep their `...` placeholders so the "unfilled profile" guard on `cv
+  generate` keeps working on a fresh template.
+- **`setup-agent` warns on an empty profile.** `_warn_if_profile_empty()` runs
+  before writing agent instructions and surfaces a missing or unfilled
+  `cv-master.md` at setup time, instead of letting the first failure appear
+  mid-application.
+
+### Tests
+
+- 8 regression tests added covering every fix above (418 total).
+
+## [1.3.0] — 2026-08-09
+
+### Added
+
+- **ATS compatibility checking** — `ats.py` with `validate_ats_format()` and
+  `match_keywords()`, ruled by `ats_rules.json`.
+  - `applyr cv ats-check <file>` — ATS score (0-100) and per-issue detail
+  - `applyr cv keywords <id>` — keyword extraction and matching
+- **Recruiter experience** — `applyr cv bullet-optimize <file>` (bullet quality
+  analysis against `bullet_patterns.json`) and `applyr cv cover-letter <id>`
+  (tailored cover letters from `cover_letter.md`).
+- **Analytics** — `applyr cv compare <v1> <v2>` (ATS score delta, keyword
+  coverage, word count) and `applyr response-rate` (overall, by status, and
+  monthly trends), backed by a new `response_status` column (migration v5).
+- **`constitution.md`** — project-level constraints for AI agents.
+
+### Tests
+
+- 31 tests added across `test_ats.py`, `test_analytics.py`,
+  `test_cover_letter.py`, `test_cv_bullets.py` (412 total).
+
+## [1.2.0] — 2026-08-09
+
+### Added
+
+- **Blind recruiter review** — `applyr cv review-blind <id>` evaluates an offer
+  without the pre-computed compatibility score, simulating an outside reviewer.
+- **Gap tracking** — new `learning_gaps` table (migration v5) and
+  `applyr gaps save | list | stats` commands to record and monitor the skill
+  gaps applyr detects.
+- **Two-agent workflow** — `AGENT_INSTRUCTIONS.md` updated to orchestrate a
+  reviewing agent and a writing agent.
+
+### Tests
+
+- 25 tests added for gaps and review-blind (381 total).
+
 ## [1.1.0] — 2026-08-09
 
 ### Added
