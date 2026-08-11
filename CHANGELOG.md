@@ -35,6 +35,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   below a check reading STALE. A note is still not an issue and still does not
   fail the run, but the summary now counts it.
 
+- **`stats` and `response-rate` disagreed about what a response is.** Three
+  definitions of "responded" coexisted, and two of them counted `waiting` —
+  the status that means the application is out and nothing has come back, which
+  is precisely why `update` schedules a follow-up for it. On a real 206-offer
+  database the two commands reported 14% and 9% from identical rows. One
+  definition now lives in `db.py` and both read it.
+- **`gaps` marked every topic HIGH once the database grew.** Priority keyed off
+  a fixed recurrence count (three sightings), so at a couple of hundred offers
+  the ranking stopped discriminating — and it ignored how far short each topic
+  fell, ranking a 30-point gap level with a 12-point one. Priority is now the
+  gap's share of the worst gap, which reads the same at six offers and at six
+  hundred, and the list is ordered by total impact so the ranking and the label
+  cannot contradict each other.
+
 ### Changed
 
 - Schema v7 backfills `applied` and `response_status` from the status on

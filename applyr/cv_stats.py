@@ -12,10 +12,14 @@ A CV can score high on the first and low on the second, which is a different
 problem from silence. Collapsing them into one number hides that.
 """
 
-from applyr.db import SENT_STATUSES, VALID_STATUSES
+from applyr.db import REPLY_STATUSES, SENT_STATUSES, VALID_STATUSES
 
-# A reply of any kind was received — including a rejection.
-RESPONDED_STATUSES = frozenset({"waiting", "in_process", "rejected", "offer"})
+# A reply of any kind was received — including a rejection. `waiting` used to be
+# counted here, which read the label backwards: "Waiting Response" is the state
+# of having heard nothing, and `update` schedules a follow-up for exactly that
+# reason. Counting it made this rate disagree with `response-rate` on the same
+# data, so the definition now lives in db.py and is shared.
+RESPONDED_STATUSES = REPLY_STATUSES
 
 # Reached a real conversation.
 INTERVIEW_STATUSES = frozenset({"in_process", "offer"})

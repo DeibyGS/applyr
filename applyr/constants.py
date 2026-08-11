@@ -29,7 +29,11 @@ DEFAULT_THRESHOLD_MAYBE = 60
 DEFAULT_FOLLOWUP_DAYS = 10
 DEFAULT_LIST_LIMIT = 50
 FOLLOWUP_UPCOMING_DAYS = 5
-HIGH_PRIORITY_FREQ_THRESHOLD = 3
+# Skill-gap priority, as a share of the worst gap rather than a count of
+# sightings: an absolute recurrence threshold marks every topic HIGH once a
+# database holds a few hundred offers, which is when the ranking matters most.
+GAP_PRIORITY_HIGH_SHARE = 0.5
+GAP_PRIORITY_MEDIUM_SHARE = 0.2
 TREND_HISTORY_LIMIT = 12
 
 # CV performance table

@@ -202,3 +202,94 @@ class TestUpdateRecordsResponseStatus:
         assert result["total_applications"] == 2
         assert result["responded"] == 1
         assert result["response_rate"] == 50.0
+
+
+class TestRespondedMeansTheSameEverywhere:
+    """`stats` counted `waiting` as a reply and `response-rate` did not, so the
+    two commands reported different response rates from one database — 14%
+    against 9% on a real 206-offer history."""
+
+    def _stats(self, capsys):
+        from applyr.commands.analytics import cmd_stats
+
+        capsys.readouterr()  # drop whatever add/update printed first
+        cmd_stats(as_json=True)
+        return json.loads(capsys.readouterr().out)
+
+    def test_waiting_is_not_a_response(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "waiting")
+        assert self._stats(capsys)["funnel"]["responded"] == 0
+
+    def test_a_rejection_is_a_response(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "rejected")
+        assert self._stats(capsys)["funnel"]["responded"] == 1
+
+    def test_both_commands_agree(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.core import cmd_update
+        from applyr.analytics import response_rate
+
+        for company, status in [("A", "applied"), ("B", "waiting"),
+                                ("C", "rejected"), ("D", "in_process")]:
+            _add(company=company)
+        for offer_id, status in enumerate(["applied", "waiting", "rejected", "in_process"], start=1):
+            cmd_update(offer_id, status)
+
+        funnel = self._stats(capsys)["funnel"]
+        rate = response_rate(as_json=True)
+        assert funnel["responded"] == rate["responded"] == 2
+        assert funnel["applied"] == rate["total_applications"] == 4
+
+    def test_cv_stats_uses_the_same_definition(self):
+        from applyr.cv_stats import RESPONDED_STATUSES
+        from applyr.db import REPLY_STATUSES
+
+        assert "waiting" not in RESPONDED_STATUSES
+        assert RESPONDED_STATUSES == REPLY_STATUSES
+
+
+class TestGapPriorityScalesWithTheDatabase:
+    """Priority keyed off a fixed recurrence count (>= 3 == HIGH) marked every
+    topic HIGH once the database held a few hundred offers — exactly when the
+    ranking is worth reading."""
+
+    def test_the_worst_gap_is_high(self):
+        from applyr.commands.analytics import _gap_priority
+
+        assert _gap_priority(4320, 4320) == "HIGH"
+
+    def test_a_third_of_the_worst_is_medium(self):
+        from applyr.commands.analytics import _gap_priority
+
+        assert _gap_priority(1500, 4320) == "MEDIUM"
+
+    def test_a_tenth_of_the_worst_is_low(self):
+        from applyr.commands.analytics import _gap_priority
+
+        assert _gap_priority(420, 4320) == "LOW"
+
+    def test_magnitude_counts_not_only_sightings(self):
+        """Two topics seen equally often rank apart when one falls further short."""
+        from applyr.commands.analytics import _gap_priority
+
+        deep, shallow = 1000, 150
+        assert _gap_priority(deep, deep) == "HIGH"
+        assert _gap_priority(shallow, deep) == "LOW"
+
+    def test_priority_is_unchanged_by_database_size(self):
+        """The same relative shape must rank the same at any scale."""
+        from applyr.commands.analytics import _gap_priority
+
+        small = [_gap_priority(g, 100) for g in (100, 30, 5)]
+        large = [_gap_priority(g, 100_000) for g in (100_000, 30_000, 5_000)]
+        assert small == large == ["HIGH", "MEDIUM", "LOW"]
+
+    def test_no_gaps_at_all_does_not_divide_by_zero(self):
+        from applyr.commands.analytics import _gap_priority
+
+        assert _gap_priority(0, 0) == "LOW"

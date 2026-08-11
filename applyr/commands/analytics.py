@@ -16,7 +16,8 @@ from applyr.constants import (
     FOLLOWUP_COMPANY_WIDTH,
     FOLLOWUP_TITLE_WIDTH,
     FOLLOWUP_UPCOMING_DAYS,
-    HIGH_PRIORITY_FREQ_THRESHOLD,
+    GAP_PRIORITY_HIGH_SHARE,
+    GAP_PRIORITY_MEDIUM_SHARE,
     PIPELINE_COMPANY_WIDTH,
     PIPELINE_TITLE_WIDTH,
     PRIORITY_CRITICAL_SCORE,
@@ -25,7 +26,7 @@ from applyr.constants import (
     TREND_BAR_WIDTH,
     TREND_HISTORY_LIMIT,
 )
-from applyr.db import STATUS_LABELS, VALID_SEVERITIES, get_conn
+from applyr.db import REPLY_STATUSES, STATUS_LABELS, VALID_SEVERITIES, get_conn
 from applyr.commands._helpers import _bar, _today, _truncate
 from applyr.errors import die
 
@@ -148,9 +149,17 @@ def cmd_stats(as_json: bool = False) -> None:
         pending   = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'pending'").fetchone()[0]
         avg_compat = conn.execute("SELECT AVG(compatibility_pct) FROM offers").fetchone()[0] or 0
 
-        # Conversion funnel
+        # Conversion funnel. `responded` excludes `waiting`: that status means
+        # the application is out and nothing has come back, which is why
+        # `update` schedules a follow-up for it. Counting it as a reply made
+        # this funnel disagree with `response-rate` on identical data — 14%
+        # against 9% on a real 206-offer database.
         applied    = conn.execute("SELECT COUNT(*) FROM offers WHERE status != 'pending' AND status != 'discarded'").fetchone()[0]
-        responded  = conn.execute("SELECT COUNT(*) FROM offers WHERE status IN ('in_process','rejected','offer','waiting')").fetchone()[0]
+        reply_slots = ", ".join("?" * len(REPLY_STATUSES))
+        responded  = conn.execute(
+            f"SELECT COUNT(*) FROM offers WHERE status IN ({reply_slots})",
+            sorted(REPLY_STATUSES),
+        ).fetchone()[0]
         interview  = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'in_process'").fetchone()[0]
         offers_cnt = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'offer'").fetchone()[0]
 
@@ -245,7 +254,9 @@ def _live_skill_gaps(limit: int | None = None) -> list[dict]:
             JOIN offers o ON o.id = t.offer_id
             WHERE t.score < :threshold
             GROUP BY t.topic
-            ORDER BY frequency DESC, total_gap DESC
+            -- Worst total impact first, so the ranking and the priority
+            -- label cannot disagree with each other.
+            ORDER BY total_gap DESC, frequency DESC
             """,
             {"threshold": threshold},
         ).fetchall()
@@ -257,8 +268,30 @@ def _live_skill_gaps(limit: int | None = None) -> list[dict]:
     return gaps[:limit] if limit is not None else gaps
 
 
+def _gap_priority(total_gap: int, worst_gap: int) -> str:
+    """Rank a gap against the worst one, not against a fixed number of sightings.
+
+    Counting recurrences stopped telling the user anything the moment the
+    database grew: a threshold of three marks every topic HIGH once there are a
+    couple of hundred offers, and it ignored how far short each one fell, so a
+    topic missed by 30 points ranked level with one missed by 12.
+
+    `total_gap` already carries both halves — it sums the points a topic cost
+    across every offer that fell short — so comparing it to the largest gap
+    keeps the ranking readable at six offers and at six hundred.
+    """
+    if worst_gap <= 0:
+        return "LOW"
+    share = total_gap / worst_gap
+    if share >= GAP_PRIORITY_HIGH_SHARE:
+        return "HIGH"
+    if share >= GAP_PRIORITY_MEDIUM_SHARE:
+        return "MEDIUM"
+    return "LOW"
+
+
 def cmd_gaps(limit: int = 10, as_json: bool = False) -> None:
-    """Show recurring skill gaps sorted by frequency."""
+    """Show recurring skill gaps, worst total impact first."""
     topic_labels: dict = TOPIC_LABELS
 
     rows = _live_skill_gaps(limit)
@@ -267,19 +300,20 @@ def cmd_gaps(limit: int = 10, as_json: bool = False) -> None:
         print("No skill gaps recorded yet.")
         return
 
+    worst_gap = max(r["total_gap"] for r in rows)
+
     if as_json:
         payload = []
         for r in rows:
             freq = r["frequency"]
-            avg_gap = round(r["total_gap"] / freq) if freq else 0
-            if freq >= HIGH_PRIORITY_FREQ_THRESHOLD:
-                priority = "HIGH"
-            elif freq == 2:
-                priority = "MEDIUM"
-            else:
-                priority = "LOW"
-            payload.append({"skill": r["skill"], "label": topic_labels.get(r["skill"], r["skill"]),
-                            "frequency": freq, "avg_gap": avg_gap, "priority": priority})
+            payload.append({
+                "skill": r["skill"],
+                "label": topic_labels.get(r["skill"], r["skill"]),
+                "frequency": freq,
+                "avg_gap": round(r["total_gap"] / freq) if freq else 0,
+                "total_gap": r["total_gap"],
+                "priority": _gap_priority(r["total_gap"], worst_gap),
+            })
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
@@ -287,12 +321,7 @@ def cmd_gaps(limit: int = 10, as_json: bool = False) -> None:
     for r in rows:
         label = topic_labels.get(r["skill"], r["skill"])
         freq  = r["frequency"]
-        if freq >= HIGH_PRIORITY_FREQ_THRESHOLD:
-            priority = "HIGH"
-        elif freq == 2:
-            priority = "MEDIUM"
-        else:
-            priority = "LOW"
+        priority = _gap_priority(r["total_gap"], worst_gap)
         priority_color = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}.get(priority, "white")
         avg_gap = round(r["total_gap"] / freq) if freq else 0
         print(f"  [{color(f'{priority:<6}', priority_color)}]  {label:<20}  seen {freq}x  avg gap {avg_gap}%")
