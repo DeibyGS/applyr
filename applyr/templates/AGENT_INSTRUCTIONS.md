@@ -88,9 +88,23 @@ The CLI prints a recommendation based on the configured threshold.
 | `english` (10%) | Cannot converse | B1/B2 functional | C1+ or native |
 | `cultural_fit` (10%) | Incompatible mode/location | Partial match | Perfect alignment |
 
-Weights are configurable in `~/.applyr/applyr.toml` under `[weights]`. The formula is: `sum(topic_score * weight) / sum(weights)`.
+Weights are configurable in `~/.applyr/applyr.toml` under `[weights]`. The formula is
+`sum(topic_score * weight) / sum(weights)`, where **both sums run only over the topics you
+provide** — the divisor is not the full 100. Omitting a topic therefore removes it from the
+average and redistributes its weight across the rest; it does not count as a zero.
 
-**Scoring rules:** Be honest (inflated scores waste applications). Always explain WHY in the `detail` field. If the offer doesn't mention a requirement, score 100.
+**Scoring rules:** Be honest — inflated scores waste applications.
+
+- Always explain WHY in the `detail` field.
+- **If the offer does not mention a topic, omit it entirely. Do not score it 100.** An
+  unmentioned requirement is unknown, not satisfied. Scoring it 100 hands out free points
+  for a fit nobody verified, and because `education` and `english` alone carry 25% of the
+  weight, it puts a 25-point floor under any vaguely written offer — so a vague posting
+  outscores a detailed one describing the same job. Omitting is what the formula above
+  expects, and it is why the divisor counts only the topics you supply.
+- Score what the offer states, not what it implies. If a requirement is mentioned but you
+  cannot judge the fit, score it honestly with your uncertainty in `detail` rather than
+  dropping it.
 
 **Set `language` to the language the offer is written in.** It decides the language of the CV `cv generate` produces, headings included — a Spanish vacancy answered with a CV titled "Work Experience" reads as machine-made, and an ATS looking for "EXPERIENCIA" matches nothing. Omit it only when the offer's language is genuinely unclear; applyr then falls back to `[cv] language` in applyr.toml.
 
