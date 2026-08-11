@@ -589,16 +589,25 @@ def _offer_context_from_db(offer_id: int) -> str | None:
     return "\n".join(lines)
 
 
+def _strip_frontmatter(md: str) -> str:
+    """Return the document body, dropping any leading YAML frontmatter.
+
+    A generated CV opens with the offer's own context — `tech_stack`, `summary`
+    — which is metadata about the vacancy, not content a recruiter or an ATS
+    ever sees. Anything measuring what the CV *says* has to read past it.
+    """
+    if not md.startswith("---"):
+        return md
+    end = md.find("---", 3)
+    return md[end + 3:].lstrip("\n") if end != -1 else md
+
+
 def _parse_markdown_for_review(md: str) -> str:
     """Parse markdown content for CV review, extracting readable text.
 
     Strips YAML frontmatter and HTML comments, converts markdown to plain text.
     """
-    # Strip YAML frontmatter
-    if md.startswith("---"):
-        end = md.find("---", 3)
-        if end != -1:
-            md = md[end + 3:].lstrip("\n")
+    md = _strip_frontmatter(md)
 
     # Strip HTML comments
     text = re.sub(r'<!--.*?-->', '', md, flags=re.DOTALL)
@@ -910,13 +919,36 @@ def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
     if not keywords:
         die("No keywords found in offer (missing tech_stack)", code="no_keywords")
 
-    # Find the CV file for this offer
+    # Find the CV file for this offer.
+    #
+    # This globbed for `*offer_<id>*`, a naming convention nothing produces:
+    # `cv generate` names files after the company slug (`cv-<slug>.md`) and
+    # records that stem in `cv_used`. The lookup therefore never matched, and
+    # the command told users to run the generate step they had just run.
+    # `cv_used` is the authoritative link, so read it first and keep the glob
+    # as a fallback for hand-named files.
     cv_dir = APPLYR_DIR / "cv"
-    cv_files = list(cv_dir.glob(f"*offer_{offer_id}*"))
-    if not cv_files:
+    cv_path = None
+
+    recorded = offer_data.get("cv_used")
+    if recorded:
+        stem = Path(recorded).stem
+        cv_path = next((p for ext in (".md", ".html") if (p := cv_dir / f"{stem}{ext}").exists()), None)
+
+    if cv_path is None:
+        cv_files = sorted(cv_dir.glob(f"*offer_{offer_id}*"))
+        cv_path = cv_files[0] if cv_files else None
+
+    if cv_path is None:
         die(f"No CV found for offer #{offer_id}. Run 'applyr cv generate {offer_id}' first.", code="no_cv")
 
-    cv_text = cv_files[0].read_text()
+    # Match against the CV body only. The generated file opens with YAML
+    # frontmatter carrying the offer's own `tech_stack` and `summary`, so
+    # matching the whole file compared the offer's keywords against a verbatim
+    # copy of themselves: every keyword hit, every CV scored 100% STRONG, and a
+    # CV mentioning neither AWS nor Redux nor Webpack was reported as covering
+    # all three.
+    cv_text = _strip_frontmatter(cv_path.read_text())
     report = match_keywords(cv_text, keywords)
 
     if as_json:
