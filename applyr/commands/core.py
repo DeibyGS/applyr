@@ -82,8 +82,15 @@ _STATUS_ORDER = ["applied", "waiting", "in_process", "offer", "pending", "discar
 _AGENT_TARGETS = {
     "claude":   ("CLAUDE.md",),
     "cursor":   (".cursorrules",),
-    "opencode": (".opencode/instructions.md",),
+    "opencode": ("AGENTS.md",),
     "generic":  ("AGENTS.md",),
+}
+
+# Canonical per-user global paths for `--global`. Resolved against the user's home.
+_AGENT_GLOBAL_TARGETS = {
+    "claude":   ".claude/CLAUDE.md",
+    "cursor":   ".cursorrules",
+    "opencode": ".config/opencode/AGENTS.md",
 }
 
 _AGENT_DETECT_ORDER = [
@@ -91,7 +98,6 @@ _AGENT_DETECT_ORDER = [
     ("claude",   ".claude/CLAUDE.md"),
     ("cursor",   ".cursorrules"),
     ("cursor",   ".cursor/rules"),
-    ("opencode", ".opencode/instructions.md"),
     ("generic",  "AGENTS.md"),
 ]
 
@@ -385,8 +391,8 @@ def _warn_if_profile_empty() -> None:
              "applyr refuses to build a CV on nothing.")
 
 
-def cmd_setup_agent(agent: str | None = None) -> None:
-    """Write applyr agent instructions into the current project's AI config file."""
+def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
+    """Write applyr agent instructions into the project or user-global AI config file."""
     cwd = Path.cwd()
     instructions = _get_agent_instructions()
     if not instructions:
@@ -394,8 +400,8 @@ def cmd_setup_agent(agent: str | None = None) -> None:
         die("Could not find AGENT_INSTRUCTIONS.md", code="not_found",
             text="  Run 'applyr init' first.")
 
-    # Auto-detect if no agent specified
-    if not agent:
+    # Auto-detect only when targeting the current project; --global needs an explicit agent
+    if not agent and not global_:
         for name, path in _AGENT_DETECT_ORDER:
             if (cwd / path).exists():
                 agent = name
@@ -403,6 +409,10 @@ def cmd_setup_agent(agent: str | None = None) -> None:
                 break
 
     if not agent:
+        if global_:
+            error("Error: --global requires an explicit --agent")
+            die("--global requires an explicit --agent", code="invalid_value",
+                text="  Supported: --agent claude | cursor | opencode")
         print("No AI agent config detected in this directory.")
         print("  Supported: --agent claude | cursor | opencode | generic")
         print("  Example: applyr setup-agent --agent claude")
@@ -414,26 +424,42 @@ def cmd_setup_agent(agent: str | None = None) -> None:
             details={"value": agent, "valid": list(_AGENT_TARGETS)},
             text=f"  Supported: {', '.join(_AGENT_TARGETS.keys())}")
 
+    if global_ and agent not in _AGENT_GLOBAL_TARGETS:
+        error(f"Error: agent '{agent}' has no canonical global path")
+        die(f"Agent '{agent}' has no canonical global path", code="invalid_value",
+            details={"value": agent, "global_targets": list(_AGENT_GLOBAL_TARGETS)},
+            text="  --global is only supported for claude, cursor and opencode")
+
     _warn_if_profile_empty()
 
-    rel_path = _AGENT_TARGETS[agent][0]
-    target = cwd / rel_path
+    if agent == "opencode" and (cwd / ".opencode/instructions.md").exists():
+        warn("Deprecation: .opencode/instructions.md is no longer read by OpenCode "
+             "— instructions for setup-agent now go to AGENTS.md")
 
-    # Create parent dirs if needed (e.g. .opencode/)
+    if global_:
+        rel_path = _AGENT_GLOBAL_TARGETS[agent]
+        target = Path.home() / rel_path
+        display = "~/" + rel_path
+    else:
+        rel_path = _AGENT_TARGETS[agent][0]
+        target = cwd / rel_path
+        display = rel_path
+
+    # Create parent dirs if needed (e.g. .claude/ or ~/.config/opencode/)
     target.parent.mkdir(parents=True, exist_ok=True)
 
     # If file exists, append (don't overwrite user content)
     if target.exists():
         existing = target.read_text()
         if "applyr" in existing.lower() and "agent instructions" in existing.lower():
-            print(f"  {rel_path} already contains applyr instructions — skipped.")
+            print(f"  {display} already contains applyr instructions — skipped.")
             return
         separator = "\n\n---\n\n"
         target.write_text(existing.rstrip() + separator + instructions)
-        print(f"  Appended applyr instructions to {rel_path}")
+        print(f"  Appended applyr instructions to {display}")
     else:
         target.write_text(instructions)
-        print(f"  Created {rel_path} with applyr instructions")
+        print(f"  Created {display} with applyr instructions")
 
     print(f"\n  Your AI agent will now use applyr automatically.")
     print(f"  Make sure {APPLYR_DIR / 'cv-master.md'} has your professional profile.")
