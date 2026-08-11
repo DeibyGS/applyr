@@ -137,12 +137,14 @@ class TestCommandDispatch:
         assert code == 0
 
     def test_compare_no_args(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["compare"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_compare_alias_cmp(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["cmp"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_salary_alias_sal(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["sal"])
@@ -153,16 +155,19 @@ class TestCommandDispatch:
         assert code == 0  # prints usage
 
     def test_cv_generate_no_id(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["cv", "generate"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_cv_review_no_file(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["cv", "review"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_cv_pdf_no_file(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["cv", "pdf"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_cv_stats(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["cv", "stats"])
@@ -463,29 +468,34 @@ class TestExitCodes:
         out, err, code = _run(run_cli, capsys, ["nonexistent"])
         assert code != 0
 
-    def test_show_missing_id_exits_zero(self, run_cli, capsys, tmp_db):
-        """show with no id prints usage and exits 0."""
+    def test_show_missing_id_fails(self, run_cli, capsys, tmp_db):
+        """`show` with no id used to print usage and exit 0, so a caller
+        chaining `applyr show && next-step` ran the next step regardless."""
         out, err, code = _run(run_cli, capsys, ["show"])
-        assert code == 0
-        assert "Usage: applyr show" in out
+        assert code != 0
+        assert "Usage: applyr show" in err
+        assert out == ""
 
     def test_update_missing_args(self, run_cli, capsys, tmp_db):
-        """update with too few args prints usage."""
+        """Missing required arguments: non-zero exit, usage on stderr."""
         out, err, code = _run(run_cli, capsys, ["update"])
-        assert code == 0
-        assert "Usage: applyr update" in out
+        assert code != 0
+        assert "Usage: applyr update" in err
+        assert out == ""
 
     def test_delete_missing_id(self, run_cli, capsys, tmp_db):
-        """delete with no id prints usage."""
+        """Missing required arguments: non-zero exit, usage on stderr."""
         out, err, code = _run(run_cli, capsys, ["delete"])
-        assert code == 0
-        assert "Usage: applyr delete" in out
+        assert code != 0
+        assert "Usage: applyr delete" in err
+        assert out == ""
 
     def test_search_missing_keyword(self, run_cli, capsys, tmp_db):
-        """search with no keyword prints usage."""
+        """Missing required arguments: non-zero exit, usage on stderr."""
         out, err, code = _run(run_cli, capsys, ["search"])
-        assert code == 0
-        assert "Usage: applyr search" in out
+        assert code != 0
+        assert "Usage: applyr search" in err
+        assert out == ""
 
     def test_invalid_id_exits_nonzero(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["show", "notanumber"])
@@ -830,3 +840,47 @@ class TestUnknownCommandFails:
         payload = json.loads(err)
         assert payload["error"]["code"] == "unknown_command"
         assert payload["error"]["details"]["value"] == "definitely-not-a-command"
+
+
+class TestMissingArgumentsFailButHelpDoesNot:
+    """Seventeen call sites printed a usage line and returned, so the process
+    exited 0 with a command that had done nothing — `applyr show && next-step`
+    ran the next step. The usage text also went to stdout, contaminating the
+    payload stream in --json mode. One site already used die(); the rest are
+    now consistent with it.
+
+    Asking for help is not a failure, so the two cases are kept apart: three
+    branches conflated them in a single condition, which is why missing
+    arguments inherited help's successful exit."""
+
+    MISSING = [
+        ["show"], ["update"], ["update", "1"], ["delete"], ["search"],
+        ["compare"], ["compare", "1"], ["gaps", "save"],
+        ["cv", "generate"], ["cv", "review"], ["cv", "pdf"],
+        ["cv", "ats-check"], ["cv", "keywords"], ["cv", "cover-letter"],
+    ]
+
+    @pytest.mark.parametrize("argv", MISSING, ids=lambda a: " ".join(a))
+    def test_missing_arguments_exit_non_zero(self, run_cli, capsys, tmp_db, argv):
+        out, err, code = _run(run_cli, capsys, argv)
+        assert code != 0
+
+    @pytest.mark.parametrize("argv", MISSING, ids=lambda a: " ".join(a))
+    def test_missing_arguments_keep_stdout_clean(self, run_cli, capsys, tmp_db, argv):
+        out, err, code = _run(run_cli, capsys, argv)
+        assert out == "", "usage belongs on stderr; stdout is the payload stream"
+
+    @pytest.mark.parametrize("argv", [
+        ["delete", "--help"],
+        ["cv", "generate", "--help"],
+        ["cv", "review-blind", "--help"],
+    ], ids=lambda a: " ".join(a))
+    def test_explicit_help_still_succeeds(self, run_cli, capsys, tmp_db, argv):
+        out, err, code = _run(run_cli, capsys, argv)
+        assert code == 0
+        assert "Usage:" in out
+
+    def test_json_mode_gets_a_structured_error(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["show", "--json"])
+        assert out == ""
+        assert json.loads(err)["error"]["code"] == "missing_arguments"
