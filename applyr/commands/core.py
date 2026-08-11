@@ -25,6 +25,8 @@ from applyr.constants import (
     VALID_SALARY_PERIODS,
 )
 from applyr.db import (
+    REPLY_STATUSES,
+    SENT_STATUSES,
     STATUS_LABELS,
     VALID_CHANNELS,
     VALID_LANGUAGES,
@@ -37,7 +39,7 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score
-from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _classify_icon, _show_score_breakdown
+from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _show_score_breakdown
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
 
@@ -934,23 +936,41 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
             fields.append("cv_used = ?")
             params.append(cv.strip() or None)
 
-        # Auto follow-up when moving to applied/waiting
+        # The `applied` column is the machine-readable form of "this went out",
+        # and `response_rate` filters on it. Deriving it from the status here
+        # keeps it honest in both directions: a status moved back to pending or
+        # discarded clears the flag rather than leaving a stale 1 behind.
+        sent = status in SENT_STATUSES
+        fields.append("applied = ?")
+        params.append(1 if sent else 0)
+
+        # Stamp the send date for anything that went out, not just applied and
+        # waiting. `response_rate` requires both the flag and the date, so an
+        # offer taken straight to rejected — a real path, the reply arrives
+        # before the status is ever moved to applied — would otherwise carry
+        # applied = 1 with no date and drop out of the metric entirely.
+        # COALESCE keeps the original date across later transitions.
+        if sent:
+            fields.append("date_applied = COALESCE(date_applied, ?)")
+            params.append(_today())
+
+        # Auto follow-up only while an answer is still owed. A rejected or
+        # closed offer needs no chasing.
         if status in ("applied", "waiting"):
             new_follow_up = (date.today() + timedelta(days=followup_days)).isoformat()
             fields.append("follow_up_date = ?")
             params.append(new_follow_up)
 
-            # Stamp the send date too. Without it `summary` counts zero
-            # applications, the default `list` sort has nothing to sort on and
-            # follow-ups never come due. COALESCE keeps the original date when
-            # an offer moves applied -> waiting.
-            fields.append("date_applied = COALESCE(date_applied, ?)")
-            params.append(_today())
-
-        # Record response date when first response received
-        if status in ("in_process", "rejected", "offer"):
+        # Record response date when first response received. The status doubles
+        # as the response kind: `response_status` had no writer at all until
+        # now, so `response_rate` counted every application as unanswered no
+        # matter what happened to it. COALESCE keeps the first reply's date;
+        # the status itself tracks the latest one.
+        if status in REPLY_STATUSES:
             fields.append("date_responded = COALESCE(date_responded, ?)")
             params.append(_today())
+            fields.append("response_status = ?")
+            params.append(status)
 
         params.append(offer_id)
         conn.execute(f"UPDATE offers SET {', '.join(fields)} WHERE id = ?", params)

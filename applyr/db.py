@@ -5,7 +5,7 @@ from pathlib import Path
 
 from applyr.config import load_config
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -35,6 +35,18 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
     ],
     # Phase 3 Analytics: response tracking
     (5, 6): ["ALTER TABLE offers ADD COLUMN response_status TEXT DEFAULT 'no_response'"],
+    # Both columns existed but nothing ever wrote them, so every database in
+    # the wild holds applied = 0 on offers that were plainly sent, and
+    # no_response on offers that were plainly answered. Derive both from the
+    # status, which is the column users actually maintained. `date_applied` is
+    # deliberately left alone: there is no honest way to invent a send date.
+    (6, 7): [
+        """UPDATE offers SET applied = CASE
+               WHEN status IN ('applied', 'waiting', 'in_process', 'rejected', 'offer') THEN 1
+               ELSE 0 END""",
+        """UPDATE offers SET response_status = status
+               WHERE status IN ('in_process', 'rejected', 'offer')""",
+    ],
 }
 
 SCHEMA_SQL = """\
@@ -119,6 +131,16 @@ VALID_ROLE_CATEGORIES = ("backend", "frontend", "fullstack", "ai", "devops", "da
 # language means adding its headings to CV_HEADINGS in cv.py; nothing else.
 VALID_LANGUAGES = ("en", "es")
 VALID_SEVERITIES = ("low", "medium", "high")
+
+# Statuses that mean the application actually went out. `pending` was never
+# sent and `discarded` was dropped before sending, so neither counts. This is
+# the meaning of the `applied` column on a row.
+SENT_STATUSES = frozenset({"applied", "waiting", "in_process", "rejected", "offer"})
+
+# Statuses only reachable because the company replied — reaching one stamps
+# `date_responded` and `response_status`. `waiting` is deliberately excluded:
+# it means the application is out and no reply has arrived yet.
+REPLY_STATUSES = frozenset({"in_process", "rejected", "offer"})
 
 STATUS_LABELS = {
     "pending": "Pending",

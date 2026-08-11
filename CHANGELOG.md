@@ -4,6 +4,45 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`applyr response-rate` printed nothing at all.** The command is listed in
+  `applyr help`, so silence read as a broken binary rather than an empty
+  result. Two faults stacked: it filtered on `applied = 1`, a column no code
+  path ever wrote, and its `--json` branch built the payload, returned it, and
+  had no caller to print it. Both are fixed, and an empty database now says so
+  instead of exiting quietly.
+- **The `applied` column was never written.** `update` stamped `date_applied`
+  and `follow_up_date` when an offer went out but left the flag at 0, so every
+  offer looked unsent to the one query that reads it. It is now derived from
+  the status on every update, in both directions — moving an offer back to
+  pending or discarded clears it rather than leaving a stale 1.
+- **`response_status` was never written either.** Added by the v1.4.0 schema
+  and read by the analytics, but set by nothing, so every application counted
+  as unanswered no matter what happened to it. Reaching `in_process`,
+  `rejected` or `offer` now records the reply.
+- **`date_applied` was only stamped for `applied` and `waiting`.** An offer
+  taken straight to `rejected` — the reply arrives before the status is ever
+  moved — ended up flagged as sent with no send date, and dropped out of the
+  metric. Any status that means "this went out" now stamps it.
+- **`response-rate --json` changed shape when empty.** It returned `total` on
+  an empty database and `total_applications` everywhere else, so an agent
+  needed two parsers for one command. The empty payload now carries the same
+  keys as a populated one.
+- **`doctor` contradicted itself.** It printed "All checks passed." directly
+  below a check reading STALE. A note is still not an issue and still does not
+  fail the run, but the summary now counts it.
+
+### Changed
+
+- Schema v7 backfills `applied` and `response_status` from the status on
+  existing databases. `date_applied` is deliberately left alone — there is no
+  honest way to invent a send date that was never recorded.
+- `SENT_STATUSES` moved to `db.py` beside `VALID_STATUSES` and is now shared
+  with `cv_stats`, so the column and the CV rates cannot drift apart.
+
 ## [1.5.0] — 2026-08-11
 
 ### Added

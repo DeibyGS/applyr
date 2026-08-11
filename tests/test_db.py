@@ -259,8 +259,12 @@ class TestMigrationV4ToV5:
         names = {r["name"] for r in tables}
         assert "learning_gaps" in names
 
+        # Compare against the constant, not a literal: init_db migrates all the
+        # way to the latest version, so a hardcoded number breaks on every bump.
+        from applyr.db import SCHEMA_VERSION
+
         row = conn.execute("SELECT version FROM schema_version").fetchone()
-        assert row["version"] == 6
+        assert row["version"] == SCHEMA_VERSION
         conn.close()
 
     def test_migration_idempotent(self, tmp_db):
@@ -339,3 +343,46 @@ class TestLearningGapsCrud:
             assert "idx_learning_gaps_severity" in names
         finally:
             conn.close()
+
+
+@pytest.mark.unit
+class TestMigrationV6ToV7:
+    """`applied` and `response_status` shipped with no writer, so every existing
+    database holds 0 and 'no_response' on offers that were plainly sent and
+    plainly answered. The migration derives both from the status."""
+
+    def _seed(self, tmp_db, status):
+        conn = get_conn(tmp_db)
+        conn.execute(
+            "INSERT INTO offers (title, status, applied, response_status) VALUES (?, ?, 0, 'no_response')",
+            ("Backend Dev", status),
+        )
+        conn.execute("UPDATE schema_version SET version = 6")
+        conn.commit()
+        conn.close()
+        init_db(tmp_db)
+        conn = get_conn(tmp_db)
+        try:
+            return dict(conn.execute("SELECT * FROM offers").fetchone())
+        finally:
+            conn.close()
+
+    @pytest.mark.parametrize("status", ["applied", "waiting", "in_process", "rejected", "offer"])
+    def test_sent_offers_get_the_applied_flag(self, tmp_db, status):
+        assert self._seed(tmp_db, status)["applied"] == 1
+
+    @pytest.mark.parametrize("status", ["pending", "discarded"])
+    def test_unsent_offers_stay_unflagged(self, tmp_db, status):
+        assert self._seed(tmp_db, status)["applied"] == 0
+
+    @pytest.mark.parametrize("status", ["in_process", "rejected", "offer"])
+    def test_answered_offers_record_the_response(self, tmp_db, status):
+        assert self._seed(tmp_db, status)["response_status"] == status
+
+    @pytest.mark.parametrize("status", ["applied", "waiting"])
+    def test_unanswered_offers_keep_no_response(self, tmp_db, status):
+        assert self._seed(tmp_db, status)["response_status"] == "no_response"
+
+    def test_send_dates_are_not_invented(self, tmp_db):
+        """There is no honest source for a send date that was never recorded."""
+        assert self._seed(tmp_db, "applied")["date_applied"] is None

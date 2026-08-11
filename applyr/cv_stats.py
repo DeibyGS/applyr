@@ -12,7 +12,7 @@ A CV can score high on the first and low on the second, which is a different
 problem from silence. Collapsing them into one number hides that.
 """
 
-from applyr.db import VALID_STATUSES
+from applyr.db import SENT_STATUSES, VALID_STATUSES
 
 # A reply of any kind was received — including a rejection.
 RESPONDED_STATUSES = frozenset({"waiting", "in_process", "rejected", "offer"})
@@ -20,9 +20,9 @@ RESPONDED_STATUSES = frozenset({"waiting", "in_process", "rejected", "offer"})
 # Reached a real conversation.
 INTERVIEW_STATUSES = frozenset({"in_process", "offer"})
 
-# Sent out, so the CV was actually seen. `pending` was never sent; `discarded`
-# was dropped by the candidate, so neither says anything about the CV.
-SENT_STATUSES = frozenset({"applied", "waiting", "in_process", "rejected", "offer"})
+# `SENT_STATUSES` is imported from db.py rather than defined here: the `applied`
+# column records the same idea, and a single definition is what keeps the column
+# and these rates from drifting apart.
 
 
 def _rate(part: int, whole: int) -> float:
