@@ -42,7 +42,7 @@ Usage: applyr <command> [options]
 
 Commands:
   init                          Set up ~/.applyr/ (config, database, templates)
-  setup-agent [--agent NAME]    Configure AI agent (claude, cursor, opencode, generic)
+  setup-agent [--agent NAME] [--global]  Configure AI agent (--global writes user-wide config)
   add '<json>' [--force]        Register a new job offer (--force skips duplicate check)
   list [--status S] [--sort F]  List offers (default: last 50)
   pipeline [--min-score N]      View offers grouped by status
@@ -170,7 +170,8 @@ def main():
 
     elif cmd == "setup-agent":
         agent = _get_flag(args, "--agent")
-        cmd_setup_agent(agent=agent)
+        global_ = _has_flag(args, "--global")
+        cmd_setup_agent(agent=agent, global_=global_)
 
     elif cmd == "add":
         # Extract --force before positional parsing, so it can appear anywhere

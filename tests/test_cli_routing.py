@@ -286,6 +286,76 @@ class TestCommandDispatch:
         assert code == 0
         assert "cv-master.md" in err
 
+    def test_setup_agent_opencode_writes_agents_md(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """opencode writes AGENTS.md in cwd — .opencode/instructions.md is dead."""
+        monkeypatch.chdir(tmp_path)
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode"])
+        assert code == 0
+        agents = tmp_path / "AGENTS.md"
+        assert agents.exists(), "AGENTS.md must be created for --agent opencode"
+        assert "applyr" in agents.read_text().lower()
+        assert not (tmp_path / ".opencode").exists(), ".opencode/ must not be created"
+
+    def test_setup_agent_opencode_appends_existing_agents_md(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """An existing AGENTS.md keeps its content; instructions are appended."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "AGENTS.md").write_text("## My Project\nrules go here\n")
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode"])
+        assert code == 0
+        content = (tmp_path / "AGENTS.md").read_text()
+        assert content.startswith("## My Project")
+        assert "applyr" in content.lower()
+
+    def test_setup_agent_opencode_dedupe(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """Running twice must skip, not duplicate."""
+        monkeypatch.chdir(tmp_path)
+        _run(run_cli, capsys, ["setup-agent", "--agent", "opencode"])
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode"])
+        assert code == 0
+        assert "already contains" in out
+        content = (tmp_path / "AGENTS.md").read_text().lower()
+        assert content.count("agent instructions") == 1
+
+    def test_setup_agent_opencode_global(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """--global writes to ~/.config/opencode/AGENTS.md without touching cwd."""
+        fake_home = tmp_path / "fake-home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls, h=fake_home: h))
+        monkeypatch.chdir(tmp_path)
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode", "--global"])
+        assert code == 0
+        target = fake_home / ".config" / "opencode" / "AGENTS.md"
+        assert target.exists()
+        assert "applyr" in target.read_text().lower()
+        assert not (tmp_path / "AGENTS.md").exists(), "global mode must not write to cwd"
+
+    def test_setup_agent_global_dedupe(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        fake_home = tmp_path / "fake-home"
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls, h=fake_home: h))
+        monkeypatch.chdir(tmp_path)
+        _run(run_cli, capsys, ["setup-agent", "--agent", "opencode", "--global"])
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode", "--global"])
+        assert code == 0
+        assert "already contains" in out
+
+    def test_setup_agent_global_requires_agent(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--global"])
+        assert code != 0, "--global without --agent must error"
+        assert "--agent" in err
+
+    def test_setup_agent_global_generic_errors(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "generic", "--global"])
+        assert code != 0, "generic has no canonical global path"
+        assert "global" in err
+
+    def test_setup_agent_opencode_deprecation_warning(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """A stale .opencode/instructions.md triggers a deprecation warning."""
+        (tmp_path / ".opencode").mkdir()
+        (tmp_path / ".opencode" / "instructions.md").write_text("old content")
+        monkeypatch.chdir(tmp_path)
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode"])
+        assert code == 0
+        assert "Deprecation" in err
+
 
 # ── AC-2.3: Global flags ─────────────────────────────────────────────────────
 
