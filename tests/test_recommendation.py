@@ -119,6 +119,12 @@ class TestGetWhyYouMatch:
         assert weakness is None
 
     def test_with_weakness(self):
+        """The weakest topic wins, whichever bucket it lands in.
+
+        This asserted "Experience" (60, partial) over "Projects" (30, missing):
+        the old rule preferred the partial bucket outright, so the line
+        contradicted the "Missing" section printed directly above it.
+        """
         topics = [
             {"topic": "tech_stack", "score": 90, "detail": "Python expert"},
             {"topic": "experience", "score": 60, "detail": "2 years"},
@@ -128,7 +134,31 @@ class TestGetWhyYouMatch:
         why_match, weakness = _get_why_you_match(topics, topic_labels)
         assert len(why_match) == 1
         assert weakness is not None
+        assert "Projects" in weakness
+
+    def test_weakest_missing_wins_over_a_higher_missing(self):
+        """When everything is weak, surface the worst — not the least bad.
+
+        The old `missing` branch sorted descending, so a profile that was bad
+        across the board was told its *strongest* shortfall was the problem.
+        """
+        topics = [
+            {"topic": "experience", "score": 10, "detail": "none"},
+            {"topic": "projects", "score": 40, "detail": "few"},
+        ]
+        labels = {"experience": "Experience", "projects": "Projects"}
+        _, weakness = _get_why_you_match(topics, labels)
         assert "Experience" in weakness
+
+    def test_a_partial_can_still_be_the_weakest(self):
+        """The fix must not simply invert the old preference."""
+        topics = [
+            {"topic": "tech_stack", "score": 95, "detail": "expert"},
+            {"topic": "english", "score": 55, "detail": "B1"},
+        ]
+        labels = {"tech_stack": "Tech Stack", "english": "English"}
+        _, weakness = _get_why_you_match(topics, labels)
+        assert "English" in weakness
 
     def test_top_three(self):
         topics = [

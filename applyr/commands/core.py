@@ -229,16 +229,16 @@ def _get_why_you_match(topics: list[dict], topic_labels: dict) -> tuple[list[str
     strong.sort(key=lambda x: x[0], reverse=True)
     why_match = [entry for _, entry in strong[:3]]
 
-    # Biggest weakness: lowest partial or highest missing
-    biggest_weakness = None
-    if partial:
-        partial.sort(key=lambda x: x[0])
-        score, entry = partial[0]
-        biggest_weakness = entry
-    elif missing:
-        missing.sort(key=lambda x: x[0], reverse=True)
-        score, entry = missing[0]
-        biggest_weakness = entry
+    # Biggest weakness: the lowest-scoring topic that is not already strong.
+    #
+    # This used to read "lowest partial, or else highest missing", which got it
+    # wrong twice. Preferring the partial bucket meant a topic scored 30 and
+    # printed under "Missing" two lines above was passed over for one scored 50
+    # — the line contradicted the breakdown it sits under. And the missing
+    # branch sorted descending, so when everything was weak it surfaced the
+    # *least* bad of them.
+    weak = partial + missing
+    biggest_weakness = min(weak, key=lambda x: x[0])[1] if weak else None
 
     return why_match, biggest_weakness
 
