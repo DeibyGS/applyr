@@ -34,6 +34,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **`doctor` contradicted itself.** It printed "All checks passed." directly
   below a check reading STALE. A note is still not an issue and still does not
   fail the run, but the summary now counts it.
+- **The scoring rubric rewarded vague job postings.** `AGENT_INSTRUCTIONS.md`
+  told agents to score an unmentioned requirement 100. `education` and
+  `english` together carry 25% of the weight, so any posting that simply failed
+  to mention them collected 25 free points — a vague ad outscored a detailed
+  one describing the same job. The instruction now says to **omit** an
+  unmentioned topic, which is what the engine already expected: it sums only
+  the weights of the topics it is given, so omitting excludes the topic and
+  redistributes its weight rather than counting it as a zero. On a real offer
+  this was the difference between 70% (MAYBE) and 59% (LOW MATCH). Four tests
+  pin the contract so the engine and the instructions cannot drift apart again.
 
 ### Changed
 
