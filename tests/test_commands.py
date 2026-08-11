@@ -342,3 +342,36 @@ class TestPlanAndGapsAgree:
         cmd_plan(as_json=True)
         ranked = [row["skill"] for row in json.loads(capsys.readouterr().out)]
         assert ranked[0] == "tech_stack", "3 offers missing 65 pts each beats 8 missing 5"
+
+
+class TestExportStaysInsideApplyrHome:
+    """`export` wrote the whole database — every company, score and private
+    note — into the current working directory. Run from any checkout that
+    dropped an untracked file full of personal data one `git add .` away from
+    being published. Everything else applyr owns lives in APPLYR_DIR."""
+
+    def test_default_path_is_applyr_home(self, tmp_db, tmp_applyr, monkeypatch, tmp_path):
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        elsewhere = tmp_path / "some-repo"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        _add(company="Acme")
+        workflow.cmd_export(fmt="json")
+
+        assert (tmp_applyr / "applyr_export.json").exists()
+        assert not (elsewhere / "applyr_export.json").exists(), "must not write into the cwd"
+
+    def test_an_explicit_path_still_wins(self, tmp_db, tmp_applyr, monkeypatch, tmp_path):
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        target = tmp_path / "chosen.json"
+
+        _add(company="Acme")
+        workflow.cmd_export(fmt="json", filepath=str(target))
+
+        assert target.exists()
+        assert not (tmp_applyr / "applyr_export.json").exists()
