@@ -75,7 +75,12 @@ class TestResponseRate:
             )""")
 
             result = response_rate(as_json=True)
-            assert result["total"] == 0
+            # The empty payload carries the same keys as a populated one, so a
+            # caller needs a single parser. It used to report `total` here and
+            # `total_applications` everywhere else.
+            assert result["total_applications"] == 0
+            assert result["responded"] == 0
+            assert result["message"] == "No applications found"
 
     def test_all_responded(self):
         with patch("applyr.analytics.get_conn") as mock:

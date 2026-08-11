@@ -78,15 +78,35 @@ def response_rate(min_sample: int = 1, as_json: bool = False) -> dict | None:
     conn = get_conn()
     try:
         rows = conn.execute("""
+            -- No `date_applied IS NOT NULL` filter: an application with no
+            -- recorded send date is still an application, and the monthly
+            -- grouping below already buckets it as "unknown". Excluding it
+            -- here made that fallback unreachable and silently shrank the
+            -- denominator of the rate.
             SELECT date_applied, status, response_status
             FROM offers
-            WHERE applied = 1 AND date_applied IS NOT NULL
+            WHERE applied = 1
             ORDER BY date_applied
         """).fetchall()
 
         if not rows:
             if as_json:
-                return {"total": 0, "message": "No applications found"}
+                # Same keys as the populated payload. This branch printed
+                # nothing before, so the mismatch was invisible; an agent
+                # reading `total_applications` would now hit a KeyError on
+                # exactly the case it most needs to handle — an empty start.
+                return {
+                    "total_applications": 0,
+                    "responded": 0,
+                    "response_rate": 0.0,
+                    "by_status": {},
+                    "monthly_trend": {},
+                    "message": "No applications found",
+                }
+            # Say so out loud. Returning None printed nothing at all, which
+            # reads as a broken command rather than an empty result.
+            print("\n  No applications sent yet — nothing to measure.")
+            print("  Mark one with: applyr update <id> applied")
             return None
 
         total = len(rows)

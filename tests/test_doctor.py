@@ -96,3 +96,26 @@ class TestDoctorJson:
         assert code == 1
         assert payload["healthy"] is False
         assert [c["name"] for c in payload["checks"] if c["status"] == "issue"] == ["Database"]
+
+
+class TestDoctorSummaryDoesNotContradictItself:
+    """Printing "All checks passed." directly under a line reading STALE makes
+    the report look broken. A note is not an issue, but it must be owned."""
+
+    def test_a_note_is_counted_in_the_summary(self, doctor_home, capsys):
+        # The fixture's instructions file carries no version stamp, so it reads
+        # as stale — reported as a note, not an issue.
+        assert _run() == 0
+        out = capsys.readouterr().out
+        assert "STALE" in out
+        assert "note(s) to review" in out
+
+    def test_a_clean_setup_still_says_all_checks_passed(self, doctor_home, capsys):
+        from applyr.agent_instructions import packaged_instructions, stamp
+
+        (doctor_home / "AGENT_INSTRUCTIONS.md").write_text(stamp(packaged_instructions()))
+        assert _run() == 0
+        out = capsys.readouterr().out
+        assert "STALE" not in out
+        assert "All checks passed." in out
+        assert "note(s)" not in out

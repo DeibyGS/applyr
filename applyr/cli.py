@@ -436,7 +436,10 @@ def main():
             print("  Available: generate, review, review-blind, pdf, ats-check, keywords, bullet-optimize, cover-letter, stats, compare")
 
     elif cmd in ("response-rate", "rr"):
-        response_rate(as_json=as_json)
+        result = response_rate(as_json=as_json)
+        if as_json:
+            import json
+            print(json.dumps(result, indent=2))
 
     elif cmd == "ls":
         cmd_list(as_json=as_json)

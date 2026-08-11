@@ -765,3 +765,38 @@ class TestEdgeCases:
         out, err, code = _run(run_cli, capsys, ["cv", "pdf", str(dummy)])
         # May fail if Chrome not available, but routing is tested
         assert code in (0, 1)
+
+
+class TestResponseRateOutput:
+    """`response-rate` is listed in `applyr help`, so silence reads as a broken
+    command. It printed nothing at all in either mode: the human branch
+    returned None on an empty result, and the JSON branch built the payload,
+    returned it, and had no caller to print it."""
+
+    def test_json_mode_prints_the_payload(self, run_cli, capsys, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_add, cmd_update
+
+        cmd_add(json.dumps({"title": "Backend Dev", "company": "Acme"}))
+        cmd_update(1, "rejected")
+        capsys.readouterr()
+
+        out, err, code = _run(run_cli, capsys, ["response-rate", "--json"])
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["total_applications"] == 1
+        assert payload["responded"] == 1
+
+    def test_empty_database_says_so_instead_of_printing_nothing(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["response-rate"])
+        assert code == 0
+        assert out.strip(), "an empty result must still explain itself"
+        assert "No applications sent yet" in out
+
+    def test_empty_database_keeps_the_same_json_shape(self, run_cli, capsys, tmp_db):
+        """An agent must not need two parsers for one command."""
+        out, err, code = _run(run_cli, capsys, ["response-rate", "--json"])
+        assert code == 0
+        payload = json.loads(out)
+        assert payload["total_applications"] == 0
+        assert payload["responded"] == 0
+        assert payload["by_status"] == {}

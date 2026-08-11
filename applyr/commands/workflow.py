@@ -210,8 +210,16 @@ def cmd_doctor(as_json: bool = False) -> None:
             if check["hint"]:
                 print(f"                 {check['hint']}")
         print()
-        print("  All checks passed." if not issues
-              else f"  {len(issues)} issue(s) found.")
+        # A `note` is not an issue and must not fail the run, but claiming
+        # "all checks passed" right under a line reading STALE reads as a bug
+        # in the report. Count the notes instead of hiding them.
+        notes = [c for c in checks if c["status"] == "note"]
+        if issues:
+            print(f"  {len(issues)} issue(s) found.")
+        elif notes:
+            print(f"  All checks passed — {len(notes)} note(s) to review above.")
+        else:
+            print("  All checks passed.")
 
     if issues:
         sys.exit(1)

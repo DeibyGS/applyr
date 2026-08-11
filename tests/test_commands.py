@@ -134,3 +134,71 @@ class TestConfigTemplate:
         written = (tmp_applyr / "applyr.toml").read_text()
         assert str(tmp_applyr) in written
         assert "__APPLYR_DIR__" not in written
+
+
+class TestUpdateSetsAppliedFlag:
+    """`response_rate` filters on `applied = 1`, but nothing ever wrote that
+    column — so the command reported no applications no matter what the user
+    had done. The flag is derived from the status on every update."""
+
+    @pytest.mark.parametrize("status", ["applied", "waiting", "in_process", "rejected", "offer"])
+    def test_sent_statuses_set_the_flag(self, tmp_db, tmp_applyr, status):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, status)
+        assert _row(tmp_applyr, 1)["applied"] == 1
+
+    @pytest.mark.parametrize("status", ["pending", "discarded"])
+    def test_unsent_statuses_clear_the_flag(self, tmp_db, tmp_applyr, status):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, status)
+        assert _row(tmp_applyr, 1)["applied"] == 0
+
+    def test_moving_back_clears_a_stale_flag(self, tmp_db, tmp_applyr):
+        """An offer applied to and then dropped must not keep counting as sent."""
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied")
+        cmd_update(1, "discarded")
+        assert _row(tmp_applyr, 1)["applied"] == 0
+
+
+class TestUpdateRecordsResponseStatus:
+    """`response_status` had no writer at all, so every application counted as
+    unanswered even after a rejection or an offer."""
+
+    @pytest.mark.parametrize("status", ["in_process", "rejected", "offer"])
+    def test_reply_statuses_record_the_response(self, tmp_db, tmp_applyr, status):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, status)
+        assert _row(tmp_applyr, 1)["response_status"] == status
+
+    @pytest.mark.parametrize("status", ["applied", "waiting"])
+    def test_sent_but_unanswered_stays_no_response(self, tmp_db, tmp_applyr, status):
+        """`waiting` means the reply has not arrived — it is not a response."""
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, status)
+        assert _row(tmp_applyr, 1)["response_status"] == "no_response"
+
+    def test_response_rate_counts_a_real_reply(self, tmp_db, tmp_applyr):
+        """End to end: the two columns together make the metric work."""
+        from applyr.commands.core import cmd_update
+        from applyr.analytics import response_rate
+
+        _add(company="Acme")
+        _add(company="Globex")
+        cmd_update(1, "applied")
+        cmd_update(2, "rejected")
+
+        result = response_rate(as_json=True)
+        assert result["total_applications"] == 2
+        assert result["responded"] == 1
+        assert result["response_rate"] == 50.0
