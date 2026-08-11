@@ -1155,6 +1155,22 @@ def cmd_cv_bullet_optimize(cv_file: str, as_json: bool = False) -> None:
             print("VERDICT: NEEDS SIGNIFICANT IMPROVEMENT")
 
 
+def _profile_haystack(cv_master: dict) -> str:
+    """Everything the profile asserts, flattened for substring checks.
+
+    Prefers the raw cv-master text when the caller supplies it, because the
+    parsed dict only captures a few fields and a skill named anywhere else
+    would read as absent.
+    """
+    if cv_master.get("raw"):
+        return str(cv_master["raw"])
+
+    parts = [str(cv_master.get("skills") or "")]
+    for project in cv_master.get("projects") or []:
+        parts += [str(project.get(k) or "") for k in ("name", "description", "stack")]
+    return " ".join(parts)
+
+
 def generate_cover_letter(offer_data: dict, cv_master: dict) -> str:
     """Generate a tailored cover letter from offer and profile data.
 
@@ -1170,9 +1186,21 @@ def generate_cover_letter(offer_data: dict, cv_master: dict) -> str:
     template_path = Path(__file__).parent / "templates" / "cover_letter.md"
     template = template_path.read_text()
 
-    # Extract key skills from offer
+    # Key skills to claim: the overlap between what the offer asks for and what
+    # the profile actually contains — never the offer's list on its own.
+    #
+    # This used to take the offer's first three technologies verbatim, so the
+    # letter asserted "my background in <whatever the employer wanted>" with no
+    # reference to the candidate at all. On a real vacancy that produced "my
+    # skills in React.js, Redux, Hooks" for a candidate whose profile has no
+    # Redux anywhere. A letter is sent to an employer, which makes an invented
+    # skill a false claim on the candidate's behalf, and "never invent skills"
+    # is this tool's first rule.
     tech_stack = offer_data.get("tech_stack", "")
-    key_skills = ", ".join([s.strip() for s in tech_stack.split(",")[:3]]) if tech_stack else "relevant technologies"
+    profile_text = _profile_haystack(cv_master).lower()
+    wanted = [s.strip() for s in tech_stack.split(",") if s.strip()]
+    evidenced = [s for s in wanted if s.lower() in profile_text]
+    key_skills = ", ".join(evidenced[:3]) if evidenced else "relevant technologies"
 
     # Extract top 3 achievements from projects
     projects = cv_master.get("projects", [])
@@ -1232,7 +1260,10 @@ def cmd_cv_cover_letter(offer_id: int, as_json: bool = False) -> None:
         "email": "",
         "phone": "",
         "skills": "",
-        "projects": []
+        "projects": [],
+        # The full profile, so a skill claim can be checked against everything
+        # the candidate actually wrote — not just the few parsed fields.
+        "raw": cv_text,
     }
 
     # Extract name
