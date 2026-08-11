@@ -69,8 +69,11 @@ def validate_ats_format(cv_content: str) -> ATSReport:
     rules = _load_rules()
     issues: list[ATSIssue] = []
 
-    # Check for tables (markdown table syntax)
-    table_pattern = r'\|.*\|.*\|'
+    # Check for tables (markdown table syntax). A real markdown table has a pipe
+    # at the start of each row (or a separator row like |---|---|). Plain text
+    # CVs legitimately use pipes as inline separators (e.g. "email | phone"),
+    # so only flag lines that *begin* with a pipe.
+    table_pattern = r'^\s*\|.*\|'
     if re.search(table_pattern, cv_content, re.MULTILINE):
         issues.append(ATSIssue(
             category="format",

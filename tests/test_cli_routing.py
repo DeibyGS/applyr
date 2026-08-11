@@ -254,6 +254,13 @@ class TestCommandDispatch:
         assert code == 0
         assert "Usage: applyr add" in out
 
+    def test_add_help_lists_language_and_salary_period(self, run_cli, capsys, tmp_db):
+        """add --help must document the fields the schema actually accepts."""
+        out, err, code = _run(run_cli, capsys, ["add", "--help"])
+        assert code == 0
+        assert "language" in out
+        assert "salary_period" in out
+
     def test_delete_help(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["delete", "--help"])
         assert code == 0

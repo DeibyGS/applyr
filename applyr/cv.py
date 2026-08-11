@@ -27,37 +27,37 @@ _ATS_CSS = """\
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
     font-family: Arial, Calibri, sans-serif;
-    font-size: 11pt;
-    line-height: 1.5;
+    font-size: 10pt;
+    line-height: 1.3;
     color: #1a1a1a;
     max-width: 21cm;
     margin: 0 auto;
-    padding: 1.5cm 2cm;
+    padding: 0.8cm 1.4cm;
 }
-h1 { font-size: 16pt; margin-bottom: 4px; color: #111; }
+h1 { font-size: 14pt; margin-bottom: 3px; color: #111; }
 h2 {
-    font-size: 12pt;
+    font-size: 11pt;
     text-transform: uppercase;
     letter-spacing: 1px;
-    border-bottom: 1.5px solid #333;
-    padding-bottom: 3px;
-    margin: 14px 0 8px;
+    border-bottom: 1.2px solid #333;
+    padding-bottom: 2px;
+    margin: 8px 0 5px;
     color: #222;
 }
-h3 { font-size: 11pt; margin-bottom: 2px; }
-.contact { font-size: 10pt; color: #333; margin-bottom: 12px; }
+h3 { font-size: 10pt; margin-bottom: 2px; }
+.contact { font-size: 9pt; color: #333; margin-bottom: 8px; }
 .contact a { color: #333; text-decoration: none; }
-.dates { font-size: 10pt; color: #555; }
-.summary { margin-bottom: 10px; color: #333; }
-ul { padding-left: 18px; margin: 4px 0 10px; }
-li { margin-bottom: 3px; }
-p { margin-bottom: 4px; }
+.dates { font-size: 9pt; color: #555; }
+.summary { margin-bottom: 6px; color: #333; }
+ul { padding-left: 15px; margin: 3px 0 7px; }
+li { margin-bottom: 2px; }
+p { margin-bottom: 3px; }
 /* Chrome adds its own default page margin on top of the body padding, which
    silently pushes a one-page CV onto a second page. Zeroing it here makes the
    body padding the single source of truth for margins. */
 @page { size: A4; margin: 0; }
 @media print {
-    body { padding: 1.2cm 1.6cm; }
+    body { padding: 0.8cm 1.4cm; }
     h2 { page-break-after: avoid; }
 }"""
 

@@ -61,6 +61,25 @@ University of Madrid | 2016 - 2020
         assert report.format_ok is False
         assert any("Tables" in i.message for i in report.issues)
 
+    def test_inline_pipes_are_not_tables(self):
+        """Contact info and project URLs use pipes as separators; those are NOT tables."""
+        cv = """# John Doe
+
+Madrid, Spain | john@email.com | +34 600 000 000 | linkedin.com/in/johndoe
+
+## Projects
+
+### Monitor - Real-time dashboard
+**Stack:** TypeScript · Node.js | github.com/johndoe/monitor | npmjs.com/package/monitor
+
+## Technical Skills
+
+**Backend:** Python, Node.js
+"""
+        report = validate_ats_format(cv)
+        assert report.format_ok is True
+        assert not any("Tables" in i.message for i in report.issues)
+
     def test_images_detected(self):
         cv = """# John Doe
 

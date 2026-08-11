@@ -188,9 +188,9 @@ def main():
             print("  Required: title")
             print("  Optional: company, summary, date_received, date_applied,")
             print("            compatibility_pct, status, canal, work_mode,")
-            print("            location, salary_min, salary_max, seniority_level,")
-            print("            role_category, tech_stack, cover_letter, job_url,")
-            print("            contact_name, contact_role, topics, notes")
+            print("            location, salary_min, salary_max, salary_period,")
+            print("            seniority_level, role_category, tech_stack, cover_letter,")
+            print("            job_url, contact_name, contact_role, language, topics, notes")
             return
         if len(args) >= 2 and args[1] == "-":
             raw = sys.stdin.read()
