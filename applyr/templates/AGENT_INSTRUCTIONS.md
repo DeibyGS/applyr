@@ -1,7 +1,5 @@
 # applyr — Agent Instructions
 
-<!-- applyr-version: 1.2.0 -->
-
 > Add this to your AI agent's context (CLAUDE.md, .cursorrules, AGENTS.md, etc.).
 
 ## Core Principles

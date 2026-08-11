@@ -4,6 +4,41 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] — 2026-08-11
+
+### Added
+
+- **`setup-agent --global`.** Writes the instructions to the agent's canonical
+  per-user path — `~/.claude/CLAUDE.md`, `~/.cursorrules`,
+  `~/.config/opencode/AGENTS.md` — so one run covers every project instead of
+  the current directory only. It requires an explicit `--agent`: auto-detection
+  reads the working directory, which says nothing about user-wide config.
+  `generic` has no canonical global path and is rejected.
+
+### Fixed
+
+- **`setup-agent --agent opencode` wrote a file OpenCode never reads.** The
+  target was `.opencode/instructions.md`, but OpenCode loads `AGENTS.md` at the
+  project root and `~/.config/opencode/AGENTS.md` user-wide. The applyr contract
+  therefore never reached the agent, silently. The target is now `AGENTS.md`,
+  and a leftover `.opencode/instructions.md` raises a deprecation warning.
+- **`cv ats-check` reported tables that were not there.** Every line containing
+  a pipe counted as a markdown table row, so the `|` separators in contact
+  details and project URLs — which the ATS rules themselves prescribe — were
+  flagged as a layout the parser would choke on. Only rows that *start* with a
+  pipe count now.
+- **Generated CVs spilled onto a second page.** The default ATS CSS is tighter
+  (10pt, 1.3 line-height, reduced padding), so a complete CV with three projects
+  fits on one page, as the template intends.
+- **`add --help` hid accepted fields.** `language` and `salary_period` are part
+  of the `add` schema but were missing from the help output.
+- **Distributed instructions carried two version stamps.** `agent_instructions`
+  stamps the file at write time precisely so a release can never ship a template
+  claiming the wrong version, yet the template itself stored a second stamp,
+  frozen at `1.2.0`. Every written copy ended up with a correct marker and a
+  stale one below it. The stored stamp is gone; the written one remains the only
+  source. Staleness detection was unaffected — it only ever read the first line.
+
 ## [1.4.0] — 2026-08-10
 
 ### Fixed
