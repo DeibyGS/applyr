@@ -375,3 +375,52 @@ class TestExportStaysInsideApplyrHome:
 
         assert target.exists()
         assert not (tmp_applyr / "applyr_export.json").exists()
+
+
+class TestListSortAndLimitValidation:
+    """`--status` was validated because an unknown value "reads as 'no offers'
+    rather than 'you mistyped it'" — the comment is in the source. Two lines
+    below, an unknown `--sort` fell through to the default instead, so
+    `--sort score` returned an unsorted list and said nothing. Only raw column
+    names worked, and none were documented."""
+
+    def _scores(self, capsys, **kwargs):
+        from applyr.commands.core import cmd_list
+
+        capsys.readouterr()
+        cmd_list(as_json=True, **kwargs)
+        return [o["compatibility_pct"] for o in json.loads(capsys.readouterr().out)]
+
+    def _seed(self):
+        for i, score in enumerate((10, 90, 50)):
+            _add(company=f"C{i}", topics={"tech_stack": {"score": score, "detail": "x"}})
+
+    def test_score_is_an_accepted_alias(self, tmp_db, tmp_applyr, capsys):
+        self._seed()
+        assert self._scores(capsys, sort_by="score") == [90, 50, 10]
+
+    def test_the_column_name_still_works(self, tmp_db, tmp_applyr, capsys):
+        self._seed()
+        assert self._scores(capsys, sort_by="compatibility_pct") == [90, 50, 10]
+
+    def test_an_unknown_sort_field_is_an_error(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_list
+
+        self._seed()
+        with pytest.raises(SystemExit) as exc:
+            cmd_list(sort_by="scoer")
+        assert exc.value.code != 0
+
+    def test_a_negative_limit_is_an_error(self, tmp_db, tmp_applyr):
+        """SQLite reads a negative LIMIT as unbounded, so this used to return
+        the whole database when the caller asked for -5 rows."""
+        from applyr.commands.core import cmd_list
+
+        self._seed()
+        with pytest.raises(SystemExit) as exc:
+            cmd_list(limit=-5)
+        assert exc.value.code != 0
+
+    def test_zero_is_the_no_limit_sentinel_used_by_all(self, tmp_db, tmp_applyr, capsys):
+        self._seed()
+        assert len(self._scores(capsys, limit=0)) == 3

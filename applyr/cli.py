@@ -44,7 +44,7 @@ Commands:
   init                          Set up ~/.applyr/ (config, database, templates)
   setup-agent [--agent NAME] [--global]  Configure AI agent (--global writes user-wide config)
   add '<json>' [--force]        Register a new job offer (--force skips duplicate check)
-  list [--status S] [--sort F]  List offers (default: last 50)
+  list [--status S] [--sort F]  List offers (--sort: score|date|company|status|id)
   pipeline [--min-score N]      View offers grouped by status
   show <id>                     Show full offer details
   update <id> <status> [opts]   Update offer status (--notes, --canal, --cv)
@@ -221,9 +221,18 @@ def main():
         sort_by = _get_flag(args, "--sort") or "date_applied"
         limit = None
         if _has_flag(args, "--all"):
-            limit = -1
+            # 0 means "no LIMIT clause". This used to be -1, relying on SQLite
+            # reading a negative LIMIT as unbounded — the same accident that let
+            # a user's `--limit -5` silently return the entire database.
+            limit = 0
         elif _get_flag(args, "--limit") is not None:
             limit = _safe_int(_get_flag(args, "--limit"), "--limit")
+            if limit < 1:
+                die(f"Error: --limit must be 1 or greater, got: {limit}",
+                    code="invalid_value",
+                    details={"field": "limit", "value": limit},
+                    text=f"Error: --limit must be 1 or greater, got: {limit}\n"
+                         "  Use --all to list every offer.")
         cmd_list(status_filter=status, sort_by=sort_by, limit=limit, as_json=as_json)
 
     elif cmd == "pipeline":
