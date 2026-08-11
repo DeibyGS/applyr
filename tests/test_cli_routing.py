@@ -458,8 +458,10 @@ class TestExitCodes:
         assert code == 0
 
     def test_unknown_command_exits_nonzero(self, run_cli, capsys, tmp_db):
+        """The `or` made this pass either way, which is why it never caught the
+        branch exiting 0 while announcing failure."""
         out, err, code = _run(run_cli, capsys, ["nonexistent"])
-        assert code != 0 or "Unknown command" in out
+        assert code != 0
 
     def test_show_missing_id_exits_zero(self, run_cli, capsys, tmp_db):
         """show with no id prints usage and exits 0."""
@@ -696,12 +698,13 @@ class TestEdgeCases:
     """Unknown commands and missing arguments handled gracefully."""
 
     def test_unknown_command(self, run_cli, capsys, tmp_db):
+        """On stderr, not stdout: an error is not payload."""
         out, err, code = _run(run_cli, capsys, ["foobar"])
-        assert "Unknown command" in out
+        assert "Unknown command" in err
 
     def test_unknown_command_suggestion(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["foobar"])
-        assert "applyr help" in out
+        assert "applyr help" in err
 
     def test_cv_unknown_subcmd(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["cv", "blah"])
@@ -800,3 +803,30 @@ class TestResponseRateOutput:
         assert payload["total_applications"] == 0
         assert payload["responded"] == 0
         assert payload["by_status"] == {}
+
+
+class TestUnknownCommandFails:
+    """An unrecognised command printed a message and exited 0, so
+    `applyr <typo> && next-step` ran the next step on a command that did
+    nothing. It also wrote prose to stdout — in `--json` mode too, where every
+    other error path emits a structured object. The `cv` subcommand branch was
+    already correct; only the top level was left behind."""
+
+    def test_exit_code_is_non_zero(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["definitely-not-a-command"])
+        assert code != 0
+
+    def test_nothing_is_written_to_stdout(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["definitely-not-a-command"])
+        assert out == ""
+
+    def test_the_message_names_the_command(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["definitely-not-a-command"])
+        assert "definitely-not-a-command" in err
+
+    def test_json_mode_emits_a_structured_error(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["definitely-not-a-command", "--json"])
+        assert out == "", "the payload stream stays parseable"
+        payload = json.loads(err)
+        assert payload["error"]["code"] == "unknown_command"
+        assert payload["error"]["details"]["value"] == "definitely-not-a-command"

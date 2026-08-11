@@ -451,8 +451,14 @@ def main():
         cmd_followups(as_json=as_json)
 
     else:
-        print(f"Unknown command: '{cmd}'")
-        print("Run 'applyr help' to see available commands.")
+        # `die`, not print: this branch exited 0 while announcing failure, so
+        # `applyr <typo> && next-step` ran the next step, and it wrote prose to
+        # stdout — in `--json` mode too, where every other error path emits a
+        # structured object. The `cv` subcommand branch already did this
+        # correctly; only the top level was left behind.
+        die(f"Unknown command: '{cmd}'", code="unknown_command",
+            details={"value": cmd},
+            text=f"Unknown command: '{cmd}'\n  Run 'applyr help' to see available commands.")
 
 
 if __name__ == "__main__":
