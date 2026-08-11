@@ -20,9 +20,6 @@ from applyr.constants import (
     GAP_PRIORITY_MEDIUM_SHARE,
     PIPELINE_COMPANY_WIDTH,
     PIPELINE_TITLE_WIDTH,
-    PRIORITY_CRITICAL_SCORE,
-    PRIORITY_HIGH_SCORE,
-    PRIORITY_MEDIUM_SCORE,
     TREND_BAR_WIDTH,
     TREND_HISTORY_LIMIT,
 )
@@ -650,31 +647,30 @@ def cmd_plan(limit: int = 10, as_json: bool = False) -> None:
         print("No skill gaps recorded yet.")
         return
 
-    # Score each skill: frequency * avg_gap (higher = more urgent)
-    scored = []
-    for r in rows:
-        freq = r["frequency"]
-        avg_gap = round(r["total_gap"] / freq) if freq else 0
-        priority_score = freq * avg_gap
-        scored.append((r["skill"], freq, avg_gap, priority_score))
+    # `total_gap` is already frequency times average gap — the points a topic
+    # cost across every offer that fell short. Ranking and priority both read
+    # it, so the order and the label cannot disagree.
+    scored = sorted(rows, key=lambda r: r["total_gap"], reverse=True)[:limit]
+    worst_gap = max(r["total_gap"] for r in rows)
 
-    scored.sort(key=lambda x: x[3], reverse=True)
-    scored = scored[:limit]
+    def _row(rank: int, r: dict) -> tuple:
+        freq = r["frequency"]
+        return (
+            rank,
+            r["skill"],
+            topic_labels.get(r["skill"], r["skill"]),
+            freq,
+            round(r["total_gap"] / freq) if freq else 0,
+            _gap_priority(r["total_gap"], worst_gap),
+        )
 
     if as_json:
-        payload = []
-        for rank, (skill, freq, avg_gap, score) in enumerate(scored, 1):
-            label = topic_labels.get(skill, skill)
-            if score >= PRIORITY_CRITICAL_SCORE:
-                priority = "CRITICAL"
-            elif score >= PRIORITY_HIGH_SCORE:
-                priority = "HIGH"
-            elif score >= PRIORITY_MEDIUM_SCORE:
-                priority = "MEDIUM"
-            else:
-                priority = "LOW"
-            payload.append({"rank": rank, "skill": skill, "label": label,
-                            "frequency": freq, "avg_gap": avg_gap, "priority": priority})
+        payload = [
+            {"rank": rank, "skill": skill, "label": label,
+             "frequency": freq, "avg_gap": avg_gap, "priority": priority}
+            for rank, skill, label, freq, avg_gap, priority in
+            (_row(i, r) for i, r in enumerate(scored, 1))
+        ]
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
@@ -682,24 +678,12 @@ def cmd_plan(limit: int = 10, as_json: bool = False) -> None:
     print(f"  {'#':<4}  {'Skill':<22}  {'Seen':>4}  {'Avg Gap':>7}  {'Priority':<8}")
     print(f"  {'—'*4}  {'—'*22}  {'—'*4}  {'—'*7}  {'—'*8}")
 
-    for rank, (skill, freq, avg_gap, score) in enumerate(scored, 1):
-        label = topic_labels.get(skill, skill)
-        if score >= PRIORITY_CRITICAL_SCORE:
-            priority = "CRITICAL"
-            priority_color = "red"
-        elif score >= PRIORITY_HIGH_SCORE:
-            priority = "HIGH"
-            priority_color = "yellow"
-        elif score >= PRIORITY_MEDIUM_SCORE:
-            priority = "MEDIUM"
-            priority_color = "cyan"
-        else:
-            priority = "LOW"
-            priority_color = "dim"
+    for rank, _skill, label, freq, avg_gap, priority in (_row(i, r) for i, r in enumerate(scored, 1)):
+        priority_color = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}.get(priority, "white")
         print(f"  {rank:<4}  {label:<22}  {freq:>4}x  {avg_gap:>6}%  {color(f'{priority:<8}', priority_color)}")
 
-    print(f"\n  Focus on CRITICAL and HIGH items first.")
-    print(f"  Skill gaps update automatically when you add scored offers.\n")
+    print("\n  Focus on HIGH items first.")
+    print("  Skill gaps update automatically when you add scored offers.\n")
 
 
 # ---------------------------------------------------------------------------

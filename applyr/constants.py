@@ -39,10 +39,10 @@ TREND_HISTORY_LIMIT = 12
 # CV performance table
 CV_STATS_NAME_WIDTH = 28
 
-# Priority score thresholds (plan command)
-PRIORITY_CRITICAL_SCORE = 200
-PRIORITY_HIGH_SCORE = 100
-PRIORITY_MEDIUM_SCORE = 40
+# `plan` used absolute score thresholds (200/100/40) that stopped discriminating
+# once a database held a couple of hundred offers — every topic cleared 200, so
+# every topic read CRITICAL. It now shares `_gap_priority` with `gaps`, which is
+# relative to the worst gap, so both commands agree and both scale.
 
 # Scoring
 DEFAULT_TOPIC_WEIGHT = 0.10

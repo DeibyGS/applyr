@@ -293,3 +293,52 @@ class TestGapPriorityScalesWithTheDatabase:
         from applyr.commands.analytics import _gap_priority
 
         assert _gap_priority(0, 0) == "LOW"
+
+
+class TestPlanAndGapsAgree:
+    """`plan` scored priority against absolute thresholds (200/100/40) while
+    `gaps` scored it relative to the worst gap. On a real 207-offer database
+    every topic cleared 200 — the weakest already scored 415 — so `plan` called
+    all six CRITICAL while `gaps` spread them across HIGH/MEDIUM/LOW. Two
+    commands, one dataset, contradictory answers."""
+
+    def _seed(self):
+        """Offers whose gaps differ enough to separate into distinct bands."""
+        for i in range(12):
+            _add(company=f"Deep{i}", topics={"tech_stack": {"score": 10, "detail": "x"}})
+        for i in range(4):
+            _add(company=f"Mid{i}", topics={"english": {"score": 40, "detail": "x"}})
+        _add(company="Shallow", topics={"education": {"score": 60, "detail": "x"}})
+
+    def _priorities(self, capsys, fn):
+        capsys.readouterr()
+        fn(as_json=True)
+        return {row["skill"]: row["priority"] for row in json.loads(capsys.readouterr().out)}
+
+    def test_both_commands_report_the_same_priority(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.analytics import cmd_gaps, cmd_plan
+
+        self._seed()
+        assert self._priorities(capsys, cmd_plan) == self._priorities(capsys, cmd_gaps)
+
+    def test_priority_still_discriminates(self, tmp_db, tmp_applyr, capsys):
+        """The regression: every topic landing in one band tells the user nothing."""
+        from applyr.commands.analytics import cmd_plan
+
+        self._seed()
+        priorities = self._priorities(capsys, cmd_plan)
+        assert len(set(priorities.values())) > 1, f"all topics in one band: {priorities}"
+
+    def test_plan_orders_by_impact_not_frequency(self, tmp_db, tmp_applyr, capsys):
+        """A topic seen less often but missed by more must outrank the other."""
+        from applyr.commands.analytics import cmd_plan
+
+        for i in range(3):
+            _add(company=f"Deep{i}", topics={"tech_stack": {"score": 0, "detail": "x"}})
+        for i in range(8):
+            _add(company=f"Shallow{i}", topics={"english": {"score": 60, "detail": "x"}})
+
+        capsys.readouterr()
+        cmd_plan(as_json=True)
+        ranked = [row["skill"] for row in json.loads(capsys.readouterr().out)]
+        assert ranked[0] == "tech_stack", "3 offers missing 65 pts each beats 8 missing 5"
