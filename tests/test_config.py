@@ -104,3 +104,31 @@ class TestCreateDefaultConfig:
         (tmp_applyr / "applyr.toml").write_text("custom")
         create_default_config()
         assert (tmp_applyr / "applyr.toml").read_text() == "custom"
+
+
+@pytest.mark.unit
+class TestCvOutputDirLocation:
+    """Generated CVs are a deliverable the user has to find and attach
+    elsewhere, unlike the config/db/cv-master.md — they must default outside
+    the applyr config directory so a normal file browser shows them."""
+
+    def test_default_output_dir_follows_cv_home_not_applyr_dir(self, tmp_applyr, monkeypatch, tmp_path):
+        import applyr.config as cfg
+
+        other_dir = tmp_path / "elsewhere"
+        monkeypatch.setattr(cfg, "CV_HOME", other_dir)
+
+        config = load_config()
+        assert config["cv"]["output_dir"] == str(other_dir / "cv")
+        assert not config["cv"]["output_dir"].startswith(str(tmp_applyr))
+
+    def test_written_toml_points_at_cv_home(self, tmp_applyr, monkeypatch, tmp_path):
+        import applyr.config as cfg
+
+        other_dir = tmp_path / "elsewhere"
+        monkeypatch.setattr(cfg, "CV_HOME", other_dir)
+
+        create_default_config()
+        toml_text = (tmp_applyr / "applyr.toml").read_text()
+        assert str(other_dir / "cv") in toml_text
+        assert (other_dir / "cv").is_dir()

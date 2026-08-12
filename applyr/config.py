@@ -8,6 +8,11 @@ from applyr.constants import DEFAULT_WEIGHTS, DEFAULT_THRESHOLD, DEFAULT_THRESHO
 
 APPLYR_DIR = Path(os.environ.get("APPLYR_HOME", Path.home() / ".applyr"))
 
+# Generated CVs are deliverables the user has to find and attach elsewhere
+# (a form, an email, LinkedIn) — unlike APPLYR_DIR's config/db/cv-master.md,
+# they default outside the dotfile so a normal file browser shows them.
+CV_HOME = Path(os.environ.get("APPLYR_CV_HOME", Path.home() / "Documents" / "applyr"))
+
 # Topic display names — hardcoded, not configurable
 TOPIC_LABELS = {
     "tech_stack": "Tech Stack",
@@ -40,7 +45,9 @@ cultural_fit = 10
 [cv]
 # cv_master  — the profile applyr reads to fill generated CVs. Fill it before
 #              running 'cv generate'; a stub file produces an empty CV.
-# output_dir — where generated CVs are written.
+# output_dir — where generated CVs are written. Defaults outside the applyr
+#              config directory so they show up in a file browser without
+#              unhiding dotfiles.
 # Both accept any path, e.g. a private repo you already version. If you point
 # them at a repo, make sure it is gitignored — CVs contain personal data.
 # language   — the language generated CVs are written in when an offer does not
@@ -48,7 +55,7 @@ cultural_fit = 10
 #              in another language overrides it via "language" in 'applyr add'.
 #              Supported: en, es.
 cv_master = "__APPLYR_DIR__/cv-master.md"
-output_dir = "__APPLYR_DIR__/cv"
+output_dir = "__CV_HOME__/cv"
 language = "en"
 """
 
@@ -105,7 +112,7 @@ def _build_defaults() -> dict:
         "cv": {
             "chrome_path": _detect_chrome(),
             "cv_master": str(APPLYR_DIR / "cv-master.md"),
-            "output_dir": str(APPLYR_DIR / "cv"),
+            "output_dir": str(CV_HOME / "cv"),
             "language": "en",
         },
     }
@@ -148,10 +155,13 @@ def create_default_config():
 
     config_path = APPLYR_DIR / "applyr.toml"
     if not config_path.exists():
-        # The template ships a placeholder rather than a literal ~/.applyr so
-        # that an APPLYR_HOME install does not write paths pointing outside it.
-        config_path.write_text(TOML_TEMPLATE.replace("__APPLYR_DIR__", str(APPLYR_DIR)))
+        # The template ships placeholders rather than literal paths so that an
+        # APPLYR_HOME/APPLYR_CV_HOME install does not write paths pointing
+        # outside them.
+        config_path.write_text(
+            TOML_TEMPLATE.replace("__APPLYR_DIR__", str(APPLYR_DIR)).replace("__CV_HOME__", str(CV_HOME))
+        )
         print(f"  Created {config_path}")
 
-    cv_dir = APPLYR_DIR / "cv"
-    cv_dir.mkdir(exist_ok=True)
+    cv_dir = CV_HOME / "cv"
+    cv_dir.mkdir(parents=True, exist_ok=True)
