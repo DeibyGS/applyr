@@ -424,3 +424,65 @@ class TestListSortAndLimitValidation:
     def test_zero_is_the_no_limit_sentinel_used_by_all(self, tmp_db, tmp_applyr, capsys):
         self._seed()
         assert len(self._scores(capsys, limit=0)) == 3
+
+
+class TestFollowupsExcludeAnsweredOffers:
+    """`follow_up_done` is checked by the followups query but written by
+    nothing in applyr — no command exposes it, so it stays 0 forever and never
+    excluded a row. A rejection, an offer, or an interview all left the row
+    demanding a chase weeks after the question was already answered. On a real
+    database, an offer rejected 3 weeks ago still listed as an overdue
+    follow-up next to offers that were genuinely still waiting."""
+
+    def _set_followup_date(self, tmp_applyr, offer_id, iso_date):
+        conn = sqlite3.connect(tmp_applyr / "jobs.db")
+        conn.execute("UPDATE offers SET follow_up_date = ? WHERE id = ?", (iso_date, offer_id))
+        conn.commit()
+        conn.close()
+
+    def _overdue_ids(self, capsys):
+        from applyr.commands.analytics import cmd_followups
+
+        capsys.readouterr()
+        cmd_followups(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        return {o["id"] for o in payload["overdue"]}
+
+    @pytest.mark.parametrize("status", ["rejected", "in_process", "offer", "discarded"])
+    def test_an_answered_offer_is_not_a_pending_followup(self, tmp_db, tmp_applyr, capsys, status):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied")
+        self._set_followup_date(tmp_applyr, 1, "2020-01-01")
+        cmd_update(1, status)
+        assert 1 not in self._overdue_ids(capsys)
+
+    @pytest.mark.parametrize("status", ["applied", "waiting"])
+    def test_a_genuinely_pending_offer_still_shows(self, tmp_db, tmp_applyr, capsys, status):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, status)
+        self._set_followup_date(tmp_applyr, 1, "2020-01-01")
+        assert 1 in self._overdue_ids(capsys)
+
+
+class TestFollowupsEmptyJsonPayload:
+    """The early return for "nothing pending" printed a plain sentence
+    regardless of `as_json` — the exact class of bug already fixed in
+    `response_rate`: an agent parsing `followups --json` with nothing due got
+    a JSONDecodeError on the one result it most needs to handle cleanly."""
+
+    def test_nothing_pending_is_still_valid_json(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.analytics import cmd_followups
+
+        cmd_followups(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"overdue": [], "upcoming": []}
+
+    def test_nothing_pending_says_so_in_human_mode(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.analytics import cmd_followups
+
+        cmd_followups(as_json=False)
+        assert "No pending follow-ups" in capsys.readouterr().out

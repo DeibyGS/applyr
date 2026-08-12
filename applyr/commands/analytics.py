@@ -334,23 +334,32 @@ def cmd_followups(as_json: bool = False) -> None:
     today = _today()
     upcoming_limit = (date.today() + timedelta(days=FOLLOWUP_UPCOMING_DAYS)).isoformat()
 
+    # `follow_up_done` is checked but nothing in applyr ever sets it — no command
+    # exposes it, so it stays 0 forever and never excluded anything. A follow-up
+    # only means something while a reply is still owed, and that state already
+    # exists: `status IN ('applied', 'waiting')`. Once a reply arrives (or the
+    # offer is discarded), the row keeps whatever `follow_up_date` it was last
+    # given, and without this filter an offer marked `rejected` weeks ago still
+    # showed up demanding a chase.
+    owed_clause = "status IN ('applied', 'waiting')"
+
     conn = get_conn()
     try:
         overdue = conn.execute(
-            """
+            f"""
             SELECT id, title, company, contact_name, contact_role, follow_up_date, follow_up_done
             FROM offers
-            WHERE follow_up_date < ? AND follow_up_done = 0
+            WHERE follow_up_date < ? AND {owed_clause}
             ORDER BY follow_up_date
             """,
             (today,),
         ).fetchall()
 
         upcoming = conn.execute(
-            """
+            f"""
             SELECT id, title, company, contact_name, contact_role, follow_up_date, follow_up_done
             FROM offers
-            WHERE follow_up_date >= ? AND follow_up_date <= ? AND follow_up_done = 0
+            WHERE follow_up_date >= ? AND follow_up_date <= ? AND {owed_clause}
             ORDER BY follow_up_date
             """,
             (today, upcoming_limit),
@@ -367,7 +376,14 @@ def cmd_followups(as_json: bool = False) -> None:
         print(f"    #{r['id']:>4}  {r['follow_up_date']}  {_truncate(r['company'] or '—', FOLLOWUP_COMPANY_WIDTH):<{FOLLOWUP_COMPANY_WIDTH}}  {_truncate(r['title'], FOLLOWUP_TITLE_WIDTH)}{contact}")
 
     if not overdue and not upcoming:
-        print("No pending follow-ups.")
+        # This early return ignored `as_json` and always printed the human
+        # sentence, so an agent calling `followups --json` with nothing pending
+        # got a plain string instead of a payload — a JSONDecodeError on the
+        # one case its caller most needs to handle cleanly: nothing to do.
+        if as_json:
+            print(json.dumps({"overdue": [], "upcoming": []}, indent=2))
+        else:
+            print("No pending follow-ups.")
         return
 
     if as_json:
