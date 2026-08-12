@@ -137,12 +137,14 @@ class TestCommandDispatch:
         assert code == 0
 
     def test_compare_no_args(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["compare"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_compare_alias_cmp(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["cmp"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_salary_alias_sal(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["sal"])
@@ -153,16 +155,19 @@ class TestCommandDispatch:
         assert code == 0  # prints usage
 
     def test_cv_generate_no_id(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["cv", "generate"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_cv_review_no_file(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["cv", "review"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_cv_pdf_no_file(self, run_cli, capsys, tmp_db):
+        """Missing required arguments is a failure, not a success."""
         out, err, code = _run(run_cli, capsys, ["cv", "pdf"])
-        assert code == 0  # prints usage
+        assert code != 0
 
     def test_cv_stats(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["cv", "stats"])
@@ -285,6 +290,48 @@ class TestCommandDispatch:
         out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
         assert code == 0
         assert "cv-master.md" in err
+
+    def test_setup_agent_writes_to_the_detected_nested_claude_path(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """`.claude/CLAUDE.md` is a valid detection signal for claude, but the
+        write target was hardcoded to the top-level `CLAUDE.md` regardless —
+        a project already using the nested file got a second, empty one at the
+        root instead of its own file appended, splitting the agent's context
+        across two files it never asked for."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "CLAUDE.md").write_text("# My project rules\n")
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent"])
+        assert code == 0
+        assert not (tmp_path / "CLAUDE.md").exists(), "must not create a second top-level file"
+        nested = (tmp_path / ".claude" / "CLAUDE.md").read_text()
+        assert nested.startswith("# My project rules")
+        assert "applyr" in nested.lower()
+
+    def test_setup_agent_writes_to_the_detected_nested_cursor_path(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """Same bug, same fix, for cursor's `.cursor/rules` vs `.cursorrules`."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".cursor").mkdir()
+        (tmp_path / ".cursor" / "rules").write_text("existing rules\n")
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent"])
+        assert code == 0
+        assert not (tmp_path / ".cursorrules").exists(), "must not create a second file"
+        nested = (tmp_path / ".cursor" / "rules").read_text()
+        assert nested.startswith("existing rules")
+        assert "applyr" in nested.lower()
+
+    def test_setup_agent_explicit_agent_still_uses_the_default_path(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """Detection is bypassed with an explicit --agent, so there is no
+        detected path to prefer — the default (top-level CLAUDE.md) stands,
+        even if a nested .claude/CLAUDE.md happens to exist."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "CLAUDE.md").write_text("# My project rules\n")
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
+        assert code == 0
+        assert (tmp_path / "CLAUDE.md").exists()
 
     def test_setup_agent_opencode_writes_agents_md(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
         """opencode writes AGENTS.md in cwd — .opencode/instructions.md is dead."""
@@ -458,32 +505,39 @@ class TestExitCodes:
         assert code == 0
 
     def test_unknown_command_exits_nonzero(self, run_cli, capsys, tmp_db):
+        """The `or` made this pass either way, which is why it never caught the
+        branch exiting 0 while announcing failure."""
         out, err, code = _run(run_cli, capsys, ["nonexistent"])
-        assert code != 0 or "Unknown command" in out
+        assert code != 0
 
-    def test_show_missing_id_exits_zero(self, run_cli, capsys, tmp_db):
-        """show with no id prints usage and exits 0."""
+    def test_show_missing_id_fails(self, run_cli, capsys, tmp_db):
+        """`show` with no id used to print usage and exit 0, so a caller
+        chaining `applyr show && next-step` ran the next step regardless."""
         out, err, code = _run(run_cli, capsys, ["show"])
-        assert code == 0
-        assert "Usage: applyr show" in out
+        assert code != 0
+        assert "Usage: applyr show" in err
+        assert out == ""
 
     def test_update_missing_args(self, run_cli, capsys, tmp_db):
-        """update with too few args prints usage."""
+        """Missing required arguments: non-zero exit, usage on stderr."""
         out, err, code = _run(run_cli, capsys, ["update"])
-        assert code == 0
-        assert "Usage: applyr update" in out
+        assert code != 0
+        assert "Usage: applyr update" in err
+        assert out == ""
 
     def test_delete_missing_id(self, run_cli, capsys, tmp_db):
-        """delete with no id prints usage."""
+        """Missing required arguments: non-zero exit, usage on stderr."""
         out, err, code = _run(run_cli, capsys, ["delete"])
-        assert code == 0
-        assert "Usage: applyr delete" in out
+        assert code != 0
+        assert "Usage: applyr delete" in err
+        assert out == ""
 
     def test_search_missing_keyword(self, run_cli, capsys, tmp_db):
-        """search with no keyword prints usage."""
+        """Missing required arguments: non-zero exit, usage on stderr."""
         out, err, code = _run(run_cli, capsys, ["search"])
-        assert code == 0
-        assert "Usage: applyr search" in out
+        assert code != 0
+        assert "Usage: applyr search" in err
+        assert out == ""
 
     def test_invalid_id_exits_nonzero(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["show", "notanumber"])
@@ -696,12 +750,13 @@ class TestEdgeCases:
     """Unknown commands and missing arguments handled gracefully."""
 
     def test_unknown_command(self, run_cli, capsys, tmp_db):
+        """On stderr, not stdout: an error is not payload."""
         out, err, code = _run(run_cli, capsys, ["foobar"])
-        assert "Unknown command" in out
+        assert "Unknown command" in err
 
     def test_unknown_command_suggestion(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["foobar"])
-        assert "applyr help" in out
+        assert "applyr help" in err
 
     def test_cv_unknown_subcmd(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["cv", "blah"])
@@ -800,3 +855,74 @@ class TestResponseRateOutput:
         assert payload["total_applications"] == 0
         assert payload["responded"] == 0
         assert payload["by_status"] == {}
+
+
+class TestUnknownCommandFails:
+    """An unrecognised command printed a message and exited 0, so
+    `applyr <typo> && next-step` ran the next step on a command that did
+    nothing. It also wrote prose to stdout — in `--json` mode too, where every
+    other error path emits a structured object. The `cv` subcommand branch was
+    already correct; only the top level was left behind."""
+
+    def test_exit_code_is_non_zero(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["definitely-not-a-command"])
+        assert code != 0
+
+    def test_nothing_is_written_to_stdout(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["definitely-not-a-command"])
+        assert out == ""
+
+    def test_the_message_names_the_command(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["definitely-not-a-command"])
+        assert "definitely-not-a-command" in err
+
+    def test_json_mode_emits_a_structured_error(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["definitely-not-a-command", "--json"])
+        assert out == "", "the payload stream stays parseable"
+        payload = json.loads(err)
+        assert payload["error"]["code"] == "unknown_command"
+        assert payload["error"]["details"]["value"] == "definitely-not-a-command"
+
+
+class TestMissingArgumentsFailButHelpDoesNot:
+    """Seventeen call sites printed a usage line and returned, so the process
+    exited 0 with a command that had done nothing — `applyr show && next-step`
+    ran the next step. The usage text also went to stdout, contaminating the
+    payload stream in --json mode. One site already used die(); the rest are
+    now consistent with it.
+
+    Asking for help is not a failure, so the two cases are kept apart: three
+    branches conflated them in a single condition, which is why missing
+    arguments inherited help's successful exit."""
+
+    MISSING = [
+        ["show"], ["update"], ["update", "1"], ["delete"], ["search"],
+        ["compare"], ["compare", "1"], ["gaps", "save"],
+        ["cv", "generate"], ["cv", "review"], ["cv", "pdf"],
+        ["cv", "ats-check"], ["cv", "keywords"], ["cv", "cover-letter"],
+    ]
+
+    @pytest.mark.parametrize("argv", MISSING, ids=lambda a: " ".join(a))
+    def test_missing_arguments_exit_non_zero(self, run_cli, capsys, tmp_db, argv):
+        out, err, code = _run(run_cli, capsys, argv)
+        assert code != 0
+
+    @pytest.mark.parametrize("argv", MISSING, ids=lambda a: " ".join(a))
+    def test_missing_arguments_keep_stdout_clean(self, run_cli, capsys, tmp_db, argv):
+        out, err, code = _run(run_cli, capsys, argv)
+        assert out == "", "usage belongs on stderr; stdout is the payload stream"
+
+    @pytest.mark.parametrize("argv", [
+        ["delete", "--help"],
+        ["cv", "generate", "--help"],
+        ["cv", "review-blind", "--help"],
+    ], ids=lambda a: " ".join(a))
+    def test_explicit_help_still_succeeds(self, run_cli, capsys, tmp_db, argv):
+        out, err, code = _run(run_cli, capsys, argv)
+        assert code == 0
+        assert "Usage:" in out
+
+    def test_json_mode_gets_a_structured_error(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["show", "--json"])
+        assert out == ""
+        assert json.loads(err)["error"]["code"] == "missing_arguments"

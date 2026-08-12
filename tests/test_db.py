@@ -386,3 +386,31 @@ class TestMigrationV6ToV7:
     def test_send_dates_are_not_invented(self, tmp_db):
         """There is no honest source for a send date that was never recorded."""
         assert self._seed(tmp_db, "applied")["date_applied"] is None
+
+
+@pytest.mark.unit
+class TestSchemaWarningGoesToStderr:
+    """A bare print() put a prose line above the payload of every `--json`
+    command, so an agent parsing the output hit a JSONDecodeError on character
+    one. applyr is built to be driven by agents; warnings are not data."""
+
+    def _run(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION + 5,))
+        conn.commit()
+        conn.close()
+        init_db(tmp_db)
+
+    def test_nothing_reaches_stdout(self, tmp_db, capsys):
+        self._run(tmp_db)
+        assert capsys.readouterr().out == ""
+
+    def test_the_warning_still_reaches_stderr(self, tmp_db, capsys):
+        self._run(tmp_db)
+        assert "newer than" in capsys.readouterr().err
+
+    def test_a_current_database_warns_about_nothing(self, tmp_db, capsys):
+        init_db(tmp_db)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "newer than" not in captured.err

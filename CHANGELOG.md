@@ -59,6 +59,84 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   hundred, and the list is ordered by total impact so the ranking and the label
   cannot contradict each other.
 
+- **`plan` and `gaps` disagreed about the same numbers.** `plan` ranked
+  priority against fixed thresholds (200/100/40); `gaps` ranked it against the
+  worst gap. On a real 207-offer database the weakest topic already scored
+  415, so `plan` called all six topics CRITICAL while `gaps` spread the same
+  six across HIGH/MEDIUM/LOW. Both now share one ranking function.
+- **`Biggest weakness` was not always the biggest weakness.** The rule was
+  "lowest partial, or else highest missing" — a topic scored 30 and printed
+  under "Missing" two lines above could lose to one scored 50, and when
+  everything was weak the *least* bad shortfall was reported as the problem.
+  A test asserted the old behaviour (Experience 60 over Projects 30, "No
+  relevant projects") — it was pinning the bug. Now the lowest score wins,
+  wherever it falls.
+- **`cv keywords` could not find a CV `cv generate` had just written.** It
+  looked for files matching `*offer_<id>*`, a pattern nothing produces —
+  `cv generate` names files `cv-<company-slug>.md` and records that name in
+  `cv_used`. The command now reads `cv_used` first.
+- **`cv keywords` then reported 100% on every CV, always.** Once the lookup
+  worked, it matched the offer's required keywords against the *whole*
+  generated file — including the YAML frontmatter, which carries a verbatim
+  copy of the offer's own `tech_stack`. The offer's keywords were being
+  matched against a copy of themselves. A CV mentioning neither AWS nor Redux
+  nor Webpack was reported as covering all three, every time, for every CV
+  applyr has ever generated. Matching now runs against the document body only.
+- **`export` wrote the whole database into whatever directory the shell
+  happened to be in.** Every company, score and private note, into the
+  current working directory rather than `~/.applyr/`, where every other file
+  applyr owns already lives. Run from a project checkout — as anyone working
+  on applyr will — it drops an untracked file of personal job-search data one
+  `git add .` away from being published.
+- **The "database schema is newer" notice broke every `--json` command.** It
+  used a bare `print()`, landing on stdout above the JSON payload and breaking
+  the parse at character one for exactly the agent callers applyr is built
+  for. `warn()` already existed for this; nothing called it.
+- **The cover letter could assert a skill the candidate does not have.** It
+  took the offer's first three technologies verbatim and wrote "With my
+  background in `<them>`" — the candidate's profile was never consulted. On a
+  real vacancy it produced "my skills in React.js, Redux, Hooks" for a profile
+  with no Redux anywhere. A cover letter is sent to an employer, so this was a
+  false claim made on the candidate's behalf — against the tool's own first
+  rule, "never invent skills, projects, or experience." Key skills are now the
+  overlap between what the offer asks for and what the profile contains.
+- **An unrecognised command reported success.** `applyr <typo>` printed an
+  error and exited 0, so `applyr <typo> && next-step` ran the next step
+  regardless. The `cv` subcommand branch already handled this correctly;
+  the top level did not.
+- **Missing required arguments reported success, seventeen times over.**
+  `show`, `update`, `delete`, `search`, `compare`, `gaps save`, and every `cv`
+  subcommand printed a usage line and exited 0 — a command that did nothing
+  reported having succeeded. `compare` proved it was an oversight: with no
+  arguments it exited 0, with one argument (still not enough) it exited 1.
+  Explicit `--help` still exits 0; only the missing-argument path changed.
+- **`--sort` silently ignored anything it did not recognise.** Only raw
+  database column names worked — `--sort compatibility_pct` sorted the list,
+  `--sort score` returned it unsorted with no indication, and neither name
+  was documented anywhere. `score` and `date` are now accepted aliases;
+  anything else is a clear error.
+- **`--limit -5` returned the entire database.** SQLite reads a negative
+  `LIMIT` as unbounded, and `--all` was already built on that same accident
+  (passing `-1` on purpose). `--all` now passes `0`, which existing code
+  already treated as "no `LIMIT` clause," and a negative user-supplied
+  `--limit` is rejected.
+- **`followups` kept chasing offers that had already answered.** It checked
+  `follow_up_done`, a column nothing in applyr ever sets, so the filter
+  excluded nothing. Verified on a real database: an offer rejected three
+  weeks earlier still listed as an OVERDUE follow-up. It now filters on
+  `status IN ('applied', 'waiting')` — the two statuses that mean a reply is
+  still owed.
+- **`followups --json` broke on the one result it most needs to handle
+  cleanly.** The "nothing pending" branch always printed the human sentence
+  regardless of `--json`, hitting exactly the same class of bug already fixed
+  in `response_rate`.
+- **`setup-agent` could detect one config file and write to another.**
+  `.claude/CLAUDE.md` and `.cursor/rules` are both valid detection signals,
+  but the write target ignored which one was matched and always fell back to
+  the top-level default. A project already using the nested file got a
+  second, empty file created at the root while its real config — the one the
+  agent actually reads — was left untouched.
+
 ### Changed
 
 - Schema v7 backfills `applied` and `response_status` from the status on
@@ -66,6 +144,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   honest way to invent a send date that was never recorded.
 - `SENT_STATUSES` moved to `db.py` beside `VALID_STATUSES` and is now shared
   with `cv_stats`, so the column and the CV rates cannot drift apart.
+- `SORT_FIELDS` in `commands/core.py` maps accepted `--sort` values to their
+  column; `--sort` errors on anything outside that mapping instead of
+  silently defaulting.
 
 ## [1.5.0] — 2026-08-11
 

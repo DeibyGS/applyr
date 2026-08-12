@@ -20,9 +20,6 @@ from applyr.constants import (
     GAP_PRIORITY_MEDIUM_SHARE,
     PIPELINE_COMPANY_WIDTH,
     PIPELINE_TITLE_WIDTH,
-    PRIORITY_CRITICAL_SCORE,
-    PRIORITY_HIGH_SCORE,
-    PRIORITY_MEDIUM_SCORE,
     TREND_BAR_WIDTH,
     TREND_HISTORY_LIMIT,
 )
@@ -337,23 +334,32 @@ def cmd_followups(as_json: bool = False) -> None:
     today = _today()
     upcoming_limit = (date.today() + timedelta(days=FOLLOWUP_UPCOMING_DAYS)).isoformat()
 
+    # `follow_up_done` is checked but nothing in applyr ever sets it — no command
+    # exposes it, so it stays 0 forever and never excluded anything. A follow-up
+    # only means something while a reply is still owed, and that state already
+    # exists: `status IN ('applied', 'waiting')`. Once a reply arrives (or the
+    # offer is discarded), the row keeps whatever `follow_up_date` it was last
+    # given, and without this filter an offer marked `rejected` weeks ago still
+    # showed up demanding a chase.
+    owed_clause = "status IN ('applied', 'waiting')"
+
     conn = get_conn()
     try:
         overdue = conn.execute(
-            """
+            f"""
             SELECT id, title, company, contact_name, contact_role, follow_up_date, follow_up_done
             FROM offers
-            WHERE follow_up_date < ? AND follow_up_done = 0
+            WHERE follow_up_date < ? AND {owed_clause}
             ORDER BY follow_up_date
             """,
             (today,),
         ).fetchall()
 
         upcoming = conn.execute(
-            """
+            f"""
             SELECT id, title, company, contact_name, contact_role, follow_up_date, follow_up_done
             FROM offers
-            WHERE follow_up_date >= ? AND follow_up_date <= ? AND follow_up_done = 0
+            WHERE follow_up_date >= ? AND follow_up_date <= ? AND {owed_clause}
             ORDER BY follow_up_date
             """,
             (today, upcoming_limit),
@@ -370,7 +376,14 @@ def cmd_followups(as_json: bool = False) -> None:
         print(f"    #{r['id']:>4}  {r['follow_up_date']}  {_truncate(r['company'] or '—', FOLLOWUP_COMPANY_WIDTH):<{FOLLOWUP_COMPANY_WIDTH}}  {_truncate(r['title'], FOLLOWUP_TITLE_WIDTH)}{contact}")
 
     if not overdue and not upcoming:
-        print("No pending follow-ups.")
+        # This early return ignored `as_json` and always printed the human
+        # sentence, so an agent calling `followups --json` with nothing pending
+        # got a plain string instead of a payload — a JSONDecodeError on the
+        # one case its caller most needs to handle cleanly: nothing to do.
+        if as_json:
+            print(json.dumps({"overdue": [], "upcoming": []}, indent=2))
+        else:
+            print("No pending follow-ups.")
         return
 
     if as_json:
@@ -650,31 +663,30 @@ def cmd_plan(limit: int = 10, as_json: bool = False) -> None:
         print("No skill gaps recorded yet.")
         return
 
-    # Score each skill: frequency * avg_gap (higher = more urgent)
-    scored = []
-    for r in rows:
-        freq = r["frequency"]
-        avg_gap = round(r["total_gap"] / freq) if freq else 0
-        priority_score = freq * avg_gap
-        scored.append((r["skill"], freq, avg_gap, priority_score))
+    # `total_gap` is already frequency times average gap — the points a topic
+    # cost across every offer that fell short. Ranking and priority both read
+    # it, so the order and the label cannot disagree.
+    scored = sorted(rows, key=lambda r: r["total_gap"], reverse=True)[:limit]
+    worst_gap = max(r["total_gap"] for r in rows)
 
-    scored.sort(key=lambda x: x[3], reverse=True)
-    scored = scored[:limit]
+    def _row(rank: int, r: dict) -> tuple:
+        freq = r["frequency"]
+        return (
+            rank,
+            r["skill"],
+            topic_labels.get(r["skill"], r["skill"]),
+            freq,
+            round(r["total_gap"] / freq) if freq else 0,
+            _gap_priority(r["total_gap"], worst_gap),
+        )
 
     if as_json:
-        payload = []
-        for rank, (skill, freq, avg_gap, score) in enumerate(scored, 1):
-            label = topic_labels.get(skill, skill)
-            if score >= PRIORITY_CRITICAL_SCORE:
-                priority = "CRITICAL"
-            elif score >= PRIORITY_HIGH_SCORE:
-                priority = "HIGH"
-            elif score >= PRIORITY_MEDIUM_SCORE:
-                priority = "MEDIUM"
-            else:
-                priority = "LOW"
-            payload.append({"rank": rank, "skill": skill, "label": label,
-                            "frequency": freq, "avg_gap": avg_gap, "priority": priority})
+        payload = [
+            {"rank": rank, "skill": skill, "label": label,
+             "frequency": freq, "avg_gap": avg_gap, "priority": priority}
+            for rank, skill, label, freq, avg_gap, priority in
+            (_row(i, r) for i, r in enumerate(scored, 1))
+        ]
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
@@ -682,24 +694,12 @@ def cmd_plan(limit: int = 10, as_json: bool = False) -> None:
     print(f"  {'#':<4}  {'Skill':<22}  {'Seen':>4}  {'Avg Gap':>7}  {'Priority':<8}")
     print(f"  {'—'*4}  {'—'*22}  {'—'*4}  {'—'*7}  {'—'*8}")
 
-    for rank, (skill, freq, avg_gap, score) in enumerate(scored, 1):
-        label = topic_labels.get(skill, skill)
-        if score >= PRIORITY_CRITICAL_SCORE:
-            priority = "CRITICAL"
-            priority_color = "red"
-        elif score >= PRIORITY_HIGH_SCORE:
-            priority = "HIGH"
-            priority_color = "yellow"
-        elif score >= PRIORITY_MEDIUM_SCORE:
-            priority = "MEDIUM"
-            priority_color = "cyan"
-        else:
-            priority = "LOW"
-            priority_color = "dim"
+    for rank, _skill, label, freq, avg_gap, priority in (_row(i, r) for i, r in enumerate(scored, 1)):
+        priority_color = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}.get(priority, "white")
         print(f"  {rank:<4}  {label:<22}  {freq:>4}x  {avg_gap:>6}%  {color(f'{priority:<8}', priority_color)}")
 
-    print(f"\n  Focus on CRITICAL and HIGH items first.")
-    print(f"  Skill gaps update automatically when you add scored offers.\n")
+    print("\n  Focus on HIGH items first.")
+    print("  Skill gaps update automatically when you add scored offers.\n")
 
 
 # ---------------------------------------------------------------------------

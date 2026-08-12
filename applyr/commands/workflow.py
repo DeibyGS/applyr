@@ -64,7 +64,14 @@ def cmd_export(fmt: str = "csv", filepath: str | None = None) -> None:
 
     ext = "md" if fmt == "md" else fmt
     default_name = f"applyr_export.{ext}"
-    out_path = Path(filepath) if filepath else Path.cwd() / default_name
+
+    # Default into APPLYR_DIR, not the working directory. An export is the whole
+    # database in one file — every company, score, note and private assessment —
+    # and dropping it wherever the user happens to stand means dropping it into
+    # a checkout more often than not, untracked and one `git add .` from being
+    # published. Everything else applyr owns already lives here; this was the
+    # only command that wrote outside it. An explicit path still wins.
+    out_path = Path(filepath).expanduser() if filepath else APPLYR_DIR / default_name
 
     try:
         if fmt == "csv":

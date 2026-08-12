@@ -55,3 +55,20 @@ def run_cli(tmp_applyr, monkeypatch):
         main()
 
     return _run
+
+
+@pytest.fixture(autouse=True)
+def reset_json_mode():
+    """Keep `applyr.errors._json_mode` from leaking between tests.
+
+    `cli.py` flips that module-level flag on every `--json` invocation and
+    nothing turns it back off. In JSON mode `error()` suppresses output by
+    design, so a single test running a `--json` command silenced stderr for
+    every test that ran after it — and the suite's result depended on
+    collection order. Reset around each test.
+    """
+    from applyr import errors
+
+    errors.set_json_mode(False)
+    yield
+    errors.set_json_mode(False)

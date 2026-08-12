@@ -81,6 +81,22 @@ def _cv_master_template_text() -> str:
 
 _STATUS_ORDER = ["applied", "waiting", "in_process", "offer", "pending", "discarded", "rejected"]
 
+# What `--sort` accepts, mapped to the column each name means. The keys are the
+# public contract; the values are storage detail that used to leak out as the
+# only working vocabulary — `--sort compatibility_pct` sorted, `--sort score`
+# silently did not. Anything outside this mapping is an error, not a fallback,
+# and the allowlist still keeps the column name out of string interpolation.
+SORT_FIELDS = {
+    "score": "compatibility_pct",
+    "compatibility_pct": "compatibility_pct",
+    "date": "date_applied",
+    "date_applied": "date_applied",
+    "date_received": "date_received",
+    "company": "company",
+    "status": "status",
+    "id": "id",
+}
+
 _AGENT_TARGETS = {
     "claude":   ("CLAUDE.md",),
     "cursor":   (".cursorrules",),
@@ -229,16 +245,16 @@ def _get_why_you_match(topics: list[dict], topic_labels: dict) -> tuple[list[str
     strong.sort(key=lambda x: x[0], reverse=True)
     why_match = [entry for _, entry in strong[:3]]
 
-    # Biggest weakness: lowest partial or highest missing
-    biggest_weakness = None
-    if partial:
-        partial.sort(key=lambda x: x[0])
-        score, entry = partial[0]
-        biggest_weakness = entry
-    elif missing:
-        missing.sort(key=lambda x: x[0], reverse=True)
-        score, entry = missing[0]
-        biggest_weakness = entry
+    # Biggest weakness: the lowest-scoring topic that is not already strong.
+    #
+    # This used to read "lowest partial, or else highest missing", which got it
+    # wrong twice. Preferring the partial bucket meant a topic scored 30 and
+    # printed under "Missing" two lines above was passed over for one scored 50
+    # — the line contradicted the breakdown it sits under. And the missing
+    # branch sorted descending, so when everything was weak it surfaced the
+    # *least* bad of them.
+    weak = partial + missing
+    biggest_weakness = min(weak, key=lambda x: x[0])[1] if weak else None
 
     return why_match, biggest_weakness
 
@@ -403,10 +419,12 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
             text="  Run 'applyr init' first.")
 
     # Auto-detect only when targeting the current project; --global needs an explicit agent
+    detected_path: str | None = None
     if not agent and not global_:
         for name, path in _AGENT_DETECT_ORDER:
             if (cwd / path).exists():
                 agent = name
+                detected_path = path
                 print(f"  Detected {name} config ({path})")
                 break
 
@@ -443,7 +461,15 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
         target = Path.home() / rel_path
         display = "~/" + rel_path
     else:
-        rel_path = _AGENT_TARGETS[agent][0]
+        # `_AGENT_DETECT_ORDER` lists two valid locations for claude
+        # (`CLAUDE.md`, `.claude/CLAUDE.md`) and cursor (`.cursorrules`,
+        # `.cursor/rules`). Detection matched one of them, but the target was
+        # always the first — a project already using `.claude/CLAUDE.md` got
+        # a brand new top-level `CLAUDE.md` instead of its own file appended,
+        # splitting the agent's context across two files it never asked for.
+        # `detected_path` is only ever a value from that curated table, never
+        # user input, so writing to it directly is safe.
+        rel_path = detected_path or _AGENT_TARGETS[agent][0]
         target = cwd / rel_path
         display = rel_path
 
@@ -720,13 +746,24 @@ def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", li
             details={"field": "status", "value": status_filter,
                      "valid": list(VALID_STATUSES)})
 
+    # Same reasoning as the status check above, which this used to ignore: an
+    # unrecognised sort field fell through to the default, so `--sort score`
+    # returned an unsorted list and said nothing. Only raw column names worked,
+    # and none of them were documented anywhere.
+    if sort_by not in SORT_FIELDS:
+        die(f"Error: invalid sort field '{sort_by}'. Valid: {', '.join(sorted(SORT_FIELDS))}",
+            code="invalid_value",
+            details={"field": "sort", "value": sort_by, "valid": sorted(SORT_FIELDS)})
+    sort_by = SORT_FIELDS[sort_by]
+
+    # 0 is the "no limit" sentinel used by `--all`; anything below it would
+    # reach SQLite as a negative LIMIT, which it reads as unbounded.
+    if limit is not None and limit < 0:
+        die(f"Error: limit cannot be negative, got: {limit}",
+            code="invalid_value", details={"field": "limit", "value": limit})
+
     config = load_config()
     effective_limit = limit if limit is not None else config["general"]["list_limit"]
-
-    # Validate sort column against allowed values to prevent injection
-    allowed_sort = {"date_applied", "date_received", "compatibility_pct", "company", "status", "id"}
-    if sort_by not in allowed_sort:
-        sort_by = "date_applied"
 
     where_clause = "WHERE status = ?" if status_filter else ""
     params: list = [status_filter] if status_filter else []

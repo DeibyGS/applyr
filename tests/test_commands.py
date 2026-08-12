@@ -293,3 +293,196 @@ class TestGapPriorityScalesWithTheDatabase:
         from applyr.commands.analytics import _gap_priority
 
         assert _gap_priority(0, 0) == "LOW"
+
+
+class TestPlanAndGapsAgree:
+    """`plan` scored priority against absolute thresholds (200/100/40) while
+    `gaps` scored it relative to the worst gap. On a real 207-offer database
+    every topic cleared 200 — the weakest already scored 415 — so `plan` called
+    all six CRITICAL while `gaps` spread them across HIGH/MEDIUM/LOW. Two
+    commands, one dataset, contradictory answers."""
+
+    def _seed(self):
+        """Offers whose gaps differ enough to separate into distinct bands."""
+        for i in range(12):
+            _add(company=f"Deep{i}", topics={"tech_stack": {"score": 10, "detail": "x"}})
+        for i in range(4):
+            _add(company=f"Mid{i}", topics={"english": {"score": 40, "detail": "x"}})
+        _add(company="Shallow", topics={"education": {"score": 60, "detail": "x"}})
+
+    def _priorities(self, capsys, fn):
+        capsys.readouterr()
+        fn(as_json=True)
+        return {row["skill"]: row["priority"] for row in json.loads(capsys.readouterr().out)}
+
+    def test_both_commands_report_the_same_priority(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.analytics import cmd_gaps, cmd_plan
+
+        self._seed()
+        assert self._priorities(capsys, cmd_plan) == self._priorities(capsys, cmd_gaps)
+
+    def test_priority_still_discriminates(self, tmp_db, tmp_applyr, capsys):
+        """The regression: every topic landing in one band tells the user nothing."""
+        from applyr.commands.analytics import cmd_plan
+
+        self._seed()
+        priorities = self._priorities(capsys, cmd_plan)
+        assert len(set(priorities.values())) > 1, f"all topics in one band: {priorities}"
+
+    def test_plan_orders_by_impact_not_frequency(self, tmp_db, tmp_applyr, capsys):
+        """A topic seen less often but missed by more must outrank the other."""
+        from applyr.commands.analytics import cmd_plan
+
+        for i in range(3):
+            _add(company=f"Deep{i}", topics={"tech_stack": {"score": 0, "detail": "x"}})
+        for i in range(8):
+            _add(company=f"Shallow{i}", topics={"english": {"score": 60, "detail": "x"}})
+
+        capsys.readouterr()
+        cmd_plan(as_json=True)
+        ranked = [row["skill"] for row in json.loads(capsys.readouterr().out)]
+        assert ranked[0] == "tech_stack", "3 offers missing 65 pts each beats 8 missing 5"
+
+
+class TestExportStaysInsideApplyrHome:
+    """`export` wrote the whole database — every company, score and private
+    note — into the current working directory. Run from any checkout that
+    dropped an untracked file full of personal data one `git add .` away from
+    being published. Everything else applyr owns lives in APPLYR_DIR."""
+
+    def test_default_path_is_applyr_home(self, tmp_db, tmp_applyr, monkeypatch, tmp_path):
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        elsewhere = tmp_path / "some-repo"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        _add(company="Acme")
+        workflow.cmd_export(fmt="json")
+
+        assert (tmp_applyr / "applyr_export.json").exists()
+        assert not (elsewhere / "applyr_export.json").exists(), "must not write into the cwd"
+
+    def test_an_explicit_path_still_wins(self, tmp_db, tmp_applyr, monkeypatch, tmp_path):
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        target = tmp_path / "chosen.json"
+
+        _add(company="Acme")
+        workflow.cmd_export(fmt="json", filepath=str(target))
+
+        assert target.exists()
+        assert not (tmp_applyr / "applyr_export.json").exists()
+
+
+class TestListSortAndLimitValidation:
+    """`--status` was validated because an unknown value "reads as 'no offers'
+    rather than 'you mistyped it'" — the comment is in the source. Two lines
+    below, an unknown `--sort` fell through to the default instead, so
+    `--sort score` returned an unsorted list and said nothing. Only raw column
+    names worked, and none were documented."""
+
+    def _scores(self, capsys, **kwargs):
+        from applyr.commands.core import cmd_list
+
+        capsys.readouterr()
+        cmd_list(as_json=True, **kwargs)
+        return [o["compatibility_pct"] for o in json.loads(capsys.readouterr().out)]
+
+    def _seed(self):
+        for i, score in enumerate((10, 90, 50)):
+            _add(company=f"C{i}", topics={"tech_stack": {"score": score, "detail": "x"}})
+
+    def test_score_is_an_accepted_alias(self, tmp_db, tmp_applyr, capsys):
+        self._seed()
+        assert self._scores(capsys, sort_by="score") == [90, 50, 10]
+
+    def test_the_column_name_still_works(self, tmp_db, tmp_applyr, capsys):
+        self._seed()
+        assert self._scores(capsys, sort_by="compatibility_pct") == [90, 50, 10]
+
+    def test_an_unknown_sort_field_is_an_error(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_list
+
+        self._seed()
+        with pytest.raises(SystemExit) as exc:
+            cmd_list(sort_by="scoer")
+        assert exc.value.code != 0
+
+    def test_a_negative_limit_is_an_error(self, tmp_db, tmp_applyr):
+        """SQLite reads a negative LIMIT as unbounded, so this used to return
+        the whole database when the caller asked for -5 rows."""
+        from applyr.commands.core import cmd_list
+
+        self._seed()
+        with pytest.raises(SystemExit) as exc:
+            cmd_list(limit=-5)
+        assert exc.value.code != 0
+
+    def test_zero_is_the_no_limit_sentinel_used_by_all(self, tmp_db, tmp_applyr, capsys):
+        self._seed()
+        assert len(self._scores(capsys, limit=0)) == 3
+
+
+class TestFollowupsExcludeAnsweredOffers:
+    """`follow_up_done` is checked by the followups query but written by
+    nothing in applyr — no command exposes it, so it stays 0 forever and never
+    excluded a row. A rejection, an offer, or an interview all left the row
+    demanding a chase weeks after the question was already answered. On a real
+    database, an offer rejected 3 weeks ago still listed as an overdue
+    follow-up next to offers that were genuinely still waiting."""
+
+    def _set_followup_date(self, tmp_applyr, offer_id, iso_date):
+        conn = sqlite3.connect(tmp_applyr / "jobs.db")
+        conn.execute("UPDATE offers SET follow_up_date = ? WHERE id = ?", (iso_date, offer_id))
+        conn.commit()
+        conn.close()
+
+    def _overdue_ids(self, capsys):
+        from applyr.commands.analytics import cmd_followups
+
+        capsys.readouterr()
+        cmd_followups(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        return {o["id"] for o in payload["overdue"]}
+
+    @pytest.mark.parametrize("status", ["rejected", "in_process", "offer", "discarded"])
+    def test_an_answered_offer_is_not_a_pending_followup(self, tmp_db, tmp_applyr, capsys, status):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied")
+        self._set_followup_date(tmp_applyr, 1, "2020-01-01")
+        cmd_update(1, status)
+        assert 1 not in self._overdue_ids(capsys)
+
+    @pytest.mark.parametrize("status", ["applied", "waiting"])
+    def test_a_genuinely_pending_offer_still_shows(self, tmp_db, tmp_applyr, capsys, status):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, status)
+        self._set_followup_date(tmp_applyr, 1, "2020-01-01")
+        assert 1 in self._overdue_ids(capsys)
+
+
+class TestFollowupsEmptyJsonPayload:
+    """The early return for "nothing pending" printed a plain sentence
+    regardless of `as_json` — the exact class of bug already fixed in
+    `response_rate`: an agent parsing `followups --json` with nothing due got
+    a JSONDecodeError on the one result it most needs to handle cleanly."""
+
+    def test_nothing_pending_is_still_valid_json(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.analytics import cmd_followups
+
+        cmd_followups(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"overdue": [], "upcoming": []}
+
+    def test_nothing_pending_says_so_in_human_mode(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.analytics import cmd_followups
+
+        cmd_followups(as_json=False)
+        assert "No pending follow-ups" in capsys.readouterr().out

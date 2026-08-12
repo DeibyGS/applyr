@@ -164,3 +164,57 @@ class TestCvKeywords:
         err = capsys.readouterr().err
         assert "not found" not in err
         assert "No CV found" in err
+
+
+class TestKeywordMatchingIgnoresFrontmatter:
+    """`cv keywords` matched the offer's keywords against the whole generated
+    file — including the YAML frontmatter, which carries a verbatim copy of the
+    offer's own `tech_stack` and `summary`. Every required keyword was therefore
+    guaranteed to appear, so every generated CV scored 100% STRONG regardless of
+    its content. A real CV mentioning neither AWS nor Redux nor Webpack was
+    reported as covering all three."""
+
+    CV = """---
+offer_id: 210
+tech_stack: "React.js, Redux, Webpack, AWS"
+summary: "Frontend con React.js, Redux, Webpack. Cloud-native sobre AWS."
+---
+
+# Jane Doe
+
+## Technical Skills
+
+**Frontend:** React.js | TypeScript | CSS
+"""
+
+    def test_strip_frontmatter_removes_the_block(self):
+        from applyr.cv import _strip_frontmatter
+
+        body = _strip_frontmatter(self.CV)
+        assert "tech_stack" not in body
+        assert "# Jane Doe" in body
+
+    def test_offer_keywords_do_not_leak_from_frontmatter(self):
+        from applyr.ats import match_keywords
+        from applyr.cv import _strip_frontmatter
+
+        keywords = ["react.js", "redux", "webpack", "aws"]
+        report = match_keywords(_strip_frontmatter(self.CV), keywords)
+        matched = {m.keyword.lower() for m in report.matched}
+
+        assert "react.js" in matched, "a skill the CV really lists must still match"
+        for absent in ("redux", "webpack", "aws"):
+            assert absent not in matched, f"{absent} appears only in the frontmatter"
+
+    def test_a_document_without_frontmatter_is_untouched(self):
+        from applyr.cv import _strip_frontmatter
+
+        plain = "# Jane Doe\n\nSome content.\n"
+        assert _strip_frontmatter(plain) == plain
+
+    def test_unterminated_frontmatter_is_left_alone(self):
+        """A malformed opening must not swallow the entire document."""
+        from applyr.cv import _strip_frontmatter
+
+        broken = "---\noffer_id: 1\n\n# Jane Doe\n"
+        assert "# Jane Doe" in _strip_frontmatter(broken)

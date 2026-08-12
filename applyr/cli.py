@@ -44,7 +44,7 @@ Commands:
   init                          Set up ~/.applyr/ (config, database, templates)
   setup-agent [--agent NAME] [--global]  Configure AI agent (--global writes user-wide config)
   add '<json>' [--force]        Register a new job offer (--force skips duplicate check)
-  list [--status S] [--sort F]  List offers (default: last 50)
+  list [--status S] [--sort F]  List offers (--sort: score|date|company|status|id)
   pipeline [--min-score N]      View offers grouped by status
   show <id>                     Show full offer details
   update <id> <status> [opts]   Update offer status (--notes, --canal, --cv)
@@ -118,6 +118,18 @@ def _is_initialized() -> bool:
     """Check if applyr has been initialized."""
     from applyr.config import APPLYR_DIR
     return (APPLYR_DIR / "jobs.db").exists()
+
+
+def _usage(line: str) -> None:
+    """Fail on missing required arguments, on stderr, with a stable code.
+
+    These sites printed the usage line and returned, so the process exited 0:
+    a command that did nothing reported success, and `applyr show && next-step`
+    ran the next step. The text went to stdout too, contaminating the payload
+    stream in --json mode. One call site already used die(); now they all do.
+    """
+    die("missing required arguments", code="missing_arguments",
+        details={"usage": line}, text=line)
 
 
 def main():
@@ -209,9 +221,18 @@ def main():
         sort_by = _get_flag(args, "--sort") or "date_applied"
         limit = None
         if _has_flag(args, "--all"):
-            limit = -1
+            # 0 means "no LIMIT clause". This used to be -1, relying on SQLite
+            # reading a negative LIMIT as unbounded — the same accident that let
+            # a user's `--limit -5` silently return the entire database.
+            limit = 0
         elif _get_flag(args, "--limit") is not None:
             limit = _safe_int(_get_flag(args, "--limit"), "--limit")
+            if limit < 1:
+                die(f"Error: --limit must be 1 or greater, got: {limit}",
+                    code="invalid_value",
+                    details={"field": "limit", "value": limit},
+                    text=f"Error: --limit must be 1 or greater, got: {limit}\n"
+                         "  Use --all to list every offer.")
         cmd_list(status_filter=status, sort_by=sort_by, limit=limit, as_json=as_json)
 
     elif cmd == "pipeline":
@@ -223,17 +244,15 @@ def main():
 
     elif cmd == "show":
         if len(args) < 2:
-            print("Usage: applyr show <id>")
-            return
+            _usage("Usage: applyr show <id>")
         offer_id = _safe_int(args[1])
         cmd_show(offer_id, as_json=as_json)
 
     elif cmd == "update":
         if len(args) < 3:
-            print("Usage: applyr update <id> <status> [--notes '...'] [--canal '...'] [--cv file.html]")
-            print("  --cv \"\": clear the CV linked to this offer")
-            print(f"  Statuses: {', '.join(VALID_STATUSES)}")
-            return
+            _usage("Usage: applyr update <id> <status> [--notes '...'] [--canal '...'] [--cv file.html]\n"
+                   '  --cv "": clear the CV linked to this offer\n'
+                   f"  Statuses: {', '.join(VALID_STATUSES)}")
         offer_id = _safe_int(args[1])
         status = args[2]
         notes = _get_flag(args, "--notes")
@@ -242,17 +261,19 @@ def main():
         cmd_update(offer_id, status, notes, canal, cv)
 
     elif cmd == "delete":
-        if len(args) < 2 or args[1] in ("--help", "-h"):
-            print("Usage: applyr delete <id> [--force]")
-            print("  --force: skip the confirmation prompt (required when not on a terminal)")
+        usage = ("Usage: applyr delete <id> [--force]\n"
+                 "  --force: skip the confirmation prompt (required when not on a terminal)")
+        if len(args) >= 2 and args[1] in ("--help", "-h"):
+            print(usage)
             return
+        if len(args) < 2:
+            _usage(usage)
         offer_id = _safe_int(args[1])
         cmd_delete(offer_id, force=_has_flag(args, "--force"))
 
     elif cmd == "search":
         if len(args) < 2:
-            print("Usage: applyr search <keyword> [--status S]")
-            return
+            _usage("Usage: applyr search <keyword> [--status S]")
         status = _get_flag(args, "--status")
         # Collect keyword (everything between cmd and flags)
         keyword_parts = []
@@ -272,8 +293,7 @@ def main():
     elif cmd == "gaps":
         if len(args) >= 2 and args[1] == "save":
             if len(args) < 4:
-                print("Usage: applyr gaps save <offer_id> '<json>'")
-                return
+                _usage("Usage: applyr gaps save <offer_id> '<json>'")
             offer_id = _safe_int(args[2])
             gaps_json = args[3]
             cmd_gaps_save(offer_id, gaps_json, as_json=as_json)
@@ -304,8 +324,7 @@ def main():
 
     elif cmd in ("compare", "cmp"):
         if len(args) == 1:
-            print("Usage: applyr compare <id1> <id2> [<id3> ...]")
-            return
+            _usage("Usage: applyr compare <id1> <id2> [<id3> ...]")
         if len(args) < 3:
             die("compare needs at least 2 offer IDs.",
                 code="invalid_argument",
@@ -356,52 +375,52 @@ def main():
             return
         subcmd = args[1]
         if subcmd == "generate":
-            if len(args) < 3 or args[2] in ("--help", "-h"):
-                print("Usage: applyr cv generate <id> [--template ats] [--force]")
-                print("  --force: overwrite an existing CV for this offer")
+            usage = ("Usage: applyr cv generate <id> [--template ats] [--force]\n"
+                     "  --force: overwrite an existing CV for this offer")
+            if len(args) >= 3 and args[2] in ("--help", "-h"):
+                print(usage)
                 return
+            if len(args) < 3:
+                _usage(usage)
             offer_id = _safe_int(args[2])
             template = _get_flag(args, "--template") or "ats"
             cmd_cv_generate(offer_id, template=template, force=_has_flag(args, "--force"))
         elif subcmd == "review":
             if len(args) < 3:
-                print("Usage: applyr cv review <html-file>")
-                return
+                _usage("Usage: applyr cv review <html-file>")
             cmd_cv_review(args[2], as_json=as_json)
         elif subcmd == "review-blind":
-            if len(args) < 3 or args[2] in ("--help", "-h"):
-                print("Usage: applyr cv review-blind <id>")
-                print("  Blind recruiter evaluation — reads cv-master.md independently")
+            usage = ("Usage: applyr cv review-blind <id>\n"
+                     "  Blind recruiter evaluation — reads cv-master.md independently")
+            if len(args) >= 3 and args[2] in ("--help", "-h"):
+                print(usage)
                 return
+            if len(args) < 3:
+                _usage(usage)
             offer_id = _safe_int(args[2])
             cmd_cv_review_blind(offer_id, as_json=as_json)
         elif subcmd == "pdf":
             if len(args) < 3:
-                print("Usage: applyr cv pdf <html-file> [--output file.pdf]")
-                return
+                _usage("Usage: applyr cv pdf <html-file> [--output file.pdf]")
             html_file = args[2]
             output = _get_flag(args, "--output")
             cmd_cv_pdf(html_file, output=output)
         elif subcmd == "ats-check":
             if len(args) < 3:
-                print("Usage: applyr cv ats-check <html-file>")
-                return
+                _usage("Usage: applyr cv ats-check <html-file>")
             cmd_cv_ats_check(args[2], as_json=as_json)
         elif subcmd == "keywords":
             if len(args) < 3:
-                print("Usage: applyr cv keywords <offer-id>")
-                return
+                _usage("Usage: applyr cv keywords <offer-id>")
             offer_id = _safe_int(args[2])
             cmd_cv_keywords(offer_id, as_json=as_json)
         elif subcmd == "bullet-optimize":
             if len(args) < 3:
-                print("Usage: applyr cv bullet-optimize <html-file>")
-                return
+                _usage("Usage: applyr cv bullet-optimize <html-file>")
             cmd_cv_bullet_optimize(args[2], as_json=as_json)
         elif subcmd == "cover-letter":
             if len(args) < 3:
-                print("Usage: applyr cv cover-letter <offer-id>")
-                return
+                _usage("Usage: applyr cv cover-letter <offer-id>")
             offer_id = _safe_int(args[2])
             cmd_cv_cover_letter(offer_id, as_json=as_json)
         elif subcmd == "stats":
@@ -412,8 +431,7 @@ def main():
             cmd_cv_stats(min_sample=min_sample, as_json=as_json)
         elif subcmd == "compare":
             if len(args) < 4:
-                print("Usage: applyr cv compare <v1.html> <v2.html>")
-                return
+                _usage("Usage: applyr cv compare <v1.html> <v2.html>")
             result = compare_cvs(args[2], args[3])
             if as_json:
                 import json
@@ -451,8 +469,14 @@ def main():
         cmd_followups(as_json=as_json)
 
     else:
-        print(f"Unknown command: '{cmd}'")
-        print("Run 'applyr help' to see available commands.")
+        # `die`, not print: this branch exited 0 while announcing failure, so
+        # `applyr <typo> && next-step` ran the next step, and it wrote prose to
+        # stdout — in `--json` mode too, where every other error path emits a
+        # structured object. The `cv` subcommand branch already did this
+        # correctly; only the top level was left behind.
+        die(f"Unknown command: '{cmd}'", code="unknown_command",
+            details={"value": cmd},
+            text=f"Unknown command: '{cmd}'\n  Run 'applyr help' to see available commands.")
 
 
 if __name__ == "__main__":

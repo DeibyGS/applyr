@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from applyr.config import load_config
+from applyr.errors import warn
 
 SCHEMA_VERSION = 7
 
@@ -209,7 +210,11 @@ def init_db(db_path: str | None = None):
             if db_version < SCHEMA_VERSION:
                 _run_migrations(conn, db_version, SCHEMA_VERSION)
             elif db_version > SCHEMA_VERSION:
-                print(
+                # stderr, not stdout: this used to be a bare print(), which put
+                # a prose line above the payload of every `--json` command and
+                # broke the parse for exactly the agent callers applyr is built
+                # for. `warn` exists for this — "warnings are not data".
+                warn(
                     f"Warning: database schema v{db_version} is newer than "
                     f"applyr v{SCHEMA_VERSION}. Consider upgrading applyr."
                 )
