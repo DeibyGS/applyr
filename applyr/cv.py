@@ -927,7 +927,7 @@ def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
     # the command told users to run the generate step they had just run.
     # `cv_used` is the authoritative link, so read it first and keep the glob
     # as a fallback for hand-named files.
-    cv_dir = APPLYR_DIR / "cv"
+    cv_dir = get_output_dir()
     cv_path = None
 
     recorded = offer_data.get("cv_used")
@@ -1303,8 +1303,7 @@ def cmd_cv_cover_letter(offer_id: int, as_json: bool = False) -> None:
 
     # Save to file
     company_slug = offer_data.get("company", "unknown").lower().replace(" ", "-")
-    output_path = APPLYR_DIR / "cv" / f"cover-letter-{company_slug}.txt"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = get_output_dir() / f"cover-letter-{company_slug}.txt"
     output_path.write_text(letter)
 
     if as_json:
