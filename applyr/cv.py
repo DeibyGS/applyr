@@ -748,7 +748,7 @@ def cmd_cv_review_blind(offer_id: int, as_json: bool = False) -> None:
         conn.close()
 
     # 2. Read cv-master.md fresh
-    cv_master_path = APPLYR_DIR / "cv-master.md"
+    cv_master_path = get_cv_master_path()
     if not cv_master_path.exists():
         die("Error: cv-master.md not found. Run 'applyr init' first.", code="cv_master_missing")
 
@@ -1249,7 +1249,7 @@ def cmd_cv_cover_letter(offer_id: int, as_json: bool = False) -> None:
     offer_data = dict(offer)
 
     # Load cv-master
-    cv_master_path = APPLYR_DIR / "cv-master.md"
+    cv_master_path = get_cv_master_path()
     if not cv_master_path.exists():
         die("cv-master.md not found. Run 'applyr init' first.", code="no_cv_master")
 
