@@ -18,6 +18,9 @@ def tmp_applyr(tmp_path, monkeypatch):
     # Force config module to use the tmp path
     import applyr.config as cfg
     monkeypatch.setattr(cfg, "APPLYR_DIR", applyr_home)
+    # CV_HOME defaults outside APPLYR_DIR in production; tests keep it inside
+    # the same sandbox so nothing escapes tmp_path.
+    monkeypatch.setattr(cfg, "CV_HOME", applyr_home)
 
     return applyr_home
 

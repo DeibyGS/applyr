@@ -165,6 +165,23 @@ class TestCvKeywords:
         assert "not found" not in err
         assert "No CV found" in err
 
+    def test_finds_cv_when_output_dir_differs_from_applyr_dir(self, offer_id, tmp_applyr, monkeypatch, tmp_path):
+        """The lookup hardcoded APPLYR_DIR / "cv" instead of reading the
+        configured output_dir, so it stopped finding CVs the moment CV_HOME
+        diverged from APPLYR_DIR — exactly the setup generated CVs now default
+        to (they live outside the config directory)."""
+        import applyr.config as cfg
+        from applyr.cv import cmd_cv_generate, cmd_cv_keywords
+
+        other_dir = tmp_path / "elsewhere"
+        monkeypatch.setattr(cfg, "CV_HOME", other_dir)
+
+        cmd_cv_generate(offer_id)
+        assert not (tmp_applyr / "cv").exists()
+        assert (other_dir / "cv").exists()
+
+        cmd_cv_keywords(offer_id)  # must not raise "No CV found"
+
 
 class TestKeywordMatchingIgnoresFrontmatter:
     """`cv keywords` matched the offer's keywords against the whole generated
@@ -218,3 +235,29 @@ summary: "Frontend con React.js, Redux, Webpack. Cloud-native sobre AWS."
 
         broken = "---\noffer_id: 1\n\n# Jane Doe\n"
         assert "# Jane Doe" in _strip_frontmatter(broken)
+
+
+class TestCvCoverLetter:
+    """The cover letter writer hardcoded APPLYR_DIR / "cv" too, so it wrote
+    outside the folder `applyr cv keywords` and the user were both looking in
+    the moment output_dir diverged from APPLYR_DIR."""
+
+    def test_writes_to_configured_output_dir(self, offer_id, tmp_applyr, monkeypatch, tmp_path):
+        import applyr.config as cfg
+        from applyr.db import get_conn
+        from applyr.cv import cmd_cv_cover_letter
+
+        # generate_cover_letter() needs a non-null tech_stack; the shared
+        # `offer_id` fixture does not set one.
+        conn = get_conn()
+        conn.execute("UPDATE offers SET tech_stack = ? WHERE id = ?", ("Python", offer_id))
+        conn.commit()
+        conn.close()
+
+        other_dir = tmp_path / "elsewhere"
+        monkeypatch.setattr(cfg, "CV_HOME", other_dir)
+
+        cmd_cv_cover_letter(offer_id)
+
+        assert list((other_dir / "cv").glob("cover-letter-*.txt"))
+        assert not (tmp_applyr / "cv").exists()
