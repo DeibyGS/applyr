@@ -216,6 +216,15 @@ Execute the output prompt yourself. Based on the verdict:
 | NEEDS MINOR EDITS | Apply top 2-3 fixes, re-review (max 2 iterations) |
 | NEEDS MAJOR REVISION | Apply all fixes, re-review (max 2 iterations) |
 
+**This loop only closes if you actually edit the file.** `applyr cv review` regenerates its
+prompt from whatever is on disk at call time — it never writes anything itself. Audited
+2026-08-12 on a real offer: a deliberately weak draft scored 56/100 (NEEDS MAJOR REVISION);
+applying the three fixes the review named and re-running the same command scored 84/100
+(READY TO SEND), and `cv ats-check` / `cv keywords` on the same file agreed independently
+(100/100, 84.6% STRONG). The mechanism is verified — the failure mode to watch for is an
+agent that reads the verdict and moves on without editing, which fails silently since
+nothing forces the second call.
+
 ### Step 7 — Deliver
 
 Present the final CV with:
