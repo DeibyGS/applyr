@@ -419,10 +419,12 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
             text="  Run 'applyr init' first.")
 
     # Auto-detect only when targeting the current project; --global needs an explicit agent
+    detected_path: str | None = None
     if not agent and not global_:
         for name, path in _AGENT_DETECT_ORDER:
             if (cwd / path).exists():
                 agent = name
+                detected_path = path
                 print(f"  Detected {name} config ({path})")
                 break
 
@@ -459,7 +461,15 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
         target = Path.home() / rel_path
         display = "~/" + rel_path
     else:
-        rel_path = _AGENT_TARGETS[agent][0]
+        # `_AGENT_DETECT_ORDER` lists two valid locations for claude
+        # (`CLAUDE.md`, `.claude/CLAUDE.md`) and cursor (`.cursorrules`,
+        # `.cursor/rules`). Detection matched one of them, but the target was
+        # always the first — a project already using `.claude/CLAUDE.md` got
+        # a brand new top-level `CLAUDE.md` instead of its own file appended,
+        # splitting the agent's context across two files it never asked for.
+        # `detected_path` is only ever a value from that curated table, never
+        # user input, so writing to it directly is safe.
+        rel_path = detected_path or _AGENT_TARGETS[agent][0]
         target = cwd / rel_path
         display = rel_path
 

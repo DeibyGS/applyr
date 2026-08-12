@@ -291,6 +291,48 @@ class TestCommandDispatch:
         assert code == 0
         assert "cv-master.md" in err
 
+    def test_setup_agent_writes_to_the_detected_nested_claude_path(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """`.claude/CLAUDE.md` is a valid detection signal for claude, but the
+        write target was hardcoded to the top-level `CLAUDE.md` regardless —
+        a project already using the nested file got a second, empty one at the
+        root instead of its own file appended, splitting the agent's context
+        across two files it never asked for."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "CLAUDE.md").write_text("# My project rules\n")
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent"])
+        assert code == 0
+        assert not (tmp_path / "CLAUDE.md").exists(), "must not create a second top-level file"
+        nested = (tmp_path / ".claude" / "CLAUDE.md").read_text()
+        assert nested.startswith("# My project rules")
+        assert "applyr" in nested.lower()
+
+    def test_setup_agent_writes_to_the_detected_nested_cursor_path(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """Same bug, same fix, for cursor's `.cursor/rules` vs `.cursorrules`."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".cursor").mkdir()
+        (tmp_path / ".cursor" / "rules").write_text("existing rules\n")
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent"])
+        assert code == 0
+        assert not (tmp_path / ".cursorrules").exists(), "must not create a second file"
+        nested = (tmp_path / ".cursor" / "rules").read_text()
+        assert nested.startswith("existing rules")
+        assert "applyr" in nested.lower()
+
+    def test_setup_agent_explicit_agent_still_uses_the_default_path(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """Detection is bypassed with an explicit --agent, so there is no
+        detected path to prefer — the default (top-level CLAUDE.md) stands,
+        even if a nested .claude/CLAUDE.md happens to exist."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "CLAUDE.md").write_text("# My project rules\n")
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
+        assert code == 0
+        assert (tmp_path / "CLAUDE.md").exists()
+
     def test_setup_agent_opencode_writes_agents_md(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
         """opencode writes AGENTS.md in cwd — .opencode/instructions.md is dead."""
         monkeypatch.chdir(tmp_path)
