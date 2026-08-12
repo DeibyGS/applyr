@@ -4,6 +4,32 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] — 2026-08-12
+
+### Changed
+
+- **Generated CVs and cover letters default outside `~/.applyr/`.** `output_dir` pointed
+  inside the same hidden config directory as the database and `cv-master.md`, so the PDF
+  a user needs to attach to a job application required unhiding dotfiles to find in a
+  normal file browser. `cv_master`, the database and config stay in `~/.applyr/` — they
+  are internal state, edited rarely; the new `CV_HOME` default (`~/Documents/applyr`,
+  overridable via `APPLYR_CV_HOME`) is where the deliverable now lands. Existing
+  installs are unaffected: `output_dir` is only a default, an `applyr.toml` that already
+  sets it keeps doing so.
+
+### Fixed
+
+- **`cv keywords`, `cv cover-letter` and `cv review-blind` stopped finding files the
+  moment `output_dir` or `cv_master` diverged from `~/.applyr/`.** All three hardcoded
+  `APPLYR_DIR / "cv"` or `APPLYR_DIR / "cv-master.md"` instead of reading the configured
+  path, so a custom `output_dir` (already a supported, documented config value) silently
+  broke lookup and write for these three commands specifically — `cv generate` and
+  `cv pdf` were unaffected, they already read the config correctly. Invisible in this
+  project's own dev environment, where a real `cv-master.md` happens to sit at the
+  literal `~/.applyr/` default; caught in CI, by the first test to ever exercise
+  `cv cover-letter` end to end. Both now route through the same `get_output_dir()` /
+  `get_cv_master_path()` helpers `cv generate` already used.
+
 ## [1.5.1] — 2026-08-12
 
 ### Fixed
