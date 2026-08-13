@@ -13,6 +13,7 @@ write the application.
 
 import re
 import sqlite3
+import unicodedata
 from difflib import SequenceMatcher
 
 from applyr.constants import DUPLICATE_SIMILARITY_THRESHOLD
@@ -58,13 +59,37 @@ def title_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, norm_a, norm_b).ratio()
 
 
+def normalize_company(text: str | None) -> str:
+    """Lowercase and strip diacritics, so "Mática" and "Matica" compare equal.
+
+    Company names get typed inconsistently far more often than two
+    genuinely different companies happen to share a name — a posting
+    pasted from LinkedIn, OCR, or a rushed manual entry drops accents far
+    more often than it invents a real collision. Unlike substring or fuzzy
+    matching (rejected for company names — see module docstring), stripping
+    diacritics never merges two different companies together, so it carries
+    none of that false-positive risk.
+    """
+    if not text:
+        return ""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+
+
+def _register_company_normalizer(conn: sqlite3.Connection) -> None:
+    """Expose normalize_company() to SQL as unaccent_lower(). Idempotent —
+    re-registering the same function on a connection is safe and cheap."""
+    conn.create_function("unaccent_lower", 1, normalize_company)
+
+
 def find_exact(conn: sqlite3.Connection, title: str, company: str | None) -> sqlite3.Row | None:
-    """Find an offer with the same title and company, case-insensitively."""
+    """Find an offer with the same title and company, case/accent-insensitively."""
+    _register_company_normalizer(conn)
     return conn.execute(
         """SELECT id, title, status, date_received, compatibility_pct
            FROM offers
            WHERE LOWER(title) = LOWER(?)
-             AND LOWER(COALESCE(company,'')) = LOWER(COALESCE(?,''))""",
+             AND unaccent_lower(COALESCE(company,'')) = unaccent_lower(COALESCE(?,''))""",
         (title, company),
     ).fetchone()
 
@@ -73,10 +98,11 @@ def find_company_offers(conn: sqlite3.Connection, company: str | None) -> list[s
     """All offers already recorded for a company, newest first."""
     if not company:
         return []
+    _register_company_normalizer(conn)
     return conn.execute(
         """SELECT id, title, status, date_received, compatibility_pct
            FROM offers
-           WHERE LOWER(COALESCE(company,'')) = LOWER(?)
+           WHERE unaccent_lower(COALESCE(company,'')) = unaccent_lower(?)
            ORDER BY id DESC""",
         (company,),
     ).fetchall()
