@@ -173,6 +173,13 @@ STOP here if the user decides not to apply.
 
 **This step runs for BOTH scores (>= and < threshold).** The Recruiter evaluates independently without knowing the Matcher's score.
 
+**Scope: this is a document-quality check, not a second fit score.** `cv review-blind`
+rubric-scores the *CV artifact* — keyword match, ATS format, evidence, clarity, length —
+the same axes `cv review` uses on a generated CV. It does not re-evaluate whether the
+*candidate* fits the *offer*; that judgment already happened in Step 3 (Matcher scoring
+via `add`'s topics). Treat the ATS SCORE here as "would this document pass an ATS/recruiter
+skim," not as a second opinion on compatibility.
+
 ```bash
 applyr cv review-blind <id>
 ```
