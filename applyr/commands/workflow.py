@@ -13,7 +13,7 @@ from applyr.constants import CV_STATS_NAME_WIDTH
 from applyr.cv import get_cv_master_path
 from applyr.cv_master import inspect_cv_master
 from applyr.cv_stats import build_report
-from applyr.db import get_conn
+from applyr.db import SCHEMA_VERSION, get_conn, get_schema_version
 from applyr.errors import die
 
 
@@ -119,11 +119,22 @@ def _check_database(config: dict) -> dict:
     conn = get_conn()
     try:
         count = conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0]
+        db_version = get_schema_version(conn)
     except Exception as e:  # pylint: disable=broad-except
         # A health check must report a broken database, never crash on it.
         return _issue("Database", f"ERROR — {e}")
     finally:
         conn.close()
+    # A newer schema is forward-compat, not breakage: an older applyr just
+    # ignores columns/tables it doesn't know about yet. `init_db` already
+    # warns about this on every other command; doctor's own report must say
+    # the same thing plainly, since a human reading "newer... Consider
+    # upgrading" out of context can't tell that from an actual problem.
+    if db_version is not None and db_version > SCHEMA_VERSION:
+        return _note("Database",
+                     f"OK ({db_path}, {count} offers) — schema v{db_version} is "
+                     f"newer than applyr v{SCHEMA_VERSION} (forward-compat, not an error)",
+                     f"Run 'pip install --upgrade applyr' to match the schema version.")
     return _ok("Database", f"OK ({db_path}, {count} offers)")
 
 

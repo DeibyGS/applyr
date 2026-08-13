@@ -170,6 +170,15 @@ def get_conn(db_path: str | None = None) -> sqlite3.Connection:
     return conn
 
 
+def get_schema_version(conn: sqlite3.Connection) -> int | None:
+    """Read the stored schema version, or None if the table doesn't exist yet."""
+    try:
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return row["version"] if row else None
+
+
 def _run_migrations(conn: sqlite3.Connection, current: int, target: int) -> None:
     """Run sequential migrations from current version to target version."""
     version = current

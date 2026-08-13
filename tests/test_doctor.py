@@ -118,4 +118,22 @@ class TestDoctorSummaryDoesNotContradictItself:
         out = capsys.readouterr().out
         assert "STALE" not in out
         assert "All checks passed." in out
+
+
+class TestDoctorSchemaForwardCompat:
+    """A newer schema than the installed applyr is forward-compat, not an
+    error — the report must say so plainly instead of reading like a bug."""
+
+    def test_newer_schema_is_a_note_not_an_issue(self, doctor_home, capsys):
+        from applyr.db import SCHEMA_VERSION, get_conn
+
+        conn = get_conn(str(doctor_home / "jobs.db"))
+        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION + 1,))
+        conn.commit()
+        conn.close()
+
+        assert _run() == 0
+        out = capsys.readouterr().out
+        assert "forward-compat, not an error" in out
+        assert "note(s) to review" in out
         assert "note(s)" not in out
