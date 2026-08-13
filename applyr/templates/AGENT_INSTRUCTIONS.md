@@ -62,10 +62,17 @@ If empty or missing, STOP — tell the user to fill it in first.
 ### Step 2 — Check duplicates
 
 ```bash
-applyr search "<company name>"
+applyr search --company "<company name>"
 ```
 
+`--company` matches exactly, case-insensitively — the same definition `add`'s own
+duplicate check uses. Plain `applyr search "<term>"` is a broad substring search across
+title, company, summary, notes and tech_stack; it can miss or over-match a company name,
+so it is not the right tool for this step.
+
 If the company+title already exists: show the existing offer (`applyr show <id>`), STOP.
+A different title at the same company is not a duplicate — applying to several roles at
+one company is normal — but check the history before writing the application.
 
 ### Step 3 — Evaluate and register (Matcher role)
 
@@ -307,6 +314,7 @@ Agent (Matcher — apply recommendations):
 | Trends | `applyr trends` |
 | Weekly summary | `applyr summary [--json]` |
 | Search | `applyr search <term>` |
+| Check a company (exact) | `applyr search --company <name>` |
 | Compare offers | `applyr compare <id1> <id2>` |
 | Learning plan | `applyr plan` |
 | Salary stats | `applyr salary [--seniority X]` |

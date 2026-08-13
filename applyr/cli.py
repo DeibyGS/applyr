@@ -272,9 +272,10 @@ def main():
         cmd_delete(offer_id, force=_has_flag(args, "--force"))
 
     elif cmd == "search":
-        if len(args) < 2:
-            _usage("Usage: applyr search <keyword> [--status S]")
         status = _get_flag(args, "--status")
+        company = _get_flag(args, "--company")
+        if len(args) < 2 and not company:
+            _usage("Usage: applyr search <keyword> [--status S] | applyr search --company <name>")
         # Collect keyword (everything between cmd and flags)
         keyword_parts = []
         i = 1
@@ -285,7 +286,7 @@ def main():
             keyword_parts.append(args[i])
             i += 1
         keyword = " ".join(keyword_parts)
-        cmd_search(keyword, status_filter=status, as_json=as_json)
+        cmd_search(keyword, status_filter=status, company=company, as_json=as_json)
 
     elif cmd == "stats":
         cmd_stats(as_json=as_json)
