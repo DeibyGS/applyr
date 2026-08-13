@@ -4,6 +4,52 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.5.3] — 2026-08-13
+
+### Added
+
+- **`search --company <name>`** for exact, case-insensitive company matching — the same
+  definition `add`'s duplicate detection already used. Plain `search <keyword>` keeps its
+  broad LIKE-based substring search across five fields; the two previously disagreed on
+  what counted as "the same company," so following the documented duplicate-check
+  workflow (`search` before `add`) could miss or over-match relative to what `add`
+  actually blocked on.
+
+### Fixed
+
+- **`doctor` never reported a newer database schema than the installed applyr.** The only
+  signal was a bare stderr line from `init_db()`, printed on every other command and
+  disconnected from `doctor`'s structured health-check report — a human running `doctor`
+  had no way to tell forward-compatibility apart from an actual problem. Added a
+  dedicated schema-version check that surfaces as a labeled, non-blocking note.
+- **Company name matching ignored diacritics.** "Mática Partners" and "Matica Partners"
+  were treated as two different companies by both `add`'s duplicate warning and
+  `search --company`, because the comparison only lowercased, never stripped accents —
+  company history silently split across spellings. Diacritic-stripping carries none of
+  the false-positive risk substring matching would (already rejected for company names —
+  see `duplicates.py`); it can only make two spellings of the same company converge,
+  never merge two different ones.
+- **Generated CV filenames included the full job title**, truncated to 40 characters
+  (e.g. `cv-acm-innovacion-y-personas-desarrollador.md`). Filenames are now company-only
+  (`cv-acm.md`); a second offer at the same company — normal, not a duplicate — gets an
+  automatic id suffix instead of colliding with or silently overwriting the first CV.
+- **`cv pdf` never validated the ATS 1-2 page rule** it already states in its own review
+  rubric — generation always reported success regardless of length. Added a page-count
+  check after generation (parsed from the raw PDF bytes, no new dependency) with a
+  non-blocking warning when the limit is exceeded, based on the offer's seniority.
+- **`cv review-blind` scored the untailored source profile against finished-document
+  criteria.** It reads `cv-master.md` fresh, before any CV is generated or trimmed for
+  the offer — but reused the same rubric as `cv review` (which evaluates the tailored,
+  generated CV), including "ATS Format Compliance" and "Length & Relevance" (1-2 pages).
+  A master profile spanning a full career history will always fail a page-count check it
+  was never meant to pass yet, dragging the score down regardless of candidate strength.
+  Split into a dedicated rubric for the untailored profile.
+- **`--json` printed human text instead of valid JSON on empty results**, breaking the
+  "always parseable" contract every agent-facing command promises. Found in `search`; the
+  same bug pattern was in six more commands (`list`, `pipeline`, `gaps`, `trends`, `plan`,
+  `salary`) — all reached their JSON branch only when rows existed, so an empty result
+  fell through to a human-only message regardless of `--json`.
+
 ## [1.5.2] — 2026-08-12
 
 ### Changed

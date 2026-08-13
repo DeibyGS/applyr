@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "applyr"
-version = "1.5.2"
+version = "1.5.3"
 description = "CLI job application tracker designed for AI coding agents"
 readme = "README.md"
 license = { file = "LICENSE" }
