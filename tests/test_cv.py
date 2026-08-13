@@ -7,29 +7,40 @@ import json
 
 import pytest
 
-from applyr.cv import _ATS_CSS, _make_slug, _strip_html_tags
+from applyr.cv import (
+    _ATS_CSS,
+    _count_pdf_pages,
+    _make_slug,
+    _page_limit_for,
+    _strip_html_tags,
+)
 
 
 class TestMakeSlug:
-    """Slugs feed filenames, so they must never need shell quoting."""
+    """Slugs feed filenames, so they must never need shell quoting.
+
+    Company only, not title — the user wants CV filenames to read as who
+    it's going to, not the job title (e.g. cv-acme.md, not
+    cv-acme-innovacion-y-personas-desarrollador.md).
+    """
 
     def test_strips_parentheses(self):
-        assert _make_slug("Fusuma", "Full Stack (JS)") == "fusuma-full-stack-js"
+        assert _make_slug("Fusuma (Spain)") == "fusuma-spain"
 
     def test_strips_accents_and_symbols(self):
-        slug = _make_slug("Acme & Co.", "Dev/Ops @ Scale")
+        slug = _make_slug("Acme & Co.")
         assert all(c.isalnum() or c == "-" for c in slug)
 
     def test_no_leading_or_trailing_dash(self):
-        slug = _make_slug("(Acme)", "(Dev)")
+        slug = _make_slug("(Acme)")
         assert not slug.startswith("-")
         assert not slug.endswith("-")
 
     def test_missing_company_falls_back(self):
-        assert _make_slug(None, "Backend Dev").startswith("unknown-")
+        assert _make_slug(None) == "unknown"
 
     def test_never_returns_empty(self):
-        assert _make_slug("!!!", "???") == "cv"
+        assert _make_slug("!!!") == "cv"
 
 
 class TestAtsCss:
@@ -130,6 +141,26 @@ class TestCvGenerate:
         md = next((tmp_applyr / "cv").glob("*.md")).read_text()
         assert "no professional experience" not in md
         assert "Topic Scores" not in md
+
+    def test_second_offer_at_same_company_gets_id_suffix(self, offer_id, tmp_applyr):
+        """Applying to a second role at the same company is normal (see
+        duplicates.py) — the second CV must get its own file, not collide
+        with or overwrite the first one."""
+        from applyr.commands.core import cmd_add
+        from applyr.cv import cmd_cv_generate
+
+        cmd_cv_generate(offer_id)  # writes cv-fusuma.md for offer #1
+
+        cmd_add(json.dumps({
+            "title": "Backend Lead",
+            "company": "Fusuma",
+            "topics": {"experience": {"score": 80, "detail": "5 years"}},
+        }))
+        cmd_cv_generate(2)  # must not raise: different offer, same company
+
+        cv_dir = tmp_applyr / "cv"
+        assert (cv_dir / "cv-fusuma.md").exists()
+        assert (cv_dir / "cv-fusuma-2.md").exists()
 
     def test_embeds_offer_id_in_frontmatter(self, offer_id, tmp_applyr):
         """cv review resolves scores from the database through this marker."""
@@ -261,3 +292,53 @@ class TestCvCoverLetter:
 
         assert list((other_dir / "cv").glob("cover-letter-*.txt"))
         assert not (tmp_applyr / "cv").exists()
+
+
+class TestCountPdfPages:
+    """No PDF library dependency — pages are counted from raw PDF bytes."""
+
+    def test_counts_page_objects(self, tmp_path):
+        pdf = tmp_path / "cv.pdf"
+        pdf.write_bytes(b"1 0 obj <</Type /Page>> endobj 2 0 obj <</Type /Page>> endobj")
+        assert _count_pdf_pages(pdf) == 2
+
+    def test_does_not_count_the_pages_tree_root(self, tmp_path):
+        pdf = tmp_path / "cv.pdf"
+        pdf.write_bytes(b"1 0 obj <</Type /Pages /Count 1>> endobj 2 0 obj <</Type /Page>> endobj")
+        assert _count_pdf_pages(pdf) == 1
+
+    def test_no_match_returns_none(self, tmp_path):
+        pdf = tmp_path / "cv.pdf"
+        pdf.write_bytes(b"not really a pdf")
+        assert _count_pdf_pages(pdf) is None
+
+
+class TestPageLimitFor:
+    """1 page by default, 2 for senior/lead/director — matching the rule
+    `cv review` already states in its rubric."""
+
+    def test_html_file_defaults_to_one_page(self, tmp_path):
+        html = tmp_path / "cv.html"
+        html.write_text("<html></html>")
+        assert _page_limit_for(html) == 1
+
+    def test_md_without_offer_id_defaults_to_one_page(self, tmp_path):
+        md = tmp_path / "cv.md"
+        md.write_text("# CV\n\nNo frontmatter here.")
+        assert _page_limit_for(md) == 1
+
+    def test_mid_seniority_gets_one_page(self, tmp_db, tmp_applyr, tmp_path):
+        from applyr.commands.core import cmd_add
+
+        cmd_add(json.dumps({"title": "Backend Dev", "seniority_level": "mid"}))
+        md = tmp_path / "cv.md"
+        md.write_text("---\noffer_id: 1\n---\nbody")
+        assert _page_limit_for(md) == 1
+
+    def test_senior_seniority_gets_two_pages(self, tmp_db, tmp_applyr, tmp_path):
+        from applyr.commands.core import cmd_add
+
+        cmd_add(json.dumps({"title": "Staff Eng", "seniority_level": "senior"}))
+        md = tmp_path / "cv.md"
+        md.write_text("---\noffer_id: 1\n---\nbody")
+        assert _page_limit_for(md) == 2
