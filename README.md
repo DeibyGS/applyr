@@ -13,7 +13,7 @@ applyr is the storage layer; your AI coding agent is the brain. Paste a job offe
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
-[![tests](https://img.shields.io/badge/tests-412%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
+[![tests](https://img.shields.io/badge/tests-576%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-purple)](CONTRIBUTING.md)
 
 [Features](#features) •
@@ -155,6 +155,7 @@ applyr pipeline                    # Grouped by status
 applyr update <id> <status>        # Change status, add notes
 applyr delete <id>                 # Remove an offer
 applyr search <keyword>            # Search by company/title/tech
+applyr search --company <name>     # Exact company match (same definition add uses for duplicates)
 ```
 
 ### Analytics
@@ -336,7 +337,7 @@ tests/
 git clone https://github.com/DeibyGS/applyr.git
 cd applyr
 pip install -e ".[dev]"
-pytest                             # 412 tests, ~4s
+pytest                             # 576 tests, ~4s
 ```
 
 ---
@@ -349,7 +350,7 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 |-------------|------------------------------|
 | Domain model & 32-column schema | Python implementation |
 | Scoring engine & threshold logic | CLI scaffolding |
-| ATS CV template & locked CSS | Test suite (412 tests) |
+| ATS CV template & locked CSS | Test suite (576 tests) |
 | Architecture & code review | Module split & CI |
 
 **Process:** `Spec (SDD) → AI implementation → Human review → Test → Merge`
@@ -368,7 +369,7 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 | | |
 |---|---|
 | PRs | 42 (all human-reviewed) |
-| Tests | 412 (cli, cv, ats, analytics, bullets, cover_letter, md_render, db, scoring, config, validators) |
+| Tests | 576 (cli, cv, ats, analytics, bullets, cover_letter, md_render, db, scoring, config, validators) |
 | Commands | 27 + 5 aliases |
 | Schema | 32 columns, 6 tables, migration system |
 | Models | Claude Opus 4.6, DeepSeek V4 Flash |
