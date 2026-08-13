@@ -608,6 +608,60 @@ IMPROVEMENTS (ordered by impact):
 VERDICT: [READY TO SEND / NEEDS MINOR EDITS / NEEDS MAJOR REVISION]
 ```"""
 
+# cv review-blind runs on the RAW cv-master.md, before any CV is generated or
+# trimmed for the offer (that happens in a later step — see cmd_cv_generate).
+# Reusing _REVIEW_RUBRIC here penalized the untrimmed source document against
+# criteria that only make sense for a finished, tailored CV: "ATS Format
+# Compliance" and "Length & Relevance" (1-2 pages) — a master profile
+# spanning a full career history will always fail a page-count check that
+# was never meant to apply to it yet. Dropped both and reweighted the rest.
+_BLIND_REVIEW_RUBRIC = """\
+## Evaluation criteria
+
+This is the RAW, untailored source profile (cv-master.md), evaluated before any CV is
+generated or trimmed for this offer. Criteria that only make sense for a finished
+document — ATS formatting, page count — do not apply yet; score whether the *material in
+the profile* is strong enough to build a great tailored CV from.
+
+Score each category 0-100 and provide specific feedback:
+
+### 1. Keyword Match (weight: 45%)
+- Compare CV keywords against the job description in the HTML comments
+- Check for both acronyms and full terms (e.g., "AI" and "Artificial Intelligence")
+- Flag important keywords from the offer that are missing
+
+### 2. Evidence & Metrics (weight: 30%)
+- Among the material relevant to this offer, do bullets show measurable results (%, $, Nx, users)?
+- Flag vague claims without evidence ("improved performance" → needs numbers)
+- Flag any claim that looks invented or unverifiable
+
+### 3. Clarity & Impact (weight: 25%)
+- Among the material relevant to this offer, do bullets start with strong action verbs
+  and communicate ONE clear achievement each?
+- Irrelevant history (unrelated past jobs) is expected here and will be cut at generate
+  time — do not penalize its presence, only judge whether the relevant material holds up"""
+
+_BLIND_REVIEW_OUTPUT_FORMAT = """\
+## Required output format
+
+```
+ATS SCORE: [0-100]/100
+
+KEYWORD MATCH:      [0-100]  [1-sentence explanation]
+EVIDENCE & METRICS: [0-100]  [1-sentence explanation]
+CLARITY & IMPACT:   [0-100]  [1-sentence explanation]
+
+STRENGTHS:
+- [strength 1]
+- [strength 2]
+
+GAPS:
+- [gap 1 — missing from the profile's content, not from formatting]
+- [gap 2]
+
+RECOMMENDATION: [what to prioritize when tailoring the CV for this offer]
+```"""
+
 
 def _strip_html_tags(html: str) -> str:
     """Remove markup, styles and comments, returning the readable CV text."""
@@ -859,9 +913,9 @@ You do NOT know the candidate's self-assessed compatibility score — evaluate p
 ## Candidate profile (cv-master.md)
 {cv_text}
 
-{_REVIEW_RUBRIC}
+{_BLIND_REVIEW_RUBRIC}
 
-{_REVIEW_OUTPUT_FORMAT}
+{_BLIND_REVIEW_OUTPUT_FORMAT}
 
 Be specific. Reference exact sections from the profile. Do not be vague."""
 
