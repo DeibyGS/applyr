@@ -926,3 +926,30 @@ class TestMissingArgumentsFailButHelpDoesNot:
         out, err, code = _run(run_cli, capsys, ["show", "--json"])
         assert out == ""
         assert json.loads(err)["error"]["code"] == "missing_arguments"
+
+
+class TestSearchCompanyFlag:
+    """`search --company` must use the same "same company" definition as
+    `add`'s duplicate check (exact, case-insensitive) — not the substring
+    LIKE that plain `search <keyword>` uses across five fields."""
+
+    def _add(self, run_cli, capsys, tmp_applyr):
+        _run(run_cli, capsys, ["add", _make_offer_json(tmp_applyr)])
+
+    def test_exact_match_case_insensitive(self, run_cli, capsys, tmp_db, tmp_applyr):
+        self._add(run_cli, capsys, tmp_applyr)
+        out, err, code = _run(run_cli, capsys, ["search", "--company", "testco"])
+        assert code == 0
+        assert "Test Engineer" in out
+
+    def test_substring_is_not_a_match(self, run_cli, capsys, tmp_db, tmp_applyr):
+        # "Test" is a substring of "TestCo" but not the same company — proves
+        # this is not falling back to LIKE.
+        self._add(run_cli, capsys, tmp_applyr)
+        out, err, code = _run(run_cli, capsys, ["search", "--company", "Test"])
+        assert code == 0
+        assert "No offers found" in out
+
+    def test_no_keyword_required_with_company_flag(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["search", "--company", "TestCo"])
+        assert code == 0

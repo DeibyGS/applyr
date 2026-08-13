@@ -16,7 +16,7 @@ def offer_for_review(tmp_db):
     conn.execute(
         "INSERT INTO offers (title, company, status, compatibility_pct, work_mode, seniority_level, tech_stack) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("Backend Dev", "Acme Corp", "pending", 45, "remote", "mid", "Python, FastAPI, PostgreSQL"),
+        ("Backend Dev", "Acme Corp", "pending", 47, "remote", "mid", "Python, FastAPI, PostgreSQL"),
     )
     conn.execute(
         "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (?, ?, ?, ?)",
@@ -77,7 +77,7 @@ class TestReviewBlind:
         assert "Acme Corp" in captured.out
         assert "senior technical recruiter" in captured.out.lower()
         # Should NOT include compatibility_pct (blind)
-        assert "45%" not in captured.out
+        assert "47%" not in captured.out
         # Should include thresholds
         assert "APPLY >=" in captured.out
         assert "MAYBE >=" in captured.out
@@ -144,3 +144,18 @@ class TestReviewBlind:
         assert "MAYBE >= 70%" in captured.out
         assert "STRONG_MATCH  if score >= 90" in captured.out
         assert "CLOSE_MATCH   if score >= 70" in captured.out
+
+    def test_review_blind_does_not_score_finished_document_criteria(
+        self, tmp_db, offer_for_review, cv_master_valid, capsys
+    ):
+        """review-blind runs on the RAW cv-master.md, before any CV is trimmed
+        for the offer. "ATS Format Compliance" and "Length & Relevance" (1-2
+        pages) only make sense against a finished, tailored CV — scoring them
+        here penalized a full career-history source document for not already
+        being the 1-page deliverable, regardless of how strong a candidate is.
+        """
+        cmd_cv_review_blind(1)
+        captured = capsys.readouterr()
+        assert "ATS COMPLIANCE" not in captured.out
+        assert "LENGTH & RELEVANCE" not in captured.out
+        assert "RAW, untailored source profile" in captured.out

@@ -8,7 +8,7 @@ from pathlib import Path
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS
 from applyr.cv_master import inspect_cv_master
-from applyr.errors import die, error
+from applyr.errors import die, error, warn
 
 
 def _die_chrome(message: str, result) -> None:
@@ -122,13 +122,16 @@ def resolve_cv_language(offer_language: str | None) -> str:
     return configured if configured in CV_HEADINGS else "en"
 
 
-def _make_slug(company: str | None, title: str) -> str:
-    """Create a filesystem-safe slug from company and title.
+def _make_slug(company: str | None) -> str:
+    """Create a filesystem-safe slug from a company name.
 
-    Keeps only ASCII letters, digits and dashes so titles like "Full Stack (JS)"
-    do not produce filenames that need shell quoting.
+    Company only, not title: a CV file is named after who it's going to, not
+    the specific role applied for. Keeps only ASCII letters, digits and
+    dashes so names like "Acme (Spain)" don't produce filenames that need
+    shell quoting. A second offer at the same company gets an id suffix
+    instead of colliding — see cmd_cv_generate.
     """
-    raw = f"{company or 'unknown'}-{title}".lower()
+    raw = (company or "unknown").lower()
     cleaned = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
     return cleaned[:40].strip("-") or "cv"
 
@@ -206,6 +209,47 @@ def _format_tailoring_hints(highlight: list[str], de_emphasize: list[str], not_i
     return "\n".join(lines)
 
 
+_SENIOR_LEVELS = {"senior", "lead", "director"}
+
+
+def _count_pdf_pages(pdf_path: Path) -> int | None:
+    """Count pages in a PDF without adding a PDF library dependency.
+
+    Chrome's --print-to-pdf output keeps page objects as plain, uncompressed
+    text, so counting `/Type /Page` occurrences (excluding `/Type /Pages`,
+    the tree root) works. Returns None instead of 0 when nothing matched —
+    the format assumption broke, so stay silent rather than report a
+    misleading count.
+    """
+    data = pdf_path.read_bytes()
+    count = len(re.findall(rb"/Type\s*/Page(?!s)", data))
+    return count or None
+
+
+def _page_limit_for(cv_path: Path) -> int:
+    """1 page, or 2 for senior/lead/director — the limit `cv review` already states.
+
+    Falls back to 1 (the stricter rule) whenever the offer's seniority can't
+    be resolved: legacy .html input, missing frontmatter, or a deleted offer.
+    """
+    if cv_path.suffix != ".md":
+        return 1
+    match = re.search(r"offer_id:\s*(\d+)", cv_path.read_text(encoding="utf-8"))
+    if not match:
+        return 1
+
+    from applyr.db import get_conn
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT seniority_level FROM offers WHERE id = ?", (int(match.group(1)),)
+        ).fetchone()
+    finally:
+        conn.close()
+    seniority = (row["seniority_level"] if row else None) or ""
+    return 2 if seniority.lower() in _SENIOR_LEVELS else 1
+
+
 def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
     """Convert a CV file (markdown or HTML) to PDF using Chrome headless.
 
@@ -274,6 +318,12 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
             _die_chrome("Chrome exited with an error.", result)
         if pdf_path.exists():
             print(f"PDF generated: {pdf_path}")
+            page_count = _count_pdf_pages(pdf_path)
+            if page_count is not None:
+                limit = _page_limit_for(cv_path)
+                if page_count > limit:
+                    warn(f"Warning: PDF is {page_count} page(s) — ATS rule allows "
+                         f"{limit} for this profile. Trim content before sending.")
         else:
             _die_chrome("PDF was not generated.", result)
     except subprocess.TimeoutExpired:
@@ -329,8 +379,26 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
                      "content_words": report.content_words},
             text=f"  Fill {cv_master} with your profile before generating a CV.")
     output_dir = get_output_dir()
-    slug = _make_slug(row["company"], row["title"])
+    slug = _make_slug(row["company"])
     md_path = output_dir / f"cv-{slug}.md"
+
+    # A CV for the same company already sitting on disk from a DIFFERENT
+    # offer is not a collision to block — applying to several roles at one
+    # company is normal (see duplicates.py). Disambiguate with the offer id
+    # instead of overwriting or refusing. Regenerating THIS offer's own CV
+    # still falls through to the already_exists guard below.
+    if md_path.exists():
+        conn = get_conn()
+        try:
+            other = conn.execute(
+                "SELECT id FROM offers WHERE cv_used = ? AND id != ?",
+                (md_path.stem, offer_id),
+            ).fetchone()
+        finally:
+            conn.close()
+        if other:
+            slug = f"{slug}-{offer_id}"
+            md_path = output_dir / f"cv-{slug}.md"
 
     # Build YAML frontmatter with offer context
     context_lines = [
@@ -538,6 +606,60 @@ IMPROVEMENTS (ordered by impact):
 3. [third]
 
 VERDICT: [READY TO SEND / NEEDS MINOR EDITS / NEEDS MAJOR REVISION]
+```"""
+
+# cv review-blind runs on the RAW cv-master.md, before any CV is generated or
+# trimmed for the offer (that happens in a later step — see cmd_cv_generate).
+# Reusing _REVIEW_RUBRIC here penalized the untrimmed source document against
+# criteria that only make sense for a finished, tailored CV: "ATS Format
+# Compliance" and "Length & Relevance" (1-2 pages) — a master profile
+# spanning a full career history will always fail a page-count check that
+# was never meant to apply to it yet. Dropped both and reweighted the rest.
+_BLIND_REVIEW_RUBRIC = """\
+## Evaluation criteria
+
+This is the RAW, untailored source profile (cv-master.md), evaluated before any CV is
+generated or trimmed for this offer. Criteria that only make sense for a finished
+document — ATS formatting, page count — do not apply yet; score whether the *material in
+the profile* is strong enough to build a great tailored CV from.
+
+Score each category 0-100 and provide specific feedback:
+
+### 1. Keyword Match (weight: 45%)
+- Compare CV keywords against the job description in the HTML comments
+- Check for both acronyms and full terms (e.g., "AI" and "Artificial Intelligence")
+- Flag important keywords from the offer that are missing
+
+### 2. Evidence & Metrics (weight: 30%)
+- Among the material relevant to this offer, do bullets show measurable results (%, $, Nx, users)?
+- Flag vague claims without evidence ("improved performance" → needs numbers)
+- Flag any claim that looks invented or unverifiable
+
+### 3. Clarity & Impact (weight: 25%)
+- Among the material relevant to this offer, do bullets start with strong action verbs
+  and communicate ONE clear achievement each?
+- Irrelevant history (unrelated past jobs) is expected here and will be cut at generate
+  time — do not penalize its presence, only judge whether the relevant material holds up"""
+
+_BLIND_REVIEW_OUTPUT_FORMAT = """\
+## Required output format
+
+```
+ATS SCORE: [0-100]/100
+
+KEYWORD MATCH:      [0-100]  [1-sentence explanation]
+EVIDENCE & METRICS: [0-100]  [1-sentence explanation]
+CLARITY & IMPACT:   [0-100]  [1-sentence explanation]
+
+STRENGTHS:
+- [strength 1]
+- [strength 2]
+
+GAPS:
+- [gap 1 — missing from the profile's content, not from formatting]
+- [gap 2]
+
+RECOMMENDATION: [what to prioritize when tailoring the CV for this offer]
 ```"""
 
 
@@ -791,9 +913,9 @@ You do NOT know the candidate's self-assessed compatibility score — evaluate p
 ## Candidate profile (cv-master.md)
 {cv_text}
 
-{_REVIEW_RUBRIC}
+{_BLIND_REVIEW_RUBRIC}
 
-{_REVIEW_OUTPUT_FORMAT}
+{_BLIND_REVIEW_OUTPUT_FORMAT}
 
 Be specific. Reference exact sections from the profile. Do not be vague."""
 

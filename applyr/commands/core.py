@@ -1062,41 +1062,70 @@ def cmd_delete(offer_id: int, force: bool = False) -> None:
 # cmd_search
 # ---------------------------------------------------------------------------
 
-def cmd_search(keyword: str, status_filter: str | None = None, as_json: bool = False) -> None:
-    """Search offers by keyword across title, company, summary, notes, tech_stack."""
-    pattern = f"%{keyword}%"
-    base_query = """
-        SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received
-        FROM offers
-        WHERE (
-            title       LIKE ?
-            OR company  LIKE ?
-            OR summary  LIKE ?
-            OR notes    LIKE ?
-            OR tech_stack LIKE ?
-        )
+def cmd_search(keyword: str, status_filter: str | None = None, company: str | None = None,
+                as_json: bool = False) -> None:
+    """Search offers by keyword across title, company, summary, notes, tech_stack.
+
+    `company` switches to an exact, case-insensitive company match instead —
+    the same definition `add`'s duplicate check uses (`find_company_offers`).
+    Free-text `keyword` search stays substring-based on purpose, since it
+    scans five unrelated fields at once; making that fuzzy on company names
+    risks false positives on short names (e.g. "IO" inside "Studio"). The
+    workflow's "check duplicates before adding" step needs the stricter,
+    add-compatible definition, so it gets its own flag instead.
     """
-    params: list = [pattern] * 5
-
-    if status_filter:
-        if status_filter not in VALID_STATUSES:
-            die(f"Error: invalid status '{status_filter}'. Valid: {', '.join(VALID_STATUSES)}",
-                code="invalid_value",
-                details={"field": "status", "value": status_filter,
-                         "valid": list(VALID_STATUSES)})
-        base_query += " AND status = ?"
-        params.append(status_filter)
-
-    base_query += " ORDER BY COALESCE(date_applied, date_received) DESC"
+    if status_filter and status_filter not in VALID_STATUSES:
+        die(f"Error: invalid status '{status_filter}'. Valid: {', '.join(VALID_STATUSES)}",
+            code="invalid_value",
+            details={"field": "status", "value": status_filter,
+                     "valid": list(VALID_STATUSES)})
 
     conn = get_conn()
     try:
-        rows = conn.execute(base_query, params).fetchall()
+        if company:
+            matches = find_company_offers(conn, company)
+            ids = [row["id"] for row in matches]
+            if not ids:
+                rows = []
+            else:
+                placeholders = ",".join("?" * len(ids))
+                query = f"""
+                    SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received
+                    FROM offers
+                    WHERE id IN ({placeholders})
+                """
+                params: list = list(ids)
+                if status_filter:
+                    query += " AND status = ?"
+                    params.append(status_filter)
+                query += " ORDER BY COALESCE(date_applied, date_received) DESC"
+                rows = conn.execute(query, params).fetchall()
+        else:
+            pattern = f"%{keyword}%"
+            query = """
+                SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received
+                FROM offers
+                WHERE (
+                    title       LIKE ?
+                    OR company  LIKE ?
+                    OR summary  LIKE ?
+                    OR notes    LIKE ?
+                    OR tech_stack LIKE ?
+                )
+            """
+            params = [pattern] * 5
+            if status_filter:
+                query += " AND status = ?"
+                params.append(status_filter)
+            query += " ORDER BY COALESCE(date_applied, date_received) DESC"
+            rows = conn.execute(query, params).fetchall()
     finally:
         conn.close()
 
+    target = f"company '{company}'" if company else f"'{keyword}'"
+
     if not rows:
-        print(f"No offers found matching '{keyword}'.")
+        print(f"No offers found matching {target}.")
         return
 
     if as_json:
@@ -1105,4 +1134,4 @@ def cmd_search(keyword: str, status_filter: str | None = None, as_json: bool = F
 
     display = [_make_display_row(r) for r in rows]
     _print_table(display, LIST_HEADERS, LIST_COL_WIDTHS)
-    print(f"  {len(rows)} result(s) for '{keyword}'.")
+    print(f"  {len(rows)} result(s) for {target}.")
