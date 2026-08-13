@@ -3,7 +3,14 @@
 import pytest
 
 from applyr.constants import DUPLICATE_SIMILARITY_THRESHOLD
-from applyr.duplicates import find_similar, normalize_title, title_similarity
+from applyr.duplicates import (
+    find_company_offers,
+    find_exact,
+    find_similar,
+    normalize_company,
+    normalize_title,
+    title_similarity,
+)
 
 
 class TestNormalizeTitle:
@@ -98,3 +105,50 @@ class TestFindSimilar:
     def test_common_posting_variants_are_caught(self, variant):
         rows = [FakeRow(id=1, title=variant)]
         assert find_similar(rows, "Backend Engineer") is not None
+
+
+class TestNormalizeCompany:
+    def test_lowercases(self):
+        assert normalize_company("Acme Corp") == "acme corp"
+
+    def test_strips_diacritics(self):
+        assert normalize_company("Mática Partners") == "matica partners"
+
+    def test_already_unaccented_is_unchanged_besides_case(self):
+        assert normalize_company("Matica Partners") == "matica partners"
+
+    def test_none_becomes_empty_string(self):
+        assert normalize_company(None) == ""
+
+
+class TestFindExactAndFindCompanyOffers:
+    """Found via a real offer: "Mática Partners" and "Matica Partners" were
+    treated as two different companies because the SQL comparison only
+    lowercased, never stripped accents — so add's duplicate warning and
+    search --company silently missed real history at the same company.
+    """
+
+    @pytest.fixture
+    def conn(self, tmp_db):
+        from applyr.db import get_conn
+
+        connection = get_conn(tmp_db)
+        connection.execute(
+            "INSERT INTO offers (title, company) VALUES (?, ?)",
+            ("IA Engineer", "Matica Partners"),
+        )
+        connection.commit()
+        return connection
+
+    def test_find_company_offers_ignores_accent_differences(self, conn):
+        rows = find_company_offers(conn, "Mática Partners")
+        assert len(rows) == 1
+        assert rows[0]["title"] == "IA Engineer"
+
+    def test_find_exact_ignores_accent_differences(self, conn):
+        row = find_exact(conn, "IA Engineer", "Mática Partners")
+        assert row is not None
+
+    def test_find_exact_still_requires_the_same_title(self, conn):
+        row = find_exact(conn, "Backend Developer", "Mática Partners")
+        assert row is None

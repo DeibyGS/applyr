@@ -785,10 +785,13 @@ def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", li
         conn.close()
 
     if not rows:
-        msg = f"No offers found"
-        if status_filter:
-            msg += f" with status '{status_filter}'"
-        print(msg + ".")
+        if as_json:
+            print(json.dumps([], indent=2, ensure_ascii=False))
+        else:
+            msg = f"No offers found"
+            if status_filter:
+                msg += f" with status '{status_filter}'"
+            print(msg + ".")
         return
 
     if as_json:
@@ -1125,7 +1128,10 @@ def cmd_search(keyword: str, status_filter: str | None = None, company: str | No
     target = f"company '{company}'" if company else f"'{keyword}'"
 
     if not rows:
-        print(f"No offers found matching {target}.")
+        if as_json:
+            print(json.dumps([], indent=2, ensure_ascii=False))
+        else:
+            print(f"No offers found matching {target}.")
         return
 
     if as_json:

@@ -96,7 +96,10 @@ def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
         conn.close()
 
     if not rows:
-        print("No offers in the database.")
+        if as_json:
+            print(json.dumps({status: [] for status in _STATUS_ORDER}, indent=2, ensure_ascii=False))
+        else:
+            print("No offers in the database.")
         return
 
     # Group by status
@@ -294,7 +297,10 @@ def cmd_gaps(limit: int = 10, as_json: bool = False) -> None:
     rows = _live_skill_gaps(limit)
 
     if not rows:
-        print("No skill gaps recorded yet.")
+        if as_json:
+            print(json.dumps([], indent=2, ensure_ascii=False))
+        else:
+            print("No skill gaps recorded yet.")
         return
 
     worst_gap = max(r["total_gap"] for r in rows)
@@ -438,7 +444,10 @@ def cmd_trends(period: str = "week", as_json: bool = False) -> None:
         conn.close()
 
     if not rows:
-        print("No dated offers found.")
+        if as_json:
+            print(json.dumps([], indent=2, ensure_ascii=False))
+        else:
+            print("No dated offers found.")
         return
 
     if as_json:
@@ -660,7 +669,10 @@ def cmd_plan(limit: int = 10, as_json: bool = False) -> None:
     rows = _live_skill_gaps()
 
     if not rows:
-        print("No skill gaps recorded yet.")
+        if as_json:
+            print(json.dumps([], indent=2, ensure_ascii=False))
+        else:
+            print("No skill gaps recorded yet.")
         return
 
     # `total_gap` is already frequency times average gap — the points a topic
@@ -724,7 +736,10 @@ def cmd_salary(seniority: str | None = None, category: str | None = None, as_jso
         conn.close()
 
     if not rows:
-        print("No salary data available.")
+        if as_json:
+            print(json.dumps({"by_seniority": [], "by_category": []}, indent=2, ensure_ascii=False))
+        else:
+            print("No salary data available.")
         return
 
     # Group by seniority

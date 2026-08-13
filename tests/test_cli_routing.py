@@ -438,13 +438,9 @@ class TestGlobalFlags:
     def test_json_flag_gaps(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["--json", "gaps"])
         assert code == 0
-        # With empty DB, gaps may print a message or empty JSON
-        if out.strip():
-            try:
-                data = json.loads(out)
-                assert isinstance(data, dict)
-            except json.JSONDecodeError:
-                pass  # Some commands print messages instead of JSON when empty
+        # cmd_gaps's JSON payload is a list of skill-gap entries — empty DB is []
+        data = json.loads(out)
+        assert isinstance(data, list)
 
     def test_json_flag_followups(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["--json", "followups"])
@@ -479,12 +475,9 @@ class TestGlobalFlags:
     def test_json_flag_trends(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["--json", "trends"])
         assert code == 0
-        if out.strip():
-            try:
-                data = json.loads(out)
-                assert isinstance(data, dict)
-            except json.JSONDecodeError:
-                pass
+        # cmd_trends's JSON payload is a list of period entries — empty DB is []
+        data = json.loads(out)
+        assert isinstance(data, list)
 
     def test_json_flag_doctor(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["--json", "doctor"])
