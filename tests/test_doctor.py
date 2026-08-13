@@ -136,4 +136,3 @@ class TestDoctorSchemaForwardCompat:
         out = capsys.readouterr().out
         assert "forward-compat, not an error" in out
         assert "note(s) to review" in out
-        assert "note(s)" not in out

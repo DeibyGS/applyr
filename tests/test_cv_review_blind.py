@@ -16,7 +16,7 @@ def offer_for_review(tmp_db):
     conn.execute(
         "INSERT INTO offers (title, company, status, compatibility_pct, work_mode, seniority_level, tech_stack) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("Backend Dev", "Acme Corp", "pending", 45, "remote", "mid", "Python, FastAPI, PostgreSQL"),
+        ("Backend Dev", "Acme Corp", "pending", 47, "remote", "mid", "Python, FastAPI, PostgreSQL"),
     )
     conn.execute(
         "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (?, ?, ?, ?)",
@@ -77,7 +77,7 @@ class TestReviewBlind:
         assert "Acme Corp" in captured.out
         assert "senior technical recruiter" in captured.out.lower()
         # Should NOT include compatibility_pct (blind)
-        assert "45%" not in captured.out
+        assert "47%" not in captured.out
         # Should include thresholds
         assert "APPLY >=" in captured.out
         assert "MAYBE >=" in captured.out
