@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from applyr.colors import color
 from applyr.config import TOPIC_LABELS, load_config
 from applyr.constants import (
+    CALIBRATION_MIN_SAMPLE,
     COMPARE_COL_MAX,
     COMPARE_COL_MIN,
     COMPARE_LABEL_WIDTH,
@@ -136,6 +137,47 @@ def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
 # cmd_stats
 # ---------------------------------------------------------------------------
 
+def _score_calibration(conn) -> dict:
+    """Bucket applied offers by score band and report real outcome rates.
+
+    Answers "does a higher compatibility_pct actually predict a better
+    outcome?" (roadmap item: scoring calibration). Reuses the exact same
+    threshold_apply/threshold_maybe bands `applyr add`'s recommendation uses,
+    so calibration and recommendation can never disagree about what counts
+    as APPLY/MAYBE/LOW MATCH — the same discipline `responded` already
+    follows against REPLY_STATUSES (see the funnel comment above).
+    """
+    config = load_config()
+    threshold_apply = config["general"]["threshold_apply"]
+    threshold_maybe = config["general"]["threshold_maybe"]
+
+    bands = {
+        "apply": {"label": f">= {threshold_apply}%", "total": 0, "responded": 0, "interview": 0, "offer": 0},
+        "maybe": {"label": f"{threshold_maybe}-{threshold_apply - 1}%", "total": 0, "responded": 0, "interview": 0, "offer": 0},
+        "low_match": {"label": f"< {threshold_maybe}%", "total": 0, "responded": 0, "interview": 0, "offer": 0},
+    }
+
+    rows = conn.execute(
+        "SELECT compatibility_pct, status FROM offers WHERE status != 'pending' AND status != 'discarded'"
+    ).fetchall()
+    for row in rows:
+        if row["compatibility_pct"] >= threshold_apply:
+            band = bands["apply"]
+        elif row["compatibility_pct"] >= threshold_maybe:
+            band = bands["maybe"]
+        else:
+            band = bands["low_match"]
+        band["total"] += 1
+        if row["status"] in REPLY_STATUSES:
+            band["responded"] += 1
+        if row["status"] == "in_process":
+            band["interview"] += 1
+        if row["status"] == "offer":
+            band["offer"] += 1
+
+    return bands
+
+
 def cmd_stats(as_json: bool = False) -> None:
     """Print aggregate statistics for the offer database."""
     conn = get_conn()
@@ -177,6 +219,8 @@ def cmd_stats(as_json: bool = False) -> None:
         sal = conn.execute(
             "SELECT MIN(salary_min), MAX(salary_min), AVG(salary_min) FROM offers WHERE salary_min IS NOT NULL"
         ).fetchone()
+
+        calibration = _score_calibration(conn)
     finally:
         conn.close()
 
@@ -187,6 +231,7 @@ def cmd_stats(as_json: bool = False) -> None:
             "funnel": {"applied": applied, "responded": responded, "interview": interview, "offer": offers_cnt},
             "channels": {ch["canal"]: ch["cnt"] for ch in channels},
             "work_modes": {m["work_mode"]: m["cnt"] for m in modes},
+            "score_calibration": calibration,
         }
         if sal and sal[0] is not None:
             payload["salary"] = {"min": sal[0], "max": sal[1], "avg": round(sal[2])}
@@ -223,6 +268,22 @@ def cmd_stats(as_json: bool = False) -> None:
         print(f"    Min : {sal[0]:,}")
         print(f"    Max : {sal[1]:,}")
         print(f"    Avg : {round(sal[2]):,}")
+
+    if any(b["total"] for b in calibration.values()):
+        print(f"\n  Score Calibration (does a higher score predict a better outcome?):")
+        for key in ("apply", "maybe", "low_match"):
+            band = calibration[key]
+            if band["total"] == 0:
+                continue
+            if band["total"] < CALIBRATION_MIN_SAMPLE:
+                print(f"    {band['label']:<10} {band['total']} applied — not enough data yet (need {CALIBRATION_MIN_SAMPLE}+)")
+            else:
+                print(
+                    f"    {band['label']:<10} {band['total']:>3} applied  "
+                    f"{_pct(band['responded'], band['total'])} responded  "
+                    f"{_pct(band['interview'], band['total'])} interview  "
+                    f"{_pct(band['offer'], band['total'])} offer"
+                )
 
     print()
 

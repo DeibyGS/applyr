@@ -253,6 +253,56 @@ class TestRespondedMeansTheSameEverywhere:
         assert RESPONDED_STATUSES == REPLY_STATUSES
 
 
+class TestScoreCalibration:
+    """`stats` buckets applied offers by score band (threshold_apply/
+    threshold_maybe from config) and reports real outcome rates per band —
+    the same bands `add`'s recommendation uses, so calibration can't
+    disagree with it about what counts as APPLY/MAYBE/LOW MATCH."""
+
+    def _stats(self, capsys):
+        from applyr.commands.analytics import cmd_stats
+
+        capsys.readouterr()
+        cmd_stats(as_json=True)
+        return json.loads(capsys.readouterr().out)
+
+    def test_bands_match_add_recommendation_thresholds(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.core import cmd_update
+
+        _add(company="A", topics={"tech_stack": {"score": 85, "detail": "x"}})  # apply band
+        _add(company="B", topics={"tech_stack": {"score": 70, "detail": "x"}})  # maybe band
+        _add(company="C", topics={"tech_stack": {"score": 40, "detail": "x"}})  # low_match band
+        for offer_id, status in enumerate(["rejected", "waiting", "applied"], start=1):
+            cmd_update(offer_id, status)
+
+        calibration = self._stats(capsys)["score_calibration"]
+        assert calibration["apply"]["total"] == 1
+        assert calibration["apply"]["responded"] == 1
+        assert calibration["maybe"]["total"] == 1
+        assert calibration["maybe"]["responded"] == 0  # waiting is not a response
+        assert calibration["low_match"]["total"] == 1
+
+    def test_pending_offers_are_excluded(self, tmp_db, tmp_applyr, capsys):
+        # never applied — status stays "pending", so it isn't an "outcome" yet
+        _add(company="A", topics={"tech_stack": {"score": 90, "detail": "x"}})
+
+        calibration = self._stats(capsys)["score_calibration"]
+        assert calibration["apply"]["total"] == 0
+
+    def test_json_reports_raw_count_below_minimum_sample(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.core import cmd_update
+        from applyr.constants import CALIBRATION_MIN_SAMPLE
+
+        _add(company="A", topics={"tech_stack": {"score": 90, "detail": "x"}})
+        cmd_update(1, "applied")
+
+        calibration = self._stats(capsys)["score_calibration"]
+        # The "not enough data" framing is a human-output guard only — JSON
+        # always exposes the raw count so an agent can apply its own floor.
+        assert calibration["apply"]["total"] == 1
+        assert calibration["apply"]["total"] < CALIBRATION_MIN_SAMPLE
+
+
 class TestGapPriorityScalesWithTheDatabase:
     """Priority keyed off a fixed recurrence count (>= 3 == HIGH) marked every
     topic HIGH once the database held a few hundred offers — exactly when the
