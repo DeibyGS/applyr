@@ -48,7 +48,7 @@ Agent: reads cv-master.md + evaluates 6 topics
          |
          v
 
-applyr:  74% compatibility (>= 65% threshold)
+applyr:  82% compatibility (>= 80% threshold_apply)
          >> RECOMMENDATION: APPLY
          Skill gaps: English, Experience
 
@@ -56,7 +56,7 @@ applyr:  74% compatibility (>= 65% threshold)
          v
 
 Agent: generates tailored CV from cv-master.md
-       runs applyr cv ats-check (ATS score: 87/100)
+       runs applyr cv ats-check (ATS compatibility score: 87/100)
        runs applyr cv bullet-optimize (quality: A)
        runs applyr cv cover-letter (tailored letter)
        delivers PDF ready to send
@@ -80,7 +80,7 @@ applyr is the **storage layer**. Your AI agent is the **brain**.
 - **Keyword extraction** — pulls keywords from job offers and matches against your CV
 - **Bullet point optimization** — analyzes weak verbs, suggests strong alternatives, detects missing metrics
 - **Cover letter generation** — tailored letters from your profile + offer data
-- **CV comparison** — compare two CV versions (ATS score delta, keyword coverage)
+- **CV comparison** — compare two CV versions (ATS compatibility score delta, keyword coverage)
 - **Recruiter review** — built-in prompt scores your CV 0-100 with specific improvements
 - **Response rate tracking** — measure application performance with monthly trends
 - **27 commands** — pipeline, stats, gaps, trends, salary insights, follow-ups, compare, export, and more
@@ -123,12 +123,12 @@ You:   "Analyze this AI Engineer posting at Acme Corp"
 Agent: Checks duplicates → none found
        Scores: tech_stack 85%, experience 40%, projects 90%...
        applyr add '<json>'
-       → "74% match. APPLY recommended. Generate CV?"
+       → "82% match. APPLY recommended. Generate CV?"
 
 You:   "Yes"
 
 Agent: applyr cv generate 1 → fills from cv-master.md
-       applyr cv review → ATS score: 87/100, READY TO SEND
+       applyr cv review → ATS compatibility score: 87/100, READY TO SEND
        applyr cv pdf → delivers PDF
 
 You:   "Analyze this Data Analyst role at SmallCo"
@@ -230,7 +230,7 @@ Each topic is scored 0-100 by the AI agent, then weighted:
 
 **Formula:** `sum(score * weight) / sum(weights)` — configurable in `~/.applyr/applyr.toml`.
 
-**Threshold:** score >= 65% → APPLY. Below → SKIP. Configurable.
+**Thresholds:** score >= 80% → APPLY, 60-79% → MAYBE, below 60% → LOW MATCH. Configurable via `threshold_apply`/`threshold_maybe` in `applyr.toml`.
 
 ---
 
@@ -251,7 +251,8 @@ pending ──> applied ──> waiting ──> in_process ──> offer
 # ~/.applyr/applyr.toml
 
 [general]
-threshold = 65          # Min % to recommend applying
+threshold_apply = 80    # Score >= this → APPLY
+threshold_maybe = 60    # Score >= this → MAYBE (below → LOW MATCH)
 followup_days = 10      # Days before follow-up reminder
 
 [weights]               # Auto-normalized, no need to sum to 1.0

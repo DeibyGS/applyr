@@ -28,7 +28,7 @@ def _extract_text_keywords(text: str) -> list[str]:
 
 
 def compare_cvs(v1_path: str, v2_path: str) -> dict:
-    """Compare two CV versions and return ATS score delta, keyword coverage delta, and recommendations."""
+    """Compare two CV versions and return ATS compatibility score delta, keyword coverage delta, and recommendations."""
     v1_html = Path(v1_path).read_text(encoding="utf-8")
     v2_html = Path(v2_path).read_text(encoding="utf-8")
 
@@ -54,7 +54,7 @@ def compare_cvs(v1_path: str, v2_path: str) -> dict:
 
     recommendations = []
     if score_delta < 0:
-        recommendations.append(f"v2 has {abs(score_delta)}% lower ATS score — review formatting changes")
+        recommendations.append(f"v2 has {abs(score_delta)}% lower ATS compatibility score — review formatting changes")
     if lost:
         recommendations.append(f"v2 lost keywords: {', '.join(sorted(lost)[:5])}")
     if not recommendations:

@@ -31,11 +31,12 @@ for agents that would rather parse than scrape.
 Then guide the user through two mandatory steps:
 
 1. **Fill `~/.applyr/cv-master.md`** with their complete professional profile.
-2. **Set the threshold** in `~/.applyr/applyr.toml` — ask: "What minimum compatibility score before I recommend applying? Default is 65%."
+2. **Set the thresholds** in `~/.applyr/applyr.toml` — ask: "What minimum compatibility score should I recommend APPLY at, and what's the lower cutoff for a MAYBE? Defaults are 80% and 60%."
 
 ```toml
 [general]
-threshold = 65
+threshold_apply = 80    # Score >= this → APPLY
+threshold_maybe = 60    # Score >= this → MAYBE (below → LOW MATCH)
 ```
 
 ## Workflow
@@ -162,23 +163,30 @@ Required: `title`. All others optional — fill what you can extract:
 
 ### Step 4 — Decide
 
-The CLI prints `APPLY` or `SKIP`. Follow it:
+The CLI prints one of three states — `APPLY`, `MAYBE`, or `LOW MATCH`. Follow it:
 
-- **Score >= threshold** — tell the user the score and recommend applying. Wait for confirmation.
-- **Score < threshold** — tell the user the score, list skill gaps, recommend archiving. If they agree: `applyr update <id> discarded --notes "Below threshold"`. If they insist, proceed but warn about gaps.
+- **APPLY** (score >= threshold_apply) — tell the user the score and recommend applying. Wait for confirmation.
+- **MAYBE** (threshold_maybe <= score < threshold_apply) — tell the user the score and skill gaps, let them decide; proceed if they want to.
+- **LOW MATCH** (score < threshold_maybe) — tell the user the score, list skill gaps, recommend archiving. If they agree: `applyr update <id> discarded --notes "Below threshold"`. If they insist, proceed but warn about gaps.
+
+**Framing note for MAYBE/LOW MATCH:** these scores measure fit against *this specific
+offer's stated requirements*, not "will an ATS auto-reject me." Most ATS platforms do not
+auto-reject on content — recruiter surveys put that near a myth, not a mechanism. A low
+score means "worth strengthening or reconsidering," not "a bot will filter you out."
 
 STOP here if the user decides not to apply.
 
 ### Step 5 — Recruiter evaluation (blind)
 
-**This step runs for BOTH scores (>= and < threshold).** The Recruiter evaluates independently without knowing the Matcher's score.
+**This step runs for ALL three states (APPLY, MAYBE, LOW MATCH).** The Recruiter evaluates independently without knowing the Matcher's score.
 
 **Scope: this is a document-quality check, not a second fit score.** `cv review-blind`
 rubric-scores the *CV artifact* — keyword match, ATS format, evidence, clarity, length —
 the same axes `cv review` uses on a generated CV. It does not re-evaluate whether the
 *candidate* fits the *offer*; that judgment already happened in Step 3 (Matcher scoring
-via `add`'s topics). Treat the ATS SCORE here as "would this document pass an ATS/recruiter
-skim," not as a second opinion on compatibility.
+via `add`'s topics). Treat the ATS COMPATIBILITY SCORE here as "would this document pass
+an ATS/recruiter skim" — a heuristic estimate, not a guarantee of any specific employer's
+ATS behavior — not as a second opinion on compatibility.
 
 ```bash
 applyr cv review-blind <id>
@@ -188,7 +196,7 @@ The command outputs:
 1. A review prompt for the Recruiter agent to execute
 2. Thresholds from config for verdict classification
 
-Execute the prompt yourself as the Recruiter agent. Parse the ATS SCORE and classify:
+Execute the prompt yourself as the Recruiter agent. Parse the ATS COMPATIBILITY SCORE and classify:
 
 | Score Range | Verdict | Action |
 |-------------|---------|--------|
@@ -242,7 +250,7 @@ nothing forces the second call.
 ### Step 7 — Deliver
 
 Present the final CV with:
-1. ATS score from last review
+1. ATS compatibility score from last review
 2. Changes made during iterations (if any)
 3. Remaining recommendations
 4. PDF generation command: `applyr cv pdf <path-to-html>`
@@ -252,7 +260,7 @@ Present the final CV with:
 When evaluating an offer, always respond in this structure:
 
 ```
-COMPATIBILITY: X% (threshold: Y%)
+COMPATIBILITY: X% (APPLY >= Y%, MAYBE >= Z%)
 CONFIDENCE: high | medium | low
 
 STRENGTHS:
@@ -276,12 +284,12 @@ User: "Here's a Python backend job at Acme Corp [paste]"
 
 Agent (Matcher):
 1. cat ~/.applyr/cv-master.md
-2. applyr search "Acme"               → no duplicates
+2. applyr search --company "Acme"     → no duplicates
 3. Evaluate topics against cv-master
 4. applyr add '{"title":"...","topics":{...}}'
-   → CLI prints: APPLY (78% >= 65%)
+   → CLI prints: APPLY (82% >= 80%)
 5. Response:
-   COMPATIBILITY: 78% (threshold: 65%)
+   COMPATIBILITY: 82% (APPLY >= 80%, MAYBE >= 60%)
    CONFIDENCE: high
    STRENGTHS: Python expert, 3 relevant projects
    GAPS: Missing AWS (tech_stack -20%)
@@ -293,13 +301,13 @@ User: "yes"
 Agent (Recruiter — blind):
 6. applyr cv review-blind 42
    → Execute the review prompt
-   → ATS SCORE: 74/100 → CLOSE_MATCH
+   → ATS COMPATIBILITY SCORE: 74/100 → CLOSE_MATCH
    → Recommendations: highlight Python API experience, add LangChain project
 
 Agent (Matcher — apply recommendations):
 7. Apply Recruiter's recommendations to CV
 8. applyr cv review cv-acme-backend.md
-   → READY TO SEND (ATS: 87/100)
+   → READY TO SEND (ATS compatibility: 87/100)
 9. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
 10. Deliver CV with score and recommendations
 ```

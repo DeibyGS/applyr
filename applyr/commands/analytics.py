@@ -239,7 +239,7 @@ def _live_skill_gaps(limit: int | None = None) -> list[dict]:
     forever. Deriving from offer_topics keeps these numbers consistent with
     what `applyr list` actually shows.
     """
-    threshold = load_config()["general"]["threshold"]
+    threshold = load_config()["general"]["threshold_maybe"]
 
     conn = get_conn()
     try:

@@ -518,7 +518,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
             text='  Example: applyr add \'{"title": "Backend Dev", "company": "Acme"}\'')
 
     config = load_config()
-    threshold: int = config["general"]["threshold"]
+    threshold_maybe: int = config["general"]["threshold_maybe"]
     followup_days: int = config["general"]["followup_days"]
 
     # --- Required field ----------------------------------------------------
@@ -679,9 +679,9 @@ def cmd_add(raw: str, force: bool = False) -> None:
                 "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (?, ?, ?, ?)",
                 (offer_id, topic_key, score, detail),
             )
-            # Track gaps: topics below threshold (for in-memory notice only)
-            if isinstance(score, (int, float)) and score < threshold:
-                skill_gaps.append((topic_key, threshold - score))
+            # Track gaps: topics below the MAYBE cutoff (for in-memory notice only)
+            if isinstance(score, (int, float)) and score < threshold_maybe:
+                skill_gaps.append((topic_key, threshold_maybe - score))
 
         conn.commit()
     finally:

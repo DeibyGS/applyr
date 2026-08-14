@@ -551,6 +551,9 @@ _MAX_CV_TEXT_CHARS = 10_000
 _REVIEW_RUBRIC = """\
 ## Evaluation criteria
 
+This is a heuristic compatibility estimate, not a prediction of how any specific
+employer's ATS will actually parse or rank this CV — no such universal score exists.
+
 Score each category 0-100 and provide specific feedback:
 
 ### 1. Keyword Match (weight: 30%)
@@ -584,7 +587,7 @@ _REVIEW_OUTPUT_FORMAT = """\
 ## Required output format
 
 ```
-ATS SCORE: [0-100]/100
+ATS COMPATIBILITY SCORE: [0-100]/100
 
 KEYWORD MATCH:      [0-100]  [1-sentence explanation]
 ATS COMPLIANCE:     [0-100]  [1-sentence explanation]
@@ -623,6 +626,9 @@ generated or trimmed for this offer. Criteria that only make sense for a finishe
 document — ATS formatting, page count — do not apply yet; score whether the *material in
 the profile* is strong enough to build a great tailored CV from.
 
+This is a heuristic compatibility estimate, not a prediction of how any specific
+employer's ATS will actually parse or rank the finished CV — no such universal score exists.
+
 Score each category 0-100 and provide specific feedback:
 
 ### 1. Keyword Match (weight: 45%)
@@ -645,7 +651,7 @@ _BLIND_REVIEW_OUTPUT_FORMAT = """\
 ## Required output format
 
 ```
-ATS SCORE: [0-100]/100
+ATS COMPATIBILITY SCORE: [0-100]/100
 
 KEYWORD MATCH:      [0-100]  [1-sentence explanation]
 EVIDENCE & METRICS: [0-100]  [1-sentence explanation]
@@ -920,7 +926,7 @@ You do NOT know the candidate's self-assessed compatibility score — evaluate p
 Be specific. Reference exact sections from the profile. Do not be vague."""
 
     # 5. Determine verdict based on thresholds (from config)
-    # The agent will parse the ATS SCORE from the prompt output and classify
+    # The agent will parse the ATS COMPATIBILITY SCORE from the prompt output and classify
     # For JSON output, we include the thresholds so the agent can classify
     if as_json:
         payload = {
@@ -934,7 +940,7 @@ Be specific. Reference exact sections from the profile. Do not be vague."""
                 "maybe": threshold_maybe,
             },
             "instructions": (
-                "Parse ATS SCORE from the prompt output. "
+                "Parse ATS COMPATIBILITY SCORE from the prompt output. "
                 f"If score >= {threshold_apply}: verdict = STRONG_MATCH. "
                 f"If score >= {threshold_maybe} and < {threshold_apply}: verdict = CLOSE_MATCH, include conditional_advice. "
                 f"If score < {threshold_maybe}: verdict = NO_MATCH, include gaps."
@@ -989,7 +995,8 @@ def cmd_cv_ats_check(cv_file: str, as_json: bool = False) -> None:
         }
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        print(f"ATS SCORE: {report.score}/100")
+        print(f"ATS COMPATIBILITY SCORE: {report.score}/100")
+        print("(heuristic formatting check — not a prediction of any specific employer's ATS)")
         print()
 
         if report.issues:
@@ -1105,7 +1112,7 @@ def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
         elif report.match_rate >= 60:
             print("KEYWORD STATUS: ADEQUATE — consider adding missing keywords")
         else:
-            print("KEYWORD STATUS: WEAK — add missing keywords to improve ATS score")
+            print("KEYWORD STATUS: WEAK — add missing keywords to improve ATS compatibility score")
 
 
 def analyze_bullets(bullets: list[str]) -> dict:
