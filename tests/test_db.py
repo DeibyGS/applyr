@@ -388,6 +388,47 @@ class TestMigrationV6ToV7:
         assert self._seed(tmp_db, "applied")["date_applied"] is None
 
 
+class TestMigrationV7ToV8:
+    """`confidence` shipped with no backfill by design — there is no honest
+    way to invent a certainty nobody recorded for topics scored before this
+    migration existed."""
+
+    def test_existing_topic_rows_get_null_confidence(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("INSERT INTO offers (title) VALUES ('Backend Dev')")
+        conn.execute(
+            "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (1, 'tech_stack', 70, 'legacy')"
+        )
+        conn.execute("UPDATE schema_version SET version = 7")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        try:
+            row = dict(conn.execute("SELECT * FROM offer_topics WHERE offer_id = 1").fetchone())
+        finally:
+            conn.close()
+        assert row["confidence"] is None
+
+    def test_migration_idempotent(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 7")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+        init_db(tmp_db)  # must not raise on the second pass
+
+        conn = get_conn(tmp_db)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        finally:
+            conn.close()
+        assert version == SCHEMA_VERSION
+
+
 @pytest.mark.unit
 class TestSchemaWarningGoesToStderr:
     """A bare print() put a prose line above the payload of every `--json`

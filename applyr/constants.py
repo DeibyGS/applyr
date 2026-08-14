@@ -66,6 +66,10 @@ CHROME_STDERR_SNIPPET = 200
 # Validation
 # ---------------------------------------------------------------------------
 VALID_SALARY_PERIODS = ("annual", "monthly", "hourly")
+# Enum, not a float — an LLM-reported "0.82" isn't more meaningful than "high",
+# and would invite the same two-representations-of-one-concept bug already
+# found and fixed once this session for threshold/threshold_apply.
+VALID_CONFIDENCE_LEVELS = ("high", "medium", "low")
 
 # ---------------------------------------------------------------------------
 # Default config weights (used in config.py and TOML template)

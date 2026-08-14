@@ -103,7 +103,13 @@ average and redistributes its weight across the rest; it does not count as a zer
 
 **Scoring rules:** Be honest — inflated scores waste applications.
 
-- Always explain WHY in the `detail` field.
+- Always explain WHY in the `detail` field — a scored topic with no `detail` prints a
+  warning (non-blocking, but expect it).
+- **Set `confidence` per topic** (`"high" | "medium" | "low"`) when you have a sense of how
+  certain the score is. It's optional and not enforced, but `add` derives one overall
+  confidence from the weakest value you provide — omit it everywhere and the offer reads as
+  `"unknown"` confidence rather than a false "medium". Not a float: a made-up "0.82" isn't
+  more meaningful than "high", so applyr only accepts the three levels.
 - **If the offer does not mention a topic, omit it entirely. Do not score it 100.** An
   unmentioned requirement is unknown, not satisfied. Scoring it 100 hands out free points
   for a fit nobody verified, and because `education` and `english` alone carry 25% of the
@@ -136,15 +142,17 @@ Required: `title`. All others optional — fill what you can extract:
   "canal": "linkedin_easy",
   "job_url": "https://...",
   "topics": {
-    "tech_stack": {"score": 80, "detail": "Knows Python+FastAPI, missing AWS"},
-    "experience": {"score": 40, "detail": "1yr exp, they ask 3+"},
-    "projects": {"score": 85, "detail": "3 relevant backend projects"},
-    "education": {"score": 70, "detail": "CS degree, prefer Master's"},
-    "english": {"score": 90, "detail": "B2+, offer requires fluent"},
-    "cultural_fit": {"score": 75, "detail": "Hybrid ok, prefers remote"}
+    "tech_stack": {"score": 80, "detail": "Knows Python+FastAPI, missing AWS", "confidence": "high"},
+    "experience": {"score": 40, "detail": "1yr exp, they ask 3+", "confidence": "high"},
+    "projects": {"score": 85, "detail": "3 relevant backend projects", "confidence": "medium"},
+    "education": {"score": 70, "detail": "CS degree, prefer Master's", "confidence": "high"},
+    "english": {"score": 90, "detail": "B2+, offer requires fluent", "confidence": "medium"},
+    "cultural_fit": {"score": 75, "detail": "Hybrid ok, prefers remote", "confidence": "low"}
   }
 }
 ```
+
+`confidence` is optional per topic — shown on every topic above for illustration, not because it's required.
 
 <details>
 <summary>Valid enum values</summary>
@@ -275,7 +283,14 @@ RECOMMENDATION: APPLY | SKIP
 NEXT ACTION: [what to do next]
 ```
 
-Use `confidence: low` when the offer has sparse information (no tech stack, no requirements listed).
+**Don't invent `CONFIDENCE` — read it from `applyr add`'s output.** `add` prints a derived
+`CONFIDENCE: HIGH | MEDIUM | LOW | UNKNOWN` line (the weakest per-topic `confidence` you
+provided in Step 3, or `UNKNOWN` if none were provided). Copy that value here rather than
+guessing a fresh one — it's grounded in what you actually submitted, not a new judgment
+call. **If the offer has sparse information (no tech stack, no requirements listed), mark
+the affected topics `confidence: "low"` in Step 3** so that judgment flows through to the
+derived value here — `UNKNOWN` means you skipped confidence entirely, it does not mean
+"the offer was vague."
 
 ## Example flow
 
