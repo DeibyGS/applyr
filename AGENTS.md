@@ -135,14 +135,22 @@ exact command CI uses:
 pylint applyr/ --disable=C0114,C0115,C0116,R0913,R0914,R0801 --fail-under=7.0
 ```
 
-No formatter, type checker or coverage gate is configured.
+No formatter or type checker is configured. Coverage gate: `fail_under = 75` in
+`pyproject.toml`'s `[tool.coverage.report]` — `pytest --cov` fails the build below that.
 
 ## Building
 
 ```bash
-python -m build           # Creates dist/*.whl and dist/*.tar.gz
-twine upload dist/*       # Publish to PyPI
+python -m build           # Creates dist/*.whl and dist/*.tar.gz — also a local
+                           # dry-run check before tagging
 ```
+
+Publishing is `.github/workflows/release.yml`: build → `twine check` → publish to PyPI
+via Trusted Publishing (OIDC), triggered by publishing a GitHub Release from a `vX.Y.Z`
+tag. No API token in the repo. `twine upload dist/*` still works as a manual fallback but
+needs a PyPI token that isn't stored here. Requires a one-time trusted publisher
+registered on pypi.org (project owner, not automated) — see `.claude/CLAUDE.md`
+Versioning section for the exact values.
 
 ## Environment Variables
 

@@ -40,7 +40,7 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score
-from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown
+from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
 
@@ -560,8 +560,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
             details={"salary_min": salary_min, "salary_max": salary_max},
             text="  Hint: swap the values or correct the input.")
     salary_period: str = data.get("salary_period", "annual")
-    if salary_period not in VALID_SALARY_PERIODS:
-        die(f"Error: invalid salary_period '{salary_period}'. Valid: {', '.join(VALID_SALARY_PERIODS)}", code="invalid_value", details={"field": "salary_period", "value": salary_period, "valid": list(VALID_SALARY_PERIODS)})
+    _validate_enum(salary_period, VALID_SALARY_PERIODS, "salary_period", required=True)
     seniority_level: str | None = data.get("seniority_level")
     role_category: str | None = data.get("role_category")
     tech_stack: str | None = data.get("tech_stack")
@@ -583,18 +582,12 @@ def cmd_add(raw: str, force: bool = False) -> None:
         print(f"Warning: invalid date_responded format '{data['date_responded']}' — ignored. Use YYYY-MM-DD.")
 
     # --- Validate enums ----------------------------------------------------
-    if status not in VALID_STATUSES:
-        die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}", code="invalid_value", details={"field": "status", "value": status, "valid": list(VALID_STATUSES)})
-    if canal and canal not in VALID_CHANNELS:
-        die(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}", code="invalid_value", details={"field": "canal", "value": canal, "valid": list(VALID_CHANNELS)})
-    if work_mode and work_mode not in VALID_WORK_MODES:
-        die(f"Error: invalid work_mode '{work_mode}'. Valid: {', '.join(VALID_WORK_MODES)}", code="invalid_value", details={"field": "work_mode", "value": work_mode, "valid": list(VALID_WORK_MODES)})
-    if seniority_level and seniority_level not in VALID_SENIORITY:
-        die(f"Error: invalid seniority_level '{seniority_level}'. Valid: {', '.join(VALID_SENIORITY)}", code="invalid_value", details={"field": "seniority_level", "value": seniority_level, "valid": list(VALID_SENIORITY)})
-    if role_category and role_category not in VALID_ROLE_CATEGORIES:
-        die(f"Error: invalid role_category '{role_category}'. Valid: {', '.join(VALID_ROLE_CATEGORIES)}", code="invalid_value", details={"field": "role_category", "value": role_category, "valid": list(VALID_ROLE_CATEGORIES)})
-    if language and language not in VALID_LANGUAGES:
-        die(f"Error: invalid language '{language}'. Valid: {', '.join(VALID_LANGUAGES)}", code="invalid_value", details={"field": "language", "value": language, "valid": list(VALID_LANGUAGES)})
+    _validate_enum(status, VALID_STATUSES, "status", required=True)
+    _validate_enum(canal, VALID_CHANNELS, "canal")
+    _validate_enum(work_mode, VALID_WORK_MODES, "work_mode")
+    _validate_enum(seniority_level, VALID_SENIORITY, "seniority_level")
+    _validate_enum(role_category, VALID_ROLE_CATEGORIES, "role_category")
+    _validate_enum(language, VALID_LANGUAGES, "language")
     # --- Duplicate detection -----------------------------------------------
     conn = get_conn()
     try:
@@ -971,10 +964,8 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 def cmd_update(offer_id: int, status: str, notes: str | None = None,
                canal: str | None = None, cv: str | None = None) -> None:
     """Update the status (and optionally notes/canal/cv) of an offer."""
-    if status not in VALID_STATUSES:
-        die(f"Error: invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}", code="invalid_value", details={"field": "status", "value": status, "valid": list(VALID_STATUSES)})
-    if canal and canal not in VALID_CHANNELS:
-        die(f"Error: invalid canal '{canal}'. Valid: {', '.join(VALID_CHANNELS)}", code="invalid_value", details={"field": "canal", "value": canal, "valid": list(VALID_CHANNELS)})
+    _validate_enum(status, VALID_STATUSES, "status", required=True)
+    _validate_enum(canal, VALID_CHANNELS, "canal")
     config = load_config()
     followup_days: int = config["general"]["followup_days"]
 

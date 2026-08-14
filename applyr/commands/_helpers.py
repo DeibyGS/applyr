@@ -3,11 +3,28 @@
 from datetime import date
 
 from applyr.constants import PROGRESS_BAR_WIDTH
+from applyr.errors import die
 
 
 def _today() -> str:
     """Return today's date as ISO string."""
     return date.today().isoformat()
+
+
+def _validate_enum(value: str | None, valid: tuple[str, ...], field: str, required: bool = False) -> None:
+    """Die with a standard invalid_value error if `value` isn't in `valid`.
+
+    Optional fields (required=False, the default) skip validation when value
+    is falsy — an omitted field is not the same as an invalid one. Required
+    fields (status, salary_period) always carry a value via their caller's
+    default, so there's nothing to skip.
+    """
+    if not required and not value:
+        return
+    if value not in valid:
+        die(f"Error: invalid {field} '{value}'. Valid: {', '.join(valid)}",
+            code="invalid_value",
+            details={"field": field, "value": value, "valid": list(valid)})
 
 
 def _bar(score: int, width: int = PROGRESS_BAR_WIDTH) -> str:

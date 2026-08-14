@@ -1,0 +1,74 @@
+name: Release
+
+# Publishes to PyPI via Trusted Publishing (OIDC) — no API token stored in
+# this repo. Runs only when a GitHub Release is published, so a release is
+# always an explicit, auditable action (tag push alone does not publish).
+#
+# One-time setup this workflow depends on (not automated — done once on
+# pypi.org by a project owner): PyPI project settings -> Publishing ->
+# add a trusted publisher for this repo/workflow (owner: DeibyGS, repo:
+# applyr, workflow: release.yml, environment: pypi).
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      # Catches a malformed long_description or metadata error before PyPI
+      # does — PyPI's own rejection happens after the trusted-publishing
+      # exchange, which is a worse place to find out.
+      - name: Validate artifacts
+        run: twine check dist/*
+
+      - name: Verify the built version matches the release tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          BUILT=$(python -c "import re; print(re.search(r'version = \"([^\"]+)\"', open('pyproject.toml').read()).group(1))")
+          if [ "$TAG" != "$BUILT" ]; then
+            echo "Release tag v$TAG does not match pyproject.toml version $BUILT"
+            exit 1
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Required for PyPI Trusted Publishing — this is the OIDC token PyPI
+      # exchanges for a short-lived upload credential. No secret needed.
+      id-token: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

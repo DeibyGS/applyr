@@ -946,3 +946,67 @@ class TestSearchCompanyFlag:
     def test_no_keyword_required_with_company_flag(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["search", "--company", "TestCo"])
         assert code == 0
+
+
+class TestConfidenceThroughRealCliRouting:
+    """`confidence` (specs/scoring-confidence) was only ever tested by calling
+    cmd_add/cmd_show directly, bypassing cli.py's own argparse layer entirely
+    — a gap the mandatory /adversarial-test pass for that PR flagged but left
+    open. This exercises the real `applyr add '<json>'` / `applyr show <id>
+    --json` round trip through main(), not the Python functions directly.
+    """
+
+    def test_confidence_survives_the_full_cli_round_trip(self, run_cli, capsys, tmp_db):
+        offer_json = json.dumps({
+            "title": "Test Engineer",
+            "company": "TestCo",
+            "topics": {"tech_stack": {"score": 85, "detail": "x", "confidence": "high"}},
+        })
+        # --no-color on both calls: colorama's autoreset state from a colored
+        # `add` bleeds into the next run_cli() call in-process and corrupts
+        # the `show --json` payload with stray ANSI reset codes otherwise.
+        out, err, code = _run(run_cli, capsys, ["add", "--no-color", offer_json])
+        assert code == 0
+        assert "high confidence" in out
+
+        out, err, code = _run(run_cli, capsys, ["show", "1", "--json"])
+        assert code == 0
+        data = json.loads(out)
+        assert data["confidence"] == "high"
+        assert data["topics"][0]["confidence"] == "high"
+
+    def test_invalid_confidence_exits_nonzero_through_cli(self, run_cli, capsys, tmp_db):
+        offer_json = json.dumps({
+            "title": "Test Engineer",
+            "topics": {"tech_stack": {"score": 85, "detail": "x", "confidence": "extremely high"}},
+        })
+        out, err, code = _run(run_cli, capsys, ["add", offer_json])
+        assert code != 0
+        assert "invalid confidence" in err
+
+
+class TestAddMalformedJson:
+    """P0 quality-gate item (roadmap doc, section 2): malformed JSON is an
+    explicit CLI contract case — exit code stable, stdout empty/parseable as
+    documented, stderr carries the structured diagnostic. `cmd_add` has
+    handled this since before this session (code="invalid_json"), but no
+    test exercised it through real argument parsing until now."""
+
+    def test_malformed_json_dies_with_invalid_json_code(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["add", "not valid json {{"])
+        assert code != 0
+        assert "invalid JSON" in err
+
+    def test_malformed_json_in_json_mode_emits_structured_error(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["add", "--json", "not valid json {{"])
+        assert code != 0
+        assert out == "", "a failed --json call must not mix a diagnostic into the data stream"
+        payload = json.loads(err)
+        assert payload["error"]["code"] == "invalid_json"
+        assert "line" in payload["error"]["details"]
+        assert "column" in payload["error"]["details"]
+
+    def test_empty_string_is_also_malformed_json(self, run_cli, capsys, tmp_db):
+        out, err, code = _run(run_cli, capsys, ["add", "--json", ""])
+        assert code != 0
+        assert json.loads(err)["error"]["code"] == "invalid_json"

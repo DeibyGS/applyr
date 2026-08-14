@@ -62,6 +62,9 @@ Version: 1.0.0
 - Command tests if I/O needed
 - Tests and code in same commit
 - PR budget: 400 lines max
+- Coverage gate: `fail_under = 75` in `pyproject.toml`'s `[tool.coverage.report]` — CI already
+  ran `pytest --cov` without enforcing it; a PR that drops total coverage below 75% now fails.
+  Raise deliberately as coverage grows; never lower it to make a red build green.
 
 ## CV Pipeline Rules
 

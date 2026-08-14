@@ -4,6 +4,7 @@ import pytest
 import sqlite3
 
 from applyr.db import init_db, get_conn, SCHEMA_VERSION, VALID_STATUSES, VALID_CHANNELS, VALID_SEVERITIES
+import applyr.db as db_module
 
 
 @pytest.mark.unit
@@ -455,3 +456,74 @@ class TestSchemaWarningGoesToStderr:
         captured = capsys.readouterr()
         assert captured.out == ""
         assert "newer than" not in captured.err
+
+
+class TestMigrationGapFailsCleanly:
+    """P0 quality-gate item (roadmap doc, section 2): 'migration failures' is
+    an explicit contract case to protect. MIGRATIONS has no gap for any
+    version currently shipped, so this simulates one — a database whose
+    schema_version has no defined path forward — rather than waiting for a
+    real gap to exist to test the failure mode at all."""
+
+    def _make_gapped_db(self, tmp_db, monkeypatch):
+        """Create a v6 database with a migration gap (missing 6→7 path)."""
+        gapped = dict(db_module.MIGRATIONS)
+        del gapped[(6, 7)]
+        monkeypatch.setattr(db_module, "MIGRATIONS", gapped)
+
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 6")
+        conn.commit()
+        conn.close()
+
+    def test_undefined_migration_path_raises_runtime_error(self, tmp_db, monkeypatch):
+        self._make_gapped_db(tmp_db, monkeypatch)
+        with pytest.raises(RuntimeError, match="No migration path from schema v6 to v7"):
+            init_db(tmp_db)
+
+    def test_gap_does_not_corrupt_the_stored_version(self, tmp_db, monkeypatch):
+        """A failed migration must not silently mark the database as
+        upgraded — schema_version stays at the last version that actually
+        applied, not the target that was never reached."""
+        self._make_gapped_db(tmp_db, monkeypatch)
+
+        with pytest.raises(RuntimeError):
+            init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        finally:
+            conn.close()
+        assert version == 6
+
+
+class TestMigrationFailureIsAStructuredCliError:
+    """Same gap as above, but through the CLI entry point — confirms
+    init_db()'s RuntimeError becomes a clean die(code='db_error'), not an
+    unhandled traceback, per cli.py's existing `except Exception` around
+    init_db() (see main(), the 'Commands that need DB initialized' block)."""
+
+    def _make_gapped_db(self, tmp_db, monkeypatch):
+        """Create a v6 database with a migration gap (missing 6→7 path)."""
+        gapped = dict(db_module.MIGRATIONS)
+        del gapped[(6, 7)]
+        monkeypatch.setattr(db_module, "MIGRATIONS", gapped)
+
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 6")
+        conn.commit()
+        conn.close()
+
+    def test_migration_gap_dies_with_db_error_code(self, tmp_db, tmp_applyr, monkeypatch, capsys):
+        self._make_gapped_db(tmp_db, monkeypatch)
+
+        from applyr.cli import main
+        import sys as sys_module
+        monkeypatch.setattr(sys_module, "argv", ["applyr", "--json", "stats"])
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code != 0
+        import json as json_module
+        payload = json_module.loads(capsys.readouterr().err)
+        assert payload["error"]["code"] == "db_error"
