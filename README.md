@@ -84,6 +84,7 @@ applyr is the **storage layer**. Your AI agent is the **brain**.
 - **Recruiter review** — built-in prompt scores your CV 0-100 with specific improvements
 - **Response rate tracking** — measure application performance with monthly trends
 - **Score calibration** — `applyr stats` reports real response/interview rates per score band, so you can see whether a higher compatibility score actually predicts a better outcome
+- **Confidence + evidence** — score each topic with a `high`/`medium`/`low` certainty and a justification; `add`/`show` surface both, so a score is never just a bare number
 - **27 commands** — pipeline, stats, gaps, trends, salary insights, follow-ups, compare, export, and more
 - **Local and private** — SQLite on your machine. No API keys, no subscriptions, nothing leaves your system
 - **Agent-native** — ships with `AGENT_INSTRUCTIONS.md` that tells Claude/Cursor/OpenCode exactly what to do

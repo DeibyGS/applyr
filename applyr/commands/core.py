@@ -22,6 +22,7 @@ from applyr.constants import (
     LIST_HEADERS,
     TRUNCATE_COMPANY,
     TRUNCATE_TITLE,
+    VALID_CONFIDENCE_LEVELS,
     VALID_SALARY_PERIODS,
 )
 from applyr.db import (
@@ -39,7 +40,7 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score
-from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _show_score_breakdown
+from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
 
@@ -153,6 +154,21 @@ def _get_recommendation_label(recommendation: str) -> str:
     return labels.get(recommendation, recommendation.upper())
 
 
+def _topic_display_suffix(detail: str, confidence: str | None) -> str:
+    """Build the trailing '(...)' annotation for a topic line.
+
+    Confidence first, then detail, joined so a topic with only one of the
+    two doesn't print an empty or malformed parenthetical.
+    """
+    if confidence and detail:
+        return f" ({confidence} confidence) — {detail}"
+    if confidence:
+        return f" ({confidence} confidence)"
+    if detail:
+        return f" ({detail})"
+    return ""
+
+
 def _show_match_breakdown(topics: list[dict], topic_labels: dict) -> None:
     """Show skill-level match breakdown (Strong/Partial/Missing)."""
     if not topics:
@@ -169,6 +185,7 @@ def _show_match_breakdown(topics: list[dict], topic_labels: dict) -> None:
             "topic": t["topic"],
             "score": score,
             "detail": t.get("detail", ""),
+            "confidence": t.get("confidence"),
             "label": topic_labels.get(t["topic"], t["topic"]),
         }
         if classification == "strong":
@@ -181,20 +198,20 @@ def _show_match_breakdown(topics: list[dict], topic_labels: dict) -> None:
     if strong:
         print("\n  Strong:")
         for e in strong:
-            detail = f" ({e['detail']})" if e["detail"] else ""
-            print(f"    ✓ {e['label']}: {e['score']}%{detail}")
+            suffix = _topic_display_suffix(e["detail"], e["confidence"])
+            print(f"    ✓ {e['label']}: {e['score']}%{suffix}")
 
     if partial:
         print("\n  Partial:")
         for e in partial:
-            detail = f" ({e['detail']})" if e["detail"] else ""
-            print(f"    △ {e['label']}: {e['score']}%{detail}")
+            suffix = _topic_display_suffix(e["detail"], e["confidence"])
+            print(f"    △ {e['label']}: {e['score']}%{suffix}")
 
     if missing:
         print("\n  Missing:")
         for e in missing:
-            detail = f" ({e['detail']})" if e["detail"] else ""
-            print(f"    ✕ {e['label']}: {e['score']}%{detail}")
+            suffix = _topic_display_suffix(e["detail"], e["confidence"])
+            print(f"    ✕ {e['label']}: {e['score']}%{suffix}")
 
 
 def _get_match_breakdown(topics: list[dict]) -> dict:
@@ -206,7 +223,7 @@ def _get_match_breakdown(topics: list[dict]) -> dict:
     for t in topics:
         score = t.get("score", 0)
         classification = _classify_topic(score)
-        entry = {"topic": t["topic"], "score": score, "detail": t.get("detail", "")}
+        entry = {"topic": t["topic"], "score": score, "detail": t.get("detail", ""), "confidence": t.get("confidence")}
         if classification == "strong":
             strong.append(entry)
         elif classification == "partial":
@@ -675,9 +692,17 @@ def cmd_add(raw: str, force: bool = False) -> None:
         for topic_key, values in topics.items():
             score = values.get("score", 0)
             detail = values.get("detail", "")
+            confidence = values.get("confidence")
+            if confidence is not None and confidence not in VALID_CONFIDENCE_LEVELS:
+                die(f"Error: invalid confidence '{confidence}' for topic '{topic_key}'. Valid: {', '.join(VALID_CONFIDENCE_LEVELS)}",
+                    code="invalid_value",
+                    details={"field": "confidence", "topic": topic_key, "value": confidence,
+                             "valid": list(VALID_CONFIDENCE_LEVELS)})
+            if not detail:
+                warn(f"  Warning: topic '{topic_key}' has no 'detail' — add a short justification for the score.")
             conn.execute(
-                "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (?, ?, ?, ?)",
-                (offer_id, topic_key, score, detail),
+                "INSERT INTO offer_topics (offer_id, topic, score, detail, confidence) VALUES (?, ?, ?, ?, ?)",
+                (offer_id, topic_key, score, detail, confidence),
             )
             # Track gaps: topics below the MAYBE cutoff (for in-memory notice only)
             if isinstance(score, (int, float)) and score < threshold_maybe:
@@ -702,14 +727,16 @@ def cmd_add(raw: str, force: bool = False) -> None:
         gap_names = [gap_labels.get(s, s) for s, _ in skill_gaps]
         print(f"  Skill gaps  : {', '.join(gap_names)}")
 
+    # --- Skill-level breakdown ---------------------------------------------
+    topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", ""),
+                    "confidence": v.get("confidence")}
+                   for k, v in topics.items()]
+
     # --- Three-state recommendation ----------------------------------------
     recommendation, icon = _get_recommendation(compatibility_pct, config)
     rec_label_text = _get_recommendation_label(recommendation)
     print(f"\n  >> {icon} {rec_label_text} (score {compatibility_pct}%)")
-
-    # --- Skill-level breakdown ---------------------------------------------
-    topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", "")}
-                   for k, v in topics.items()]
+    print(f"     CONFIDENCE: {_derive_confidence(topics_list).upper()}")
     if topics_list:
         _show_match_breakdown(topics_list, TOPIC_LABELS)
 
@@ -820,14 +847,16 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
                 text="  Hint: run 'applyr list' to see available offers.")
 
         topics = conn.execute(
-            "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ?", (offer_id,)
+            "SELECT topic, score, detail, confidence FROM offer_topics WHERE offer_id = ?", (offer_id,)
         ).fetchall()
     finally:
         conn.close()
 
     if as_json:
         data = dict(row)
-        data["topics"] = [{"topic": t["topic"], "score": t["score"], "detail": t["detail"]} for t in topics]
+        data["topics"] = [{"topic": t["topic"], "score": t["score"], "detail": t["detail"],
+                           "confidence": t["confidence"]} for t in topics]
+        data["confidence"] = _derive_confidence([dict(t) for t in topics])
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return
 
@@ -911,24 +940,26 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
         print(f"\n  Notes:\n    {row['notes']}")
 
     # Topic scores
-    if topics:
+    topics_dicts = [dict(t) for t in topics]
+    if topics_dicts:
         print(f"\n  Scoring Topics:")
-        for t in topics:
+        for t in topics_dicts:
             label = topic_labels.get(t["topic"], t["topic"])
             bar = _bar(t["score"])
-            detail = f"  ({t['detail']})" if t["detail"] else ""
-            print(f"    {label:<18} {t['score']:>3}%  {bar}{detail}")
+            suffix = _topic_display_suffix(t["detail"], t["confidence"])
+            print(f"    {label:<18} {t['score']:>3}%  {bar} {suffix}")
 
         # Skill-level breakdown
-        _show_match_breakdown([dict(t) for t in topics], topic_labels)
+        _show_match_breakdown(topics_dicts, topic_labels)
 
         # Score breakdown
-        _show_score_breakdown([dict(t) for t in topics], config.get("weights", {}))
+        _show_score_breakdown(topics_dicts, config.get("weights", {}))
 
     # Recommendation
     recommendation, icon = _get_recommendation(row["compatibility_pct"], config)
     rec_label_text = _get_recommendation_label(recommendation)
     print(f"\n  >> {icon} {rec_label_text} (score {row['compatibility_pct']}%)")
+    print(f"     CONFIDENCE: {_derive_confidence(topics_dicts).upper()}")
 
     print()
 

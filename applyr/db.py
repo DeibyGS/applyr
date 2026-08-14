@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -48,6 +48,10 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         """UPDATE offers SET response_status = status
                WHERE status IN ('in_process', 'rejected', 'offer')""",
     ],
+    # Topics scored before this migration carry no confidence signal; left
+    # NULL rather than backfilled with a guess, same reasoning as `language`
+    # in (3, 4) — there is no honest way to invent a certainty nobody recorded.
+    (7, 8): ["ALTER TABLE offer_topics ADD COLUMN confidence TEXT"],
 }
 
 SCHEMA_SQL = """\
@@ -95,11 +99,12 @@ CREATE TABLE IF NOT EXISTS offers (
 );
 
 CREATE TABLE IF NOT EXISTS offer_topics (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    offer_id  INTEGER REFERENCES offers(id) ON DELETE CASCADE,
-    topic     TEXT,
-    score     INTEGER,
-    detail    TEXT
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    offer_id   INTEGER REFERENCES offers(id) ON DELETE CASCADE,
+    topic      TEXT,
+    score      INTEGER,
+    detail     TEXT,
+    confidence TEXT
 );
 
 CREATE TABLE IF NOT EXISTS schema_version (

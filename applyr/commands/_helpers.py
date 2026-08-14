@@ -23,6 +23,25 @@ def _truncate(text: str | None, max_len: int) -> str:
     return text if len(text) <= max_len else text[: max_len - 1] + "…"
 
 
+_CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def _derive_confidence(topics: list[dict]) -> str:
+    """Derive one overall confidence from per-topic confidence values.
+
+    The weakest signal wins (low < medium < high), same reasoning as a chain
+    being as strong as its weakest link. Topics that never provided a
+    confidence are excluded from the comparison; if none of them did, the
+    result is "unknown" — never a fabricated "medium". Kept out of
+    scoring.py: this never feeds calculate_score(), only display.
+    """
+    ranked = [_CONFIDENCE_RANK[t["confidence"]] for t in topics if t.get("confidence") in _CONFIDENCE_RANK]
+    if not ranked:
+        return "unknown"
+    weakest = min(ranked)
+    return next(label for label, rank in _CONFIDENCE_RANK.items() if rank == weakest)
+
+
 def _classify_topic(score: int) -> str:
     """Classify a topic score into Strong/Partial/Missing.
 
