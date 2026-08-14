@@ -123,26 +123,31 @@ def load_config() -> dict:
     defaults = _build_defaults()
 
     config_path = APPLYR_DIR / "applyr.toml"
-    if not config_path.exists():
-        config = defaults
-    else:
+    user_config: dict = {}
+    if config_path.exists():
         try:
             with open(config_path, "rb") as f:
                 user_config = tomllib.load(f)
-            config = _deep_merge(defaults, user_config)
         except Exception as e:
             print(f"Warning: could not parse {config_path}: {e}")
             print("Using default configuration.")
-            config = defaults
+            user_config = {}
 
-    # Backward compatibility: if threshold_apply not set, derive from threshold
-    general = config.get("general", {})
-    if "threshold_apply" not in general:
-        threshold = general.get("threshold", DEFAULT_THRESHOLD)
-        general["threshold_apply"] = threshold
-        general["threshold_maybe"] = max(0, threshold - 20)
-    elif "threshold_maybe" not in general:
-        general["threshold_maybe"] = max(0, general["threshold_apply"] - 20)
+    config = _deep_merge(defaults, user_config)
+
+    # Backward compatibility: a config that only sets the legacy `threshold`
+    # key derives threshold_apply/threshold_maybe from it. This must check
+    # the RAW user config, not the merged one: defaults always populate
+    # threshold_apply/threshold_maybe, so a legacy-only file would never
+    # look "incomplete" once merged, and its custom threshold would be
+    # silently ignored in favor of the 80/60 defaults.
+    user_general = user_config.get("general", {})
+    if "threshold_apply" not in user_general and "threshold" in user_general:
+        threshold = user_general["threshold"]
+        config["general"]["threshold_apply"] = threshold
+        config["general"]["threshold_maybe"] = max(0, threshold - 20)
+    elif "threshold_apply" in user_general and "threshold_maybe" not in user_general:
+        config["general"]["threshold_maybe"] = max(0, config["general"]["threshold_apply"] - 20)
 
     # Normalize weights to decimals
     config["weights"] = _normalize_weights(config["weights"])

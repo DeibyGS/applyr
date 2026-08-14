@@ -76,6 +76,33 @@ class TestLoadConfig:
         # followup_days should still be default
         assert config["general"]["followup_days"] == 10
 
+    def test_legacy_threshold_only_derives_apply_and_maybe(self, tmp_applyr):
+        """A config that sets ONLY the legacy `threshold` key must still drive
+        threshold_apply/threshold_maybe.
+
+        Regression test: _build_defaults() always populates threshold_apply/
+        threshold_maybe (80/60), so after _deep_merge a legacy-only file never
+        looked "incomplete" — the derivation branch checked the merged dict
+        and never fired, silently ignoring the user's custom threshold in
+        favor of the defaults. See config.py's load_config() for the fix
+        (checks the raw user config instead of the merged one).
+        """
+        (tmp_applyr / "applyr.toml").write_text("[general]\nthreshold = 50\n")
+        config = load_config()
+        assert config["general"]["threshold_apply"] == 50
+        assert config["general"]["threshold_maybe"] == 30
+
+    def test_explicit_threshold_apply_ignores_legacy_threshold(self, tmp_applyr):
+        """When threshold_apply is set explicitly, it wins over legacy `threshold`
+        even if both are present (e.g. an old file edited to add the new keys)."""
+        (tmp_applyr / "applyr.toml").write_text(
+            "[general]\nthreshold = 50\nthreshold_apply = 90\n"
+        )
+        config = load_config()
+        assert config["general"]["threshold_apply"] == 90
+        # threshold_maybe wasn't set either — derives from threshold_apply, not legacy threshold
+        assert config["general"]["threshold_maybe"] == 70
+
     def test_custom_weights_override(self, tmp_applyr):
         # deep_merge keeps all 6 default weights, overriding only specified ones
         toml_content = b'[weights]\ntech_stack = 50\neducation = 50\n'
