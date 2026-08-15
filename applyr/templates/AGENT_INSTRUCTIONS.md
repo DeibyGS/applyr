@@ -11,6 +11,14 @@
 5. **Every CV must pass review** — never deliver a CV without running `applyr cv review`.
 6. **The Recruiter is blind** — when running `applyr cv review-blind`, do NOT reveal the Matcher's compatibility score.
 
+## Privacy
+
+`cv-master.md` holds the user's full professional history. Every time you (the agent)
+read it to score an offer or fill a CV, its content enters your context and is subject
+to your LLM provider's data policy, not applyr's — applyr never transmits it anywhere
+itself, it only reads a local file. Say this to the user once during setup so they can
+decide based on the provider they're actually running you through.
+
 ## Setup
 
 ```bash

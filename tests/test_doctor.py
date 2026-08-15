@@ -136,3 +136,46 @@ class TestDoctorSchemaForwardCompat:
         out = capsys.readouterr().out
         assert "forward-compat, not an error" in out
         assert "note(s) to review" in out
+
+
+class TestCVOutputPrivacy:
+    """Generated CVs hold personal data — landing output_dir inside an
+    ungitignored git repo risks a `git add .` publishing it by accident."""
+
+    def _cv_check(self, payload):
+        return next(c for c in payload["checks"] if c["name"] == "CV Privacy")
+
+    def test_output_dir_outside_git_repo_is_ok(self, doctor_home, capsys):
+        code = _run(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert self._cv_check(payload)["status"] == "ok"
+
+    def test_output_dir_inside_git_repo_without_gitignore_is_a_note(
+        self, doctor_home, capsys
+    ):
+        import subprocess
+
+        # doctor_home fixture points CV_HOME at doctor_home itself, so
+        # output_dir resolves to doctor_home / "cv".
+        (doctor_home / "cv").mkdir()
+        subprocess.run(["git", "init", "-q", str(doctor_home)], check=True)
+
+        code = _run(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0  # a note, not a blocking issue
+        check = self._cv_check(payload)
+        assert check["status"] == "note"
+        assert "NOT gitignored" in check["message"]
+
+    def test_output_dir_inside_git_repo_with_gitignore_is_ok(self, doctor_home, capsys):
+        import subprocess
+
+        (doctor_home / "cv").mkdir()
+        subprocess.run(["git", "init", "-q", str(doctor_home)], check=True)
+        (doctor_home / ".gitignore").write_text("cv/\n")
+
+        code = _run(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert self._cv_check(payload)["status"] == "ok"

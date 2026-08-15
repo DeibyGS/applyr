@@ -3,6 +3,7 @@
 import csv
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -192,6 +193,32 @@ def _check_weights(config: dict) -> dict:
     return _issue("Weights", "WARNING — some weights are zero or negative")
 
 
+def _check_cv_output_privacy(config: dict) -> dict:
+    """Generated CVs hold personal data; warn if output_dir sits in a git
+    repo without being gitignored, so they don't end up committed by accident.
+    """
+    output_dir = Path(config["cv"]["output_dir"]).expanduser()
+    try:
+        inside = subprocess.run(
+            ["git", "-C", str(output_dir), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return _ok("CV Privacy", "OK (git not available to check)")
+    if inside.returncode != 0 or inside.stdout.strip() != "true":
+        return _ok("CV Privacy", f"OK ({output_dir} is not inside a git repo)")
+    ignored = subprocess.run(
+        ["git", "-C", str(output_dir), "check-ignore", "-q", str(output_dir)],
+        capture_output=True, timeout=5, check=False,
+    )
+    if ignored.returncode == 0:
+        return _ok("CV Privacy", f"OK ({output_dir} is gitignored)")
+    return _note("CV Privacy",
+                 f"WARNING — {output_dir} is inside a git repo and NOT gitignored",
+                 "CVs contain personal data. Add it to .gitignore before committing, "
+                 "or point [cv] output_dir elsewhere in applyr.toml.")
+
+
 def cmd_doctor(as_json: bool = False) -> None:
     """Check applyr configuration, database, and environment health.
 
@@ -209,6 +236,7 @@ def cmd_doctor(as_json: bool = False) -> None:
         _check_agent_instructions(),
         _check_chrome(config),
         _check_weights(config),
+        _check_cv_output_privacy(config),
     ]
     issues = [c for c in checks if c["status"] == "issue"]
 
