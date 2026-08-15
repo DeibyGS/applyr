@@ -21,6 +21,7 @@ from applyr.commands import (
     cmd_list,
     cmd_pipeline,
     cmd_plan,
+    cmd_rescore,
     cmd_salary,
     cmd_search,
     cmd_setup_agent,
@@ -56,6 +57,7 @@ Commands:
   trends [--period week|month]  Application trends over time
   summary [--json]              Weekly summary (LLM-optimized)
   compare <id1> <id2> [<idN>..] Compare offers side by side
+  rescore <id>                  Recompute compatibility_pct under current weights
   plan [--limit N]              Prioritized learning plan from skill gaps
   salary [--seniority S]        Salary insights by seniority/category
   export [--format csv|json|md]  Export all data
@@ -214,7 +216,7 @@ def main():
             raw = args[1]
         else:
             raw = sys.stdin.read()
-        cmd_add(raw, force=force)
+        cmd_add(raw, force=force, as_json=as_json)
 
     elif cmd == "list":
         status = _get_flag(args, "--status")
@@ -336,6 +338,17 @@ def main():
             oid = _safe_int(a)
             ids.append(oid)
         cmd_compare(ids, as_json=as_json)
+
+    elif cmd == "rescore":
+        if len(args) >= 2 and args[1] in ("--help", "-h"):
+            print("Usage: applyr rescore <id>")
+            print("  Recomputes compatibility_pct for one offer under the current [weights],")
+            print("  from its already-judged topics — never re-evaluates fit.")
+            return
+        if len(args) < 2:
+            _usage("Usage: applyr rescore <id>")
+        offer_id = _safe_int(args[1])
+        cmd_rescore(offer_id, as_json=as_json)
 
     elif cmd == "plan":
         limit = 10

@@ -1,6 +1,10 @@
 # ADR 004 — Configurable weighted scoring
 
 **Status:** Accepted
+**Superseded by:** [ADR 009](009-weight-versioning-and-rebalance.md) — the "forbidden
+change" constraint below (`DEFAULT_WEIGHTS`) is lifted once scores carry a weights
+snapshot. Everything else on this page (the weighted-mean formula, per-user
+configurability) still stands; kept as-is per this project's immutable-ADR convention.
 **Date:** 2026-08-07 (recorded retroactively; decision made at project start)
 
 ## Context

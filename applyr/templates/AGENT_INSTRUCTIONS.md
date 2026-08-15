@@ -97,12 +97,12 @@ The CLI prints a recommendation based on the configured threshold.
 
 | Topic (default weight) | 0 | 50 | 100 |
 |------------------------|---|----|----|
-| `tech_stack` (30%) | Knows none required | ~50% of stack | Expert in all |
-| `projects` (20%) | No relevant projects | Related but indirect | Directly demonstrates skills |
-| `experience` (15%) | Zero relevant exp | Wrong seniority/industry | Exact match |
-| `education` (15%) | No relevant education | Related field | Exact degree+level |
-| `english` (10%) | Cannot converse | B1/B2 functional | C1+ or native |
-| `cultural_fit` (10%) | Incompatible mode/location | Partial match | Perfect alignment |
+| `tech_stack` (35%) | Knows none required | ~50% of stack | Expert in all |
+| `experience` (35%) | Zero relevant exp | Wrong seniority/industry | Exact match |
+| `projects` (15%) | No relevant projects | Related but indirect | Directly demonstrates skills |
+| `education` (5%) | No relevant education | Related field | Exact degree+level |
+| `english` (5%) | Cannot converse | B1/B2 functional | C1+ or native |
+| `cultural_fit` (5%) | Incompatible mode/location | Partial match | Perfect alignment |
 
 Weights are configurable in `~/.applyr/applyr.toml` under `[weights]`. The formula is
 `sum(topic_score * weight) / sum(weights)`, where **both sums run only over the topics you
@@ -354,6 +354,7 @@ Agent (Matcher — apply recommendations):
 | Search | `applyr search <term>` |
 | Check a company (exact) | `applyr search --company <name>` |
 | Compare offers | `applyr compare <id1> <id2>` |
+| Rescore under current weights | `applyr rescore <id>` |
 | Learning plan | `applyr plan` |
 | Salary stats | `applyr salary [--seniority X]` |
 | Export | `applyr export --format json` |

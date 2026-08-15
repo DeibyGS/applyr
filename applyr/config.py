@@ -35,12 +35,12 @@ followup_days = 10      # Days before follow-up reminder
 
 [weights]
 # Relative importance of each scoring topic (auto-normalized)
-tech_stack = 30
-education = 15
-experience = 15
-projects = 20
-english = 10
-cultural_fit = 10
+tech_stack = 35
+experience = 35
+projects = 15
+education = 5
+english = 5
+cultural_fit = 5
 
 [cv]
 # cv_master  — the profile applyr reads to fill generated CVs. Fill it before
@@ -149,7 +149,10 @@ def load_config() -> dict:
     elif "threshold_apply" in user_general and "threshold_maybe" not in user_general:
         config["general"]["threshold_maybe"] = max(0, config["general"]["threshold_apply"] - 20)
 
-    # Normalize weights to decimals
+    # Normalize weights to decimals for calculate_score(), but keep the raw
+    # relative-integer dict too — that's the shape weights_used snapshots
+    # (matching how the TOML itself stores them, never fractions).
+    config["weights_raw"] = dict(config["weights"])
     config["weights"] = _normalize_weights(config["weights"])
     return config
 

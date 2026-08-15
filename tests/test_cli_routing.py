@@ -486,6 +486,36 @@ class TestGlobalFlags:
             data = json.loads(out)
             assert isinstance(data, dict)
 
+    def test_json_flag_add(self, run_cli, capsys, tmp_db):
+        # BUG-001 (adversarial-test, 2026-08-15): `add --json` never had a JSON
+        # output path at all — the flag was silently ignored. This is the fix.
+        payload = json.dumps({
+            "title": "Backend Dev", "company": "Acme",
+            "topics": {"tech_stack": {"score": 80, "detail": "x"}},
+        })
+        out, err, code = _run(run_cli, capsys, ["--json", "add", payload])
+        assert code == 0
+        data = json.loads(out)
+        assert data["title"] == "Backend Dev"
+        assert data["compatibility_pct"] == 80
+        assert data["weights_used"] == {"tech_stack": 35, "experience": 35, "projects": 15,
+                                         "education": 5, "english": 5, "cultural_fit": 5}
+        assert data["recommendation"] == "apply"
+        assert data["topics"][0]["topic"] == "tech_stack"
+
+    def test_json_flag_add_unknown_topic_warning_does_not_break_json(self, run_cli, capsys, tmp_db):
+        # The "topic not in config" warning used to be a bare print() to
+        # stdout — it would have corrupted this exact payload. warn()/error()
+        # are no-ops in --json mode by design (see errors.py's error()
+        # docstring), so the assertion here is just that stdout stays pure
+        # JSON — not that the warning gets redirected anywhere.
+        payload = json.dumps({"title": "Backend Dev", "topics": {"not_a_real_topic": {"score": 50}}})
+        out, err, code = _run(run_cli, capsys, ["--json", "add", payload])
+        assert code == 0
+        data = json.loads(out)  # must not raise — stdout must be pure JSON
+        assert data["title"] == "Backend Dev"
+        assert err == ""
+
 
 # ── AC-2.4: Exit code contract ───────────────────────────────────────────────
 

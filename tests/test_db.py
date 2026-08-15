@@ -430,6 +430,53 @@ class TestMigrationV7ToV8:
         assert version == SCHEMA_VERSION
 
 
+class TestMigrationV8ToV9:
+    """`weights_used` shipped with no backfill by design — there is no honest
+    way to invent a weight config nobody recorded for offers scored before
+    this migration existed."""
+
+    def test_existing_offer_rows_get_null_weights_used(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("INSERT INTO offers (title, compatibility_pct) VALUES ('Backend Dev', 70)")
+        conn.execute("UPDATE schema_version SET version = 8")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        try:
+            row = dict(conn.execute("SELECT * FROM offers WHERE title = 'Backend Dev'").fetchone())
+        finally:
+            conn.close()
+        assert row["weights_used"] is None
+
+    def test_migration_idempotent(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 8")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+        init_db(tmp_db)  # must not raise on the second pass
+
+        conn = get_conn(tmp_db)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        finally:
+            conn.close()
+        assert version == SCHEMA_VERSION
+
+    def test_fresh_install_has_weights_used_column(self, tmp_db):
+        init_db(tmp_db)
+        conn = get_conn(tmp_db)
+        try:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(offers)").fetchall()}
+        finally:
+            conn.close()
+        assert "weights_used" in columns
+
+
 @pytest.mark.unit
 class TestSchemaWarningGoesToStderr:
     """A bare print() put a prose line above the payload of every `--json`

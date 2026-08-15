@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -52,6 +52,11 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
     # NULL rather than backfilled with a guess, same reasoning as `language`
     # in (3, 4) — there is no honest way to invent a certainty nobody recorded.
     (7, 8): ["ALTER TABLE offer_topics ADD COLUMN confidence TEXT"],
+    # Offers scored before this migration (or via an explicit compatibility_pct
+    # override) carry no record of which weights produced their score; left
+    # NULL rather than backfilled with a guess, same reasoning as `language`
+    # in (3, 4) — there is no honest way to invent a weight config nobody recorded.
+    (8, 9): ["ALTER TABLE offers ADD COLUMN weights_used TEXT"],
 }
 
 SCHEMA_SQL = """\
@@ -95,7 +100,8 @@ CREATE TABLE IF NOT EXISTS offers (
     rejection_reason  TEXT,
     response_status   TEXT    DEFAULT 'no_response',
     notes             TEXT,
-    created_at        TEXT    DEFAULT CURRENT_TIMESTAMP
+    created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
+    weights_used      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS offer_topics (

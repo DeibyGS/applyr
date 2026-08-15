@@ -13,6 +13,7 @@ reverses one of them.
 | [006](006-errors-to-stderr.md) | Errors and warnings to stderr, data to stdout | Accepted |
 | [007](007-structured-json-errors.md) | Structured JSON errors on stderr with stable codes | Accepted |
 | [008](008-md-first-cv-pipeline.md) | MD-first CV pipeline — markdown drafts, HTML+PDF at render | Accepted |
+| [009](009-weight-versioning-and-rebalance.md) | Weight versioning + rescore + rebalanced `DEFAULT_WEIGHTS` — supersedes 004 | Accepted |
 
 ## Conventions
 
