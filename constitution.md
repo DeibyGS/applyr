@@ -61,6 +61,15 @@ Version: 1.0.0
 - Pure function tests in their own file
 - Command tests if I/O needed
 - Tests and code in same commit
+- Prefer `pytest.mark.parametrize` over near-duplicate test functions — one
+  function per command/flag combo that only differs in args and expected
+  exit code is a maintenance cost, not extra safety. Keep a test as its own
+  function only when it has a distinguishing side effect, a richer
+  assertion, or a docstring documenting a specific historical bug — merging
+  those hides the exact detail that made them worth writing. (2026-08-16,
+  after auditing `test_cli_routing.py`: 64% of `TestCommandDispatch` was
+  3-4 line functions differing only in args — consolidated into 4
+  parametrize blocks, -112 lines, 0 change in test coverage.)
 - PR budget: 500 lines max
 - Coverage gate: `fail_under = 75` in `pyproject.toml`'s `[tool.coverage.report]` — CI already
   ran `pytest --cov` without enforcing it; a PR that drops total coverage below 75% now fails.
