@@ -71,7 +71,7 @@ applyr is the **storage layer**. Your AI agent is the **brain**.
 - **Three-state recommendation** — APPLY (>=80%), MAYBE (60-79%), LOW MATCH (<60%) with configurable thresholds
 - **Skill-level breakdown** — Strong/Partial/Missing per topic with icons (✓/△/✕)
 - **"Why you match"** — Executive summary of strengths and weaknesses
-- **Weighted scoring** — 6 configurable topics (tech stack 30%, projects 20%, experience 15%, education 15%, english 10%, cultural fit 10%)
+- **Weighted scoring** — 6 configurable topics (tech stack 35%, experience 35%, projects 15%, education 5%, english 5%, cultural fit 5%), with a per-offer `weights_used` snapshot so `rescore` and future rebalances never corrupt historical scores
 - **Score breakdown** — Weighted contribution per topic so you understand why 78%
 - **CV tailoring hints** — What to emphasize, what to de-emphasize in your CV
 - **Duplicate detection** — same company+title? applyr catches it before you waste time
@@ -85,7 +85,7 @@ applyr is the **storage layer**. Your AI agent is the **brain**.
 - **Response rate tracking** — measure application performance with monthly trends
 - **Score calibration** — `applyr stats` reports real response/interview rates per score band, so you can see whether a higher compatibility score actually predicts a better outcome
 - **Confidence + evidence** — score each topic with a `high`/`medium`/`low` certainty and a justification; `add`/`show` surface both, so a score is never just a bare number
-- **27 commands** — pipeline, stats, gaps, trends, salary insights, follow-ups, compare, export, and more
+- **28 commands** — pipeline, stats, gaps, trends, salary insights, follow-ups, compare, rescore, export, and more
 - **Local and private** — SQLite on your machine. No API keys, no subscriptions, nothing leaves your system
 - **Agent-native** — ships with `AGENT_INSTRUCTIONS.md` that tells Claude/Cursor/OpenCode exactly what to do
 
@@ -168,6 +168,7 @@ applyr gaps                        # Skills to improve (by frequency)
 applyr trends                      # Applications per week
 applyr summary --json              # Weekly summary for LLM
 applyr compare 1 3 4               # Side-by-side offers
+applyr rescore <id>                # Recompute compatibility_pct under current weights
 applyr plan                        # Learning priorities
 applyr salary [--seniority mid]    # Salary insights
 applyr followups                   # Overdue + upcoming
@@ -223,14 +224,19 @@ Each topic is scored 0-100 by the AI agent, then weighted:
 
 | Topic | Weight | What it measures |
 |-------|:------:|-----------------|
-| `tech_stack` | 30% | Required technologies vs. your skills |
-| `projects` | 20% | Portfolio relevance to the role |
-| `experience` | 15% | Years, seniority, industry match |
-| `education` | 15% | Degree level and field |
-| `english` | 10% | Language level vs. requirement |
-| `cultural_fit` | 10% | Work mode, location, values |
+| `tech_stack` | 35% | Required technologies vs. your skills |
+| `experience` | 35% | Years, seniority, industry match |
+| `projects` | 15% | Portfolio relevance to the role |
+| `education` | 5% | Degree level and field |
+| `english` | 5% | Language level vs. requirement |
+| `cultural_fit` | 5% | Work mode, location, values |
 
 **Formula:** `sum(score * weight) / sum(weights)` — configurable in `~/.applyr/applyr.toml`.
+
+Every offer stores a `weights_used` snapshot of the weights that actually produced its
+score, so changing `[weights]` later never corrupts the meaning of scores already stored.
+Run `applyr rescore <id>` to recompute one offer's score under the current weights; use
+`applyr show <id>` to see which weights produced any offer's stored score.
 
 **Thresholds:** score >= 80% → APPLY, 60-79% → MAYBE, below 60% → LOW MATCH. Configurable via `threshold_apply`/`threshold_maybe` in `applyr.toml`.
 
@@ -258,12 +264,12 @@ threshold_maybe = 60    # Score >= this → MAYBE (below → LOW MATCH)
 followup_days = 10      # Days before follow-up reminder
 
 [weights]               # Auto-normalized, no need to sum to 1.0
-tech_stack = 30
-education = 15
-experience = 15
-projects = 20
-english = 10
-cultural_fit = 10
+tech_stack = 35
+experience = 35
+projects = 15
+education = 5
+english = 5
+cultural_fit = 5
 ```
 
 ---

@@ -514,7 +514,7 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
 # cmd_add
 # ---------------------------------------------------------------------------
 
-def cmd_add(raw: str, force: bool = False) -> None:
+def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     """Parse JSON and insert a new job offer into the database.
 
     Blocks on an exact or near-identical duplicate at the same company unless
@@ -622,6 +622,10 @@ def cmd_add(raw: str, force: bool = False) -> None:
     topics: dict = data.get("topics", {})
     compat_raw = data.get("compatibility_pct")
 
+    # weights_used snapshots the raw, pre-normalization weights dict that
+    # actually produced compatibility_pct. NULL when no weights were used
+    # to derive the score (explicit override, or no topics to score).
+    weights_used: str | None = None
     if compat_raw is not None:
         try:
             compatibility_pct = int(compat_raw)
@@ -631,6 +635,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
             die("Error: 'compatibility_pct' must be between 0 and 100.", code="invalid_value", details={"field": "compatibility_pct"})
     elif topics:
         compatibility_pct = calculate_score(topics)
+        weights_used = json.dumps(config["weights_raw"], sort_keys=True)
     else:
         compatibility_pct = 0
 
@@ -646,7 +651,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
             """
             INSERT INTO offers (
                 title, company, summary, date_received, date_applied, date_responded,
-                compatibility_pct, status, canal, cv_used,
+                compatibility_pct, weights_used, status, canal, cv_used,
                 follow_up_date, follow_up_done, follow_up_notes,
                 work_mode, location, salary_min, salary_max, salary_period,
                 seniority_level, role_category, tech_stack, language,
@@ -654,7 +659,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
                 contact_name, contact_role, job_url, rejection_reason, notes
             ) VALUES (
                 ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
                 ?, 0, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
@@ -664,7 +669,7 @@ def cmd_add(raw: str, force: bool = False) -> None:
             """,
             (
                 title, company, summary, date_received, date_applied, date_responded,
-                compatibility_pct, status, canal, cv_used,
+                compatibility_pct, weights_used, status, canal, cv_used,
                 follow_up_date, data.get("follow_up_notes"),
                 work_mode, location, salary_min, salary_max, salary_period,
                 seniority_level, role_category, tech_stack, language,
@@ -678,7 +683,9 @@ def cmd_add(raw: str, force: bool = False) -> None:
         valid_topics = set(config.get("topics", {}).keys()) or set(TOPIC_LABELS.keys())
         for key in topics:
             if key not in valid_topics:
-                print(f"  Warning: topic '{key}' not in config. Valid: {', '.join(sorted(valid_topics))}")
+                # warn() (stderr), not print() (stdout) — a bare print() here
+                # would land inside `add --json`'s stdout payload and break it.
+                warn(f"  Warning: topic '{key}' not in config. Valid: {', '.join(sorted(valid_topics))}")
 
         # --- Insert topics -------------------------------------------------
         skill_gaps: list[tuple] = []
@@ -705,6 +712,33 @@ def cmd_add(raw: str, force: bool = False) -> None:
     finally:
         conn.close()
 
+    # --- Compute derived values shared by both output modes ---------------
+    topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", ""),
+                    "confidence": v.get("confidence")}
+                   for k, v in topics.items()]
+    recommendation, icon = _get_recommendation(compatibility_pct, config)
+    confidence = _derive_confidence(topics_list)
+    why_match, biggest_weakness = _get_why_you_match(topics_list, TOPIC_LABELS) if topics_list else ([], None)
+
+    if as_json:
+        payload = {
+            "id": offer_id,
+            "title": title,
+            "company": company,
+            "compatibility_pct": compatibility_pct,
+            "weights_used": json.loads(weights_used) if weights_used else None,
+            "status": status,
+            "follow_up_date": follow_up_date,
+            "skill_gaps": [{"topic": s, "gap": g} for s, g in skill_gaps],
+            "recommendation": recommendation,
+            "confidence": confidence,
+            "topics": topics_list,
+            "why_match": why_match,
+            "biggest_weakness": biggest_weakness,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
     # --- Confirmation -----------------------------------------------------
     rec_label = STATUS_LABELS.get(status, status)
     print(f"\nOffer added successfully.")
@@ -721,20 +755,13 @@ def cmd_add(raw: str, force: bool = False) -> None:
         print(f"  Skill gaps  : {', '.join(gap_names)}")
 
     # --- Skill-level breakdown ---------------------------------------------
-    topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", ""),
-                    "confidence": v.get("confidence")}
-                   for k, v in topics.items()]
-
-    # --- Three-state recommendation ----------------------------------------
-    recommendation, icon = _get_recommendation(compatibility_pct, config)
     rec_label_text = _get_recommendation_label(recommendation)
     print(f"\n  >> {icon} {rec_label_text} (score {compatibility_pct}%)")
-    print(f"     CONFIDENCE: {_derive_confidence(topics_list).upper()}")
+    print(f"     CONFIDENCE: {confidence.upper()}")
     if topics_list:
         _show_match_breakdown(topics_list, TOPIC_LABELS)
 
         # --- Why you match ---------------------------------------------------
-        why_match, biggest_weakness = _get_why_you_match(topics_list, TOPIC_LABELS)
         if why_match:
             print("\n  Why you match:")
             for line in why_match:
@@ -847,6 +874,7 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 
     if as_json:
         data = dict(row)
+        data["weights_used"] = json.loads(row["weights_used"]) if row["weights_used"] else None
         data["topics"] = [{"topic": t["topic"], "score": t["score"], "detail": t["detail"],
                            "confidence": t["confidence"]} for t in topics]
         data["confidence"] = _derive_confidence([dict(t) for t in topics])
@@ -869,6 +897,12 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
     _field("Status", STATUS_LABELS.get(row["status"], row["status"]))
     _field("Canal", row["canal"])
     _field("Compatibility", f"{row['compatibility_pct']}%")
+    if row["weights_used"]:
+        weights_dict = json.loads(row["weights_used"])
+        weights_str = ", ".join(f"{k}={v}" for k, v in weights_dict.items())
+        _field("Scored Under", weights_str)
+    else:
+        _field("Scored Under", "unknown (pre-v9 or manual override)")
     print()
 
     _field("Work Mode", row["work_mode"])

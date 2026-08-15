@@ -27,6 +27,7 @@ from applyr.constants import (
 from applyr.db import REPLY_STATUSES, STATUS_LABELS, VALID_SEVERITIES, get_conn
 from applyr.commands._helpers import _bar, _today, _truncate
 from applyr.errors import die
+from applyr.scoring import calculate_score
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -38,6 +39,7 @@ _COMPARE_FIELDS = [
     ("Company", "company"),
     ("Title", "title"),
     ("Score", "compatibility_pct"),
+    ("Weights", "weights_used"),
     ("Status", "status"),
     ("Seniority", "seniority_level"),
     ("Work Mode", "work_mode"),
@@ -81,6 +83,15 @@ def _salary_stats(entries: list[dict]) -> tuple[int, int, int, int] | None:
     s_avg = round(sum(all_values) / len(all_values))
     s_med = _median(all_values)
     return s_min, s_max, s_avg, s_med
+
+
+def _excluded_note(count: int) -> str:
+    """Return a note suffix for excluded offers due to unknown weights (ADR 009).
+
+    Returns empty string if count is 0, otherwise returns
+    " (N excluded, unknown weights)".
+    """
+    return f" ({count} excluded, unknown weights)" if count else ""
 
 # ---------------------------------------------------------------------------
 # cmd_pipeline
@@ -137,7 +148,7 @@ def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
 # cmd_stats
 # ---------------------------------------------------------------------------
 
-def _score_calibration(conn) -> dict:
+def _score_calibration(conn) -> tuple[dict, int]:
     """Bucket applied offers by score band and report real outcome rates.
 
     Answers "does a higher compatibility_pct actually predict a better
@@ -146,6 +157,11 @@ def _score_calibration(conn) -> dict:
     so calibration and recommendation can never disagree about what counts
     as APPLY/MAYBE/LOW MATCH — the same discipline `responded` already
     follows against REPLY_STATUSES (see the funnel comment above).
+
+    Offers with weights_used IS NULL (pre-v9, or scored via an explicit
+    compatibility_pct override) are excluded: their score was not produced
+    by any recorded weight config, so mixing them into these bands would
+    silently combine scores that mean different things (ADR 009).
     """
     config = load_config()
     threshold_apply = config["general"]["threshold_apply"]
@@ -158,7 +174,8 @@ def _score_calibration(conn) -> dict:
     }
 
     rows = conn.execute(
-        "SELECT compatibility_pct, status FROM offers WHERE status != 'pending' AND status != 'discarded'"
+        "SELECT compatibility_pct, status FROM offers "
+        "WHERE status != 'pending' AND status != 'discarded' AND weights_used IS NOT NULL"
     ).fetchall()
     for row in rows:
         if row["compatibility_pct"] >= threshold_apply:
@@ -175,7 +192,12 @@ def _score_calibration(conn) -> dict:
         if row["status"] == "offer":
             band["offer"] += 1
 
-    return bands
+    excluded = conn.execute(
+        "SELECT COUNT(*) FROM offers "
+        "WHERE status != 'pending' AND status != 'discarded' AND weights_used IS NULL"
+    ).fetchone()[0]
+
+    return bands, excluded
 
 
 def cmd_stats(as_json: bool = False) -> None:
@@ -189,7 +211,16 @@ def cmd_stats(as_json: bool = False) -> None:
 
         discarded = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'discarded'").fetchone()[0]
         pending   = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'pending'").fetchone()[0]
-        avg_compat = conn.execute("SELECT AVG(compatibility_pct) FROM offers").fetchone()[0] or 0
+        # Excludes weights_used IS NULL for the same reason _score_calibration
+        # does (ADR 009): mixing scores from different/unknown weight configs
+        # into one average would silently combine numbers that mean different
+        # things.
+        avg_compat = conn.execute(
+            "SELECT AVG(compatibility_pct) FROM offers WHERE weights_used IS NOT NULL"
+        ).fetchone()[0] or 0
+        avg_compat_excluded = conn.execute(
+            "SELECT COUNT(*) FROM offers WHERE weights_used IS NULL"
+        ).fetchone()[0]
 
         # Conversion funnel. `responded` excludes `waiting`: that status means
         # the application is out and nothing has come back, which is why
@@ -220,7 +251,7 @@ def cmd_stats(as_json: bool = False) -> None:
             "SELECT MIN(salary_min), MAX(salary_min), AVG(salary_min) FROM offers WHERE salary_min IS NOT NULL"
         ).fetchone()
 
-        calibration = _score_calibration(conn)
+        calibration, excluded_unknown_weights = _score_calibration(conn)
     finally:
         conn.close()
 
@@ -228,10 +259,12 @@ def cmd_stats(as_json: bool = False) -> None:
         payload = {
             "total": total, "pending": pending, "discarded": discarded,
             "avg_compatibility_pct": round(avg_compat, 1),
+            "avg_compatibility_pct_excluded_unknown_weights": avg_compat_excluded,
             "funnel": {"applied": applied, "responded": responded, "interview": interview, "offer": offers_cnt},
             "channels": {ch["canal"]: ch["cnt"] for ch in channels},
             "work_modes": {m["work_mode"]: m["cnt"] for m in modes},
             "score_calibration": calibration,
+            "excluded_unknown_weights": excluded_unknown_weights,
         }
         if sal and sal[0] is not None:
             payload["salary"] = {"min": sal[0], "max": sal[1], "avg": round(sal[2])}
@@ -245,7 +278,7 @@ def cmd_stats(as_json: bool = False) -> None:
     print(f"  Total offers    : {total}")
     print(f"  Pending         : {pending}")
     print(f"  Discarded       : {discarded}")
-    print(f"  Avg Compat.     : {avg_compat:.1f}%")
+    print(f"  Avg Compat.     : {avg_compat:.1f}%{_excluded_note(avg_compat_excluded)}")
 
     print(f"\n  Conversion Funnel:")
     print(f"    Applied        {applied:>4}  ({_pct(applied, total)} of total)")
@@ -269,7 +302,7 @@ def cmd_stats(as_json: bool = False) -> None:
         print(f"    Max : {sal[1]:,}")
         print(f"    Avg : {round(sal[2]):,}")
 
-    if any(b["total"] for b in calibration.values()):
+    if any(b["total"] for b in calibration.values()) or excluded_unknown_weights:
         print(f"\n  Score Calibration (does a higher score predict a better outcome?):")
         for key in ("apply", "maybe", "low_match"):
             band = calibration[key]
@@ -284,6 +317,11 @@ def cmd_stats(as_json: bool = False) -> None:
                     f"{_pct(band['interview'], band['total'])} interview  "
                     f"{_pct(band['offer'], band['total'])} offer"
                 )
+        if excluded_unknown_weights:
+            print(
+                f"    {excluded_unknown_weights} offer(s) excluded from calibration "
+                "(scored before weight tracking or via manual override)"
+            )
 
     print()
 
@@ -562,11 +600,18 @@ def cmd_summary(as_json: bool = False) -> None:
             (week_start, week_end),
         ).fetchone()[0]
 
+        # Excludes weights_used IS NULL — same reasoning as cmd_stats above (ADR 009).
         avg_compat_row = conn.execute(
-            "SELECT AVG(compatibility_pct) FROM offers WHERE date_applied >= ? AND date_applied <= ?",
+            "SELECT AVG(compatibility_pct) FROM offers "
+            "WHERE date_applied >= ? AND date_applied <= ? AND weights_used IS NOT NULL",
             (week_start, week_end),
         ).fetchone()[0]
         avg_compat = round(avg_compat_row or 0, 1)
+        avg_compat_excluded = conn.execute(
+            "SELECT COUNT(*) FROM offers "
+            "WHERE date_applied >= ? AND date_applied <= ? AND weights_used IS NULL",
+            (week_start, week_end),
+        ).fetchone()[0]
 
         # Channels used this week
         channels_rows = conn.execute(
@@ -605,6 +650,7 @@ def cmd_summary(as_json: bool = False) -> None:
             "responses_received": responses,
             "response_rate_pct": response_rate,
             "avg_compatibility_pct": avg_compat,
+            "avg_compatibility_pct_excluded_unknown_weights": avg_compat_excluded,
             "top_skill_gap": top_gap,
             "channels": channels_used,
             "work_modes": work_modes,
@@ -614,7 +660,7 @@ def cmd_summary(as_json: bool = False) -> None:
         print(f"\n--- Weekly Summary  ({week_start} to {week_end}) ---\n")
         print(f"  Applications sent    : {sent}")
         print(f"  Responses received   : {responses}  ({response_rate}% response rate)")
-        print(f"  Avg compatibility    : {avg_compat}%")
+        print(f"  Avg compatibility    : {avg_compat}%{_excluded_note(avg_compat_excluded)}")
         if top_gap:
             print(f"  Top skill gap        : {top_gap}")
         if channels_used:
@@ -678,6 +724,8 @@ def cmd_compare(ids: list[int], as_json: bool = False) -> None:
                         val = None
                 elif field_key == "status":
                     val = STATUS_LABELS.get(o[field_key], o[field_key])
+                elif field_key == "weights_used":
+                    val = json.loads(o[field_key]) if o[field_key] else None
                 else:
                     val = o[field_key]
                 entry[field_label.lower().replace(" ", "_")] = val
@@ -712,11 +760,71 @@ def cmd_compare(ids: list[int], as_json: bool = False) -> None:
                 val = f"{o[field_key]}%"
             elif field_key == "status":
                 val = STATUS_LABELS.get(o[field_key], o[field_key])
+            elif field_key == "weights_used":
+                val = "known" if o[field_key] else "unknown"
             else:
                 val = str(o[field_key] or "—")
             line += f"  {_truncate(val, col_width):<{col_width}}"
         print(line)
     print()
+
+
+# ---------------------------------------------------------------------------
+# cmd_rescore
+# ---------------------------------------------------------------------------
+
+def cmd_rescore(offer_id: int, as_json: bool = False) -> None:
+    """Recompute one offer's compatibility_pct under the current weights.
+
+    Reuses the offer's already-judged offer_topics rows (score/detail/
+    confidence, unchanged) — this command never re-evaluates fit, only
+    re-applies calculate_score() under whatever [weights] are configured now.
+    """
+    config = load_config()
+
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT id, compatibility_pct FROM offers WHERE id = ?", (offer_id,)
+        ).fetchone()
+        if not row:
+            die(f"Error: offer #{offer_id} not found.", code="not_found",
+                details={"offer_id": offer_id},
+                text=f"Error: offer #{offer_id} not found.\n  Hint: run 'applyr list' to see available offers.")
+
+        topic_rows = conn.execute(
+            "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ?", (offer_id,)
+        ).fetchall()
+        if not topic_rows:
+            die(f"Error: offer #{offer_id} has no scored topics to rescore.", code="no_topics",
+                details={"offer_id": offer_id},
+                text=f"Error: offer #{offer_id} has no scored topics — nothing to rescore.")
+
+        topics = {t["topic"]: {"score": t["score"], "detail": t["detail"]} for t in topic_rows}
+        old_pct = row["compatibility_pct"]
+        new_pct = calculate_score(topics)
+        weights_used_json = json.dumps(config["weights_raw"], sort_keys=True)
+
+        conn.execute(
+            "UPDATE offers SET compatibility_pct = ?, weights_used = ? WHERE id = ?",
+            (new_pct, weights_used_json, offer_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    if as_json:
+        payload = {
+            "id": offer_id,
+            "old_compatibility_pct": old_pct,
+            "new_compatibility_pct": new_pct,
+            "weights_used": config["weights_raw"],
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    suffix = "no change" if new_pct == old_pct else "weights updated"
+    print(f"Rescored offer #{offer_id}: {old_pct}% → {new_pct}% ({suffix})")
 
 
 # ---------------------------------------------------------------------------

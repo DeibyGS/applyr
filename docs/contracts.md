@@ -34,7 +34,7 @@ agents. Adding a key is backward compatible; renaming or removing one is not.
 
 | Table | Purpose |
 |-------|---------|
-| `offers` | Main record — 31 columns |
+| `offers` | Main record — 34 columns |
 | `offer_topics` | Per-topic scores, cascades on offer delete |
 | `schema_version` | Single-row migration tracker |
 
@@ -70,6 +70,7 @@ With `--json`, failures emit one JSON object on stderr
 | `missing_field` | Required field absent from the payload |
 | `missing_value` | A flag was given without its value |
 | `chrome_not_found` | Chrome/Chromium missing, needed for PDF |
+| `no_topics` | `rescore` target has no `offer_topics` rows to recompute from |
 | `db_error` | Database could not be opened or initialized |
 | `error` | Unclassified — refining one into a specific code is additive, not breaking |
 
@@ -150,6 +151,16 @@ a preference.
 - `offers.salary_period` defaults to `annual`
 - Boolean-ish columns (`applied`, `follow_up_done`, `cover_letter`) are `0`/`1`
   integers, not SQLite booleans
+- `offers.weights_used` is a JSON snapshot of the raw, pre-normalization
+  weights dict (`config["weights_raw"]`) used to compute `compatibility_pct`
+  via `calculate_score()`. `NULL` for offers scored before schema v9 and for
+  offers scored via an explicit `compatibility_pct` override — no weights
+  were used to derive those. See [ADR 009](adr/009-weight-versioning-and-rebalance.md)
+- Any aggregation of `compatibility_pct` across more than one offer (average,
+  calibration band, etc.) must filter `WHERE weights_used IS NOT NULL` first —
+  mixing scores produced by different/unknown weight configs silently combines
+  numbers that mean different things. Applies today to `_score_calibration()`,
+  `cmd_stats`'s overall average, and `cmd_summary`'s weekly average.
 - Dates are stored as `TEXT` in `YYYY-MM-DD` format
 - A DB with `version > SCHEMA_VERSION` must fail loudly, never silently downgrade
 

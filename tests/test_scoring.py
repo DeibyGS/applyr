@@ -35,13 +35,13 @@ class TestCalculateScore:
         assert calculate_score(topics) == 0
 
     def test_weighted_average(self, tmp_applyr):
-        # tech_stack weight=30, education weight=15
-        # (80*30 + 40*15) / (30+15) = 3000/45 = 66.67 -> 67
+        # tech_stack weight=35, education weight=5
+        # (80*35 + 40*5) / (35+5) = 3000/40 = 75.0 -> 75
         topics = {
             "tech_stack": {"score": 80, "detail": ""},
             "education": {"score": 40, "detail": ""},
         }
-        assert calculate_score(topics) == 67
+        assert calculate_score(topics) == 75
 
     def test_invalid_score_skipped(self, tmp_applyr):
         topics = {
@@ -76,9 +76,9 @@ class TestCalculateScore:
         }
         result = calculate_score(topics)
         # unknown_topic gets DEFAULT_TOPIC_WEIGHT (0.10)
-        # tech_stack normalized weight = 0.30
-        # (100*0.30 + 50*0.10) / (0.30+0.10) = 35/0.40 = 87.5 -> 88
-        assert result == 88
+        # tech_stack normalized weight = 0.35
+        # (100*0.35 + 50*0.10) / (0.35+0.10) = 40/0.45 = 88.89 -> 89
+        assert result == 89
 
     def test_boundary_zero(self, tmp_applyr):
         topics = {"tech_stack": {"score": 0, "detail": ""}}
@@ -132,9 +132,9 @@ class TestOmittedTopicsAreExcluded:
         }
         padded = {**stated, "education": {"score": 100}, "english": {"score": 100}}
 
-        assert calculate_score(stated) == 59
-        assert calculate_score(padded) == 70
-        assert calculate_score(padded) - calculate_score(stated) == 11
+        assert calculate_score(stated) == 56
+        assert calculate_score(padded) == 60
+        assert calculate_score(padded) - calculate_score(stated) == 4
 
     def test_a_single_omitted_topic_still_scores(self, tmp_applyr):
         """Five of six topics is the common case, not an error path."""

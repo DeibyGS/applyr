@@ -75,12 +75,12 @@ VALID_CONFIDENCE_LEVELS = ("high", "medium", "low")
 # Default config weights (used in config.py and TOML template)
 # ---------------------------------------------------------------------------
 DEFAULT_WEIGHTS = {
-    "tech_stack": 30,
-    "education": 15,
-    "english": 10,
-    "experience": 15,
-    "projects": 20,
-    "cultural_fit": 10,
+    "tech_stack": 35,
+    "education": 5,
+    "english": 5,
+    "experience": 35,
+    "projects": 15,
+    "cultural_fit": 5,
 }
 
 # ---------------------------------------------------------------------------

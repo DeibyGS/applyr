@@ -302,6 +302,80 @@ class TestScoreCalibration:
         assert calibration["apply"]["total"] == 1
         assert calibration["apply"]["total"] < CALIBRATION_MIN_SAMPLE
 
+    def test_unknown_weights_excluded_from_bands_and_counted(self, tmp_db, tmp_applyr, capsys):
+        """Offers scored via override (no weights) must not be silently mixed
+        into calibration bands — they're counted separately instead (ADR 009)."""
+        from applyr.commands.core import cmd_update
+
+        _add(company="A", topics={"tech_stack": {"score": 90, "detail": "x"}})  # weights known
+        _add(company="B", compatibility_pct=85)  # override — weights unknown
+        cmd_update(1, "applied")
+        cmd_update(2, "applied")
+
+        payload = self._stats(capsys)
+        assert payload["score_calibration"]["apply"]["total"] == 1
+        assert payload["excluded_unknown_weights"] == 1
+
+
+class TestAvgCompatExcludesUnknownWeights:
+    """`stats`'s overall average and `summary`'s weekly average must not
+    silently mix compatibility_pct values produced under different (or
+    unknown) weight configs — same reasoning as TestScoreCalibration above,
+    found auditing every other `compatibility_pct` aggregation site (ADR 009)."""
+
+    def _stats(self, capsys):
+        from applyr.commands.analytics import cmd_stats
+
+        capsys.readouterr()
+        cmd_stats(as_json=True)
+        return json.loads(capsys.readouterr().out)
+
+    def _summary(self, capsys):
+        from applyr.commands.analytics import cmd_summary
+
+        capsys.readouterr()
+        cmd_summary(as_json=True)
+        return json.loads(capsys.readouterr().out)
+
+    def test_stats_avg_excludes_unknown_weights(self, tmp_db, tmp_applyr, capsys):
+        _add(company="A", topics={"tech_stack": {"score": 80, "detail": "x"}})  # weights known
+        _add(company="B", compatibility_pct=20)  # override — weights unknown, would drag the avg down
+
+        payload = self._stats(capsys)
+        assert payload["avg_compatibility_pct"] == 80.0
+        assert payload["avg_compatibility_pct_excluded_unknown_weights"] == 1
+
+    def test_summary_avg_excludes_unknown_weights(self, tmp_db, tmp_applyr, capsys):
+        from datetime import date
+
+        today = date.today().isoformat()
+        _add(company="A", topics={"tech_stack": {"score": 80, "detail": "x"}}, date_applied=today)
+        _add(company="B", compatibility_pct=20, date_applied=today)
+
+        payload = self._summary(capsys)
+        assert payload["avg_compatibility_pct"] == 80.0
+        assert payload["avg_compatibility_pct_excluded_unknown_weights"] == 1
+
+
+class TestWeightsUsedCapture:
+    """`weights_used` snapshots the raw weights dict that produced
+    compatibility_pct — NULL whenever no weights were actually used."""
+
+    def test_computed_branch_stores_weights(self, tmp_db, tmp_applyr):
+        _add(company="A", topics={"tech_stack": {"score": 80, "detail": "x"}})
+        weights_used = _row(tmp_applyr, 1)["weights_used"]
+        assert weights_used is not None
+        parsed = json.loads(weights_used)
+        assert parsed["tech_stack"] == 35  # rebalanced DEFAULT_WEIGHTS
+
+    def test_override_branch_stores_null(self, tmp_db, tmp_applyr):
+        _add(company="A", compatibility_pct=77)
+        assert _row(tmp_applyr, 1)["weights_used"] is None
+
+    def test_empty_topics_branch_stores_null(self, tmp_db, tmp_applyr):
+        _add(company="A")
+        assert _row(tmp_applyr, 1)["weights_used"] is None
+
 
 class TestGapPriorityScalesWithTheDatabase:
     """Priority keyed off a fixed recurrence count (>= 3 == HIGH) marked every
