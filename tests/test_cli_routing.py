@@ -38,22 +38,82 @@ def _make_offer_json(tmp_applyr: Path) -> str:
 
 
 class TestCommandDispatch:
-    """Every command routes to the right function with parsed args."""
+    """Every command routes to the right function with parsed args.
 
-    def test_version(self, run_cli, capsys):
-        out, err, code = _run(run_cli, capsys, ["version"])
-        assert code == 0
-        assert "applyr v" in out
+    Most of this class used to be one 3-4 line function per command — same
+    shape, different args, no distinguishing behavior. Consolidated into
+    parametrize blocks below (2026-08-16): same coverage, a fraction of the
+    lines. Tests with a *specific* assertion, side effect, or a docstring
+    documenting a real historical bug stay as their own function — merging
+    those would hide exactly the detail that made them worth writing.
+    """
 
-    def test_version_short(self, run_cli, capsys):
-        out, err, code = _run(run_cli, capsys, ["--version"])
+    # -- Homogeneous "runs, exits 0" commands ------------------------------
+    @pytest.mark.parametrize("args", [
+        ["stats"],
+        ["list"],
+        ["ls"],  # list alias
+        ["st"],  # stats alias
+        ["followups"],
+        ["fu"],  # followups alias
+        ["gaps"],
+        ["pipeline"],
+        ["trends"],
+        ["summary"],
+        ["plan"],
+        ["salary"],
+        ["sal"],  # salary alias
+        ["export"],
+        ["search", "test"],
+        ["cv"],  # no subcommand — prints usage, still exits 0
+        ["cv", "stats"],
+        ["setup-agent"],
+        ["setup-agent", "--agent", "claude"],
+        ["list", "--status", "applied"],
+        ["list", "--sort", "company"],
+        ["list", "--limit", "5"],
+        ["list", "--all"],
+        ["gaps", "--limit", "3"],
+        ["pipeline", "--min-score", "50"],
+        ["trends", "--period", "week"],
+        ["trends", "--period", "month"],
+        ["plan", "--limit", "5"],
+        ["salary", "--seniority", "senior"],
+        ["salary", "--category", "engineering"],
+        ["export", "--format", "json"],
+        ["export", "--format", "csv"],
+        ["export", "--format", "md"],
+        ["search", "test", "--status", "applied"],
+    ], ids=lambda a: "-".join(a))
+    def test_command_exits_zero(self, run_cli, capsys, tmp_db, args):
+        out, err, code = _run(run_cli, capsys, args)
         assert code == 0
-        assert "applyr v" in out
 
-    def test_help_no_args(self, run_cli, capsys):
-        out, err, code = _run(run_cli, capsys, [])
+    # -- Missing required arguments is a failure, not a success -----------
+    @pytest.mark.parametrize("args", [
+        ["compare"],
+        ["cmp"],  # compare alias
+        ["cv", "generate"],
+        ["cv", "review"],
+        ["cv", "pdf"],
+    ], ids=lambda a: "-".join(a))
+    def test_command_missing_required_args_exits_nonzero(self, run_cli, capsys, tmp_db, args):
+        out, err, code = _run(run_cli, capsys, args)
+        assert code != 0
+
+    # -- version/help must actually say something recognizable, not just
+    # exit 0 — a routing bug could still exit 0 with the wrong text.
+    @pytest.mark.parametrize("args,expected", [
+        pytest.param([], "Getting started", id="no-args"),
+        pytest.param(["version"], "applyr v", id="version"),
+        pytest.param(["--version"], "applyr v", id="version-flag"),
+        pytest.param(["help"], "applyr <command>", id="help"),
+        pytest.param(["--help"], "applyr <command>", id="help-flag"),
+    ])
+    def test_command_output_contains(self, run_cli, capsys, args, expected):
+        out, err, code = _run(run_cli, capsys, args)
         assert code == 0
-        assert "Getting started" in out
+        assert expected in out
 
     def test_help_no_args_with_config_but_no_db(self, run_cli, capsys, tmp_applyr):
         """A lone applyr.toml (e.g. copied from the docs) must NOT count as
@@ -65,122 +125,15 @@ class TestCommandDispatch:
         assert "Getting started" in out
         assert "applyr init" in out
 
-    def test_help_command(self, run_cli, capsys):
-        out, err, code = _run(run_cli, capsys, ["help"])
-        assert code == 0
-        assert "applyr <command>" in out
-
-    def test_help_flag(self, run_cli, capsys):
-        out, err, code = _run(run_cli, capsys, ["--help"])
-        assert code == 0
-        assert "applyr <command>" in out
-
     def test_init(self, run_cli, capsys, tmp_applyr):
         out, err, code = _run(run_cli, capsys, ["init"])
         assert code == 0
         assert (tmp_applyr / "jobs.db").exists()
 
-    def test_stats(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["stats"])
-        assert code == 0
-
-    def test_list(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["list"])
-        assert code == 0
-
-    def test_list_alias_ls(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["ls"])
-        assert code == 0
-
-    def test_stats_alias_st(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["st"])
-        assert code == 0
-
-    def test_followups(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["followups"])
-        assert code == 0
-
-    def test_followups_alias_fu(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["fu"])
-        assert code == 0
-
-    def test_gaps(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["gaps"])
-        assert code == 0
-
-    def test_pipeline(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["pipeline"])
-        assert code == 0
-
-    def test_trends(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["trends"])
-        assert code == 0
-
-    def test_summary(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["summary"])
-        assert code == 0
-
-    def test_plan(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["plan"])
-        assert code == 0
-
-    def test_salary(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["salary"])
-        assert code == 0
-
-    def test_export(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["export"])
-        assert code == 0
-
-    def test_search(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["search", "test"])
-        assert code == 0
-
-    def test_compare_no_args(self, run_cli, capsys, tmp_db):
-        """Missing required arguments is a failure, not a success."""
-        out, err, code = _run(run_cli, capsys, ["compare"])
-        assert code != 0
-
-    def test_compare_alias_cmp(self, run_cli, capsys, tmp_db):
-        """Missing required arguments is a failure, not a success."""
-        out, err, code = _run(run_cli, capsys, ["cmp"])
-        assert code != 0
-
-    def test_salary_alias_sal(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["sal"])
-        assert code == 0
-
-    def test_cv_no_subcmd(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["cv"])
-        assert code == 0  # prints usage
-
-    def test_cv_generate_no_id(self, run_cli, capsys, tmp_db):
-        """Missing required arguments is a failure, not a success."""
-        out, err, code = _run(run_cli, capsys, ["cv", "generate"])
-        assert code != 0
-
-    def test_cv_review_no_file(self, run_cli, capsys, tmp_db):
-        """Missing required arguments is a failure, not a success."""
-        out, err, code = _run(run_cli, capsys, ["cv", "review"])
-        assert code != 0
-
-    def test_cv_pdf_no_file(self, run_cli, capsys, tmp_db):
-        """Missing required arguments is a failure, not a success."""
-        out, err, code = _run(run_cli, capsys, ["cv", "pdf"])
-        assert code != 0
-
-    def test_cv_stats(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["cv", "stats"])
-        assert code == 0
-
     def test_doctor(self, run_cli, capsys, tmp_db):
         out, err, code = _run(run_cli, capsys, ["doctor"])
         # doctor exits 1 on blocking issues (e.g., missing cv-master.md)
         assert code in (0, 1)
-
-    def test_setup_agent(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["setup-agent"])
-        assert code == 0
 
     def test_add_no_args_interactive(self, run_cli, capsys, tmp_db, monkeypatch):
         """add with no args and stdin.isatty() prints usage."""
@@ -194,70 +147,14 @@ class TestCommandDispatch:
         out, err, code = _run(run_cli, capsys, ["add", offer_json])
         assert code == 0
 
-    def test_list_with_status(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["list", "--status", "applied"])
+    @pytest.mark.parametrize("args,expected_prefix", [
+        pytest.param(["add", "--help"], "Usage: applyr add", id="add"),
+        pytest.param(["delete", "--help"], "Usage: applyr delete", id="delete"),
+    ])
+    def test_subcommand_help_prints_usage(self, run_cli, capsys, tmp_db, args, expected_prefix):
+        out, err, code = _run(run_cli, capsys, args)
         assert code == 0
-
-    def test_list_with_sort(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["list", "--sort", "company"])
-        assert code == 0
-
-    def test_list_with_limit(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["list", "--limit", "5"])
-        assert code == 0
-
-    def test_list_all(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["list", "--all"])
-        assert code == 0
-
-    def test_gaps_limit(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["gaps", "--limit", "3"])
-        assert code == 0
-
-    def test_pipeline_min_score(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["pipeline", "--min-score", "50"])
-        assert code == 0
-
-    def test_trends_week(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["trends", "--period", "week"])
-        assert code == 0
-
-    def test_trends_month(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["trends", "--period", "month"])
-        assert code == 0
-
-    def test_plan_limit(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["plan", "--limit", "5"])
-        assert code == 0
-
-    def test_salary_seniority(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["salary", "--seniority", "senior"])
-        assert code == 0
-
-    def test_salary_category(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["salary", "--category", "engineering"])
-        assert code == 0
-
-    def test_export_json(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["export", "--format", "json"])
-        assert code == 0
-
-    def test_export_csv(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["export", "--format", "csv"])
-        assert code == 0
-
-    def test_export_md(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["export", "--format", "md"])
-        assert code == 0
-
-    def test_search_with_status(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["search", "test", "--status", "applied"])
-        assert code == 0
-
-    def test_add_help(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["add", "--help"])
-        assert code == 0
-        assert "Usage: applyr add" in out
+        assert expected_prefix in out
 
     def test_add_help_lists_language_and_salary_period(self, run_cli, capsys, tmp_db):
         """add --help must document the fields the schema actually accepts."""
@@ -265,15 +162,6 @@ class TestCommandDispatch:
         assert code == 0
         assert "language" in out
         assert "salary_period" in out
-
-    def test_delete_help(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["delete", "--help"])
-        assert code == 0
-        assert "Usage: applyr delete" in out
-
-    def test_setup_agent_with_agent(self, run_cli, capsys, tmp_db):
-        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
-        assert code == 0
 
     def test_setup_agent_warns_when_profile_missing(self, run_cli, capsys, tmp_db):
         """A missing cv-master.md must warn during setup, not only at cv generate.
