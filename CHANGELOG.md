@@ -4,6 +4,86 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] — 2026-08-15
+
+### Added
+
+- **`weights_used` snapshot** — every offer now stores the exact weights dict that
+  produced its `compatibility_pct`, captured at `add` time. `NULL` for offers scored
+  before this release or via an explicit `compatibility_pct` override — never backfilled,
+  never guessed. This is what makes it safe to ever change `DEFAULT_WEIGHTS` again: past
+  scores stay honestly labeled instead of silently meaning something different.
+- **`applyr rescore <id>`** — recomputes an offer's `compatibility_pct` from its
+  already-judged topic scores under the *current* weights. Never re-evaluates fit, only
+  re-applies the weighting formula — useful after editing `[weights]` or upgrading to a
+  new default.
+- **`applyr add --json`** — `add` never had a JSON output mode; found by an independent
+  adversarial-test pass and fixed the same day. Payload includes `weights_used`,
+  `recommendation`, `confidence`, per-topic breakdown, and more.
+
+### Changed
+
+- **`DEFAULT_WEIGHTS` rebalanced**: `tech_stack` 30→35, `experience` 15→35, `projects`
+  20→15, `education` 15→5, `english` 10→5, `cultural_fit` 10→5. Reflects that technical
+  fit and experience predict job fit more than education for most roles (2025-26
+  hiring-practice research). See [ADR 009](docs/adr/009-weight-versioning-and-rebalance.md),
+  which supersedes [ADR 004](docs/adr/004-weighted-scoring.md)'s prohibition on changing
+  this constant — that prohibition existed specifically because scores carried no record
+  of which weights produced them; the `weights_used` snapshot above resolves that.
+
+### Fixed
+
+- `applyr stats`'s score-calibration bands, overall average compatibility, and
+  `applyr summary`'s weekly average were all silently mixing `compatibility_pct` values
+  computed under different (or unknown) weight configs into one number. All three now
+  exclude offers with unknown weights and report how many were excluded.
+- A bare `print()` in `add`'s "topic not in config" warning would have corrupted the new
+  `--json` payload above; routed through the existing `warn()` helper instead.
+
+Full changes: #65
+
+## [1.6.0] — 2026-08-14
+
+### Added
+
+- **Score calibration in `applyr stats`** — buckets applied offers by score band
+  (`threshold_apply`/`threshold_maybe`, the same bands `add`'s recommendation uses) and
+  reports the real response/interview/offer rate per band. Answers whether a higher
+  compatibility score actually predicts a better outcome, instead of assuming it does.
+- **Per-topic `confidence`** (`high` | `medium` | `low`) alongside each topic's score and
+  `detail`. `add`/`show` derive one overall confidence from the weakest per-topic value
+  provided — never a fabricated default, `unknown` when none was given. Kept out of
+  `scoring.py`: confidence is metadata, it never influences `compatibility_pct`.
+- **`detail` (evidence) is now an expected norm**, not an afterthought — a scored topic
+  with no justification prints a non-blocking warning.
+- **PyPI Trusted Publishing** — releases now build, validate, and publish via GitHub
+  Actions using OIDC, no API token stored in the repo.
+- **Enforced coverage gate** — `pytest --cov` was measured but never gated; CI now fails
+  a PR that drops total coverage below 75%.
+
+### Changed
+
+- **Threshold semantics unified.** The legacy `threshold` config key was silently
+  disagreeing with `threshold_apply`/`threshold_maybe` in three places (skill-gap
+  detection in `add`, `gaps`, and a config-migration edge case that ignored a user's
+  custom legacy value entirely). All three now consistently use the real three-state
+  system (APPLY ≥80%, MAYBE 60-79%, LOW MATCH <60%).
+- **ATS claims reframed as heuristic.** "ATS score" is now "ATS compatibility score"
+  everywhere, with an explicit disclaimer: no universal ATS score exists, and most
+  recruiters report their ATS does not auto-reject on content — the anxiety around this
+  was largely disconnected from how ATS platforms actually behave.
+
+### Fixed
+
+- A backward-compat bug in `config.py`: a user's custom legacy `threshold` value was
+  silently ignored in favor of the 80/60 defaults, because the derivation check compared
+  the already-merged config (which always had `threshold_apply` from defaults) instead of
+  the user's raw file.
+- Six duplicate inline enum-validation blocks in `cmd_add`/`cmd_update` consolidated into
+  one shared `_validate_enum()` helper — no behavior change, same error shape.
+
+Full changes: #59, #60, #61, #62, #63
+
 ## [1.5.3] — 2026-08-13
 
 ### Added
