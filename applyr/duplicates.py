@@ -83,13 +83,19 @@ def _register_company_normalizer(conn: sqlite3.Connection) -> None:
 
 
 def find_exact(conn: sqlite3.Connection, title: str, company: str | None) -> sqlite3.Row | None:
-    """Find an offer with the same title and company, case/accent-insensitively."""
+    """Find an offer with the same title and company, case/accent-insensitively.
+
+    Ordered newest-first (matches find_company_offers) so that when --force
+    created more than one exact duplicate, the block message surfaces the most
+    recent one instead of an arbitrary row from an unordered table scan.
+    """
     _register_company_normalizer(conn)
     return conn.execute(
         """SELECT id, title, status, date_received, compatibility_pct
            FROM offers
            WHERE LOWER(title) = LOWER(?)
-             AND unaccent_lower(COALESCE(company,'')) = unaccent_lower(COALESCE(?,''))""",
+             AND unaccent_lower(COALESCE(company,'')) = unaccent_lower(COALESCE(?,''))
+           ORDER BY id DESC""",
         (title, company),
     ).fetchone()
 
