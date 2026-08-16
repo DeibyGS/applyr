@@ -204,7 +204,12 @@ class TestCvKeywords:
         import applyr.config as cfg
         from applyr.cv import cmd_cv_generate, cmd_cv_keywords
 
+        # cv_master defaults under CV_HOME too (matches production: both the
+        # profile and generated CVs live outside APPLYR_DIR now), so moving
+        # CV_HOME here means the fixture's cv-master.md must move with it.
         other_dir = tmp_path / "elsewhere"
+        other_dir.mkdir()
+        (other_dir / "cv-master.md").write_text((tmp_applyr / "cv-master.md").read_text())
         monkeypatch.setattr(cfg, "CV_HOME", other_dir)
 
         cmd_cv_generate(offer_id)
@@ -286,6 +291,8 @@ class TestCvCoverLetter:
         conn.close()
 
         other_dir = tmp_path / "elsewhere"
+        other_dir.mkdir()
+        (other_dir / "cv-master.md").write_text((tmp_applyr / "cv-master.md").read_text())
         monkeypatch.setattr(cfg, "CV_HOME", other_dir)
 
         cmd_cv_cover_letter(offer_id)
