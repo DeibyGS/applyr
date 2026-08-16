@@ -76,7 +76,7 @@ To force-add anyway, use a slightly different title or company name.
 
 ### "Error: cv-master.md is too small (<100 chars)"
 
-Your profile is empty or too short. Edit `~/.applyr/cv-master.md` with your complete professional profile.
+Your profile is empty or too short. Edit `~/Documents/applyr/cv-master.md` with your complete professional profile.
 
 ## Health Check
 

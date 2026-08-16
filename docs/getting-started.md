@@ -46,7 +46,7 @@ cultural_fit = 10
 
 ## Fill Your Profile
 
-Edit `~/.applyr/cv-master.md` with your complete professional profile. This is the single source of truth — your AI agent reads it to score offers and generate CVs.
+Edit `~/Documents/applyr/cv-master.md` with your complete professional profile. This is the single source of truth — your AI agent reads it to score offers and generate CVs.
 
 ## Connect Your Agent
 

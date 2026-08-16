@@ -15,8 +15,8 @@ english = 10
 cultural_fit = 10
 
 [cv]
-# cv_master = "~/.applyr/cv-master.md"
-# output_dir = "~/.applyr/cv"
+# cv_master = "~/Documents/applyr/cv-master.md"
+# output_dir = "~/Documents/applyr/cv"
 # language — the language generated CVs are written in when an offer does not
 #            declare its own. Supported: en, es.
 # language = "en"

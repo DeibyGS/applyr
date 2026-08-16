@@ -100,11 +100,12 @@ pip install applyr
 applyr init
 ```
 
-This creates `~/.applyr/` with config, database, CV template, and agent instructions.
+This creates `~/.applyr/` with config, database, and agent instructions, plus a starter
+`cv-master.md` in `~/Documents/applyr/` — outside the dotfile since you edit it by hand often.
 
 ### 2. Fill your profile
 
-Edit `~/.applyr/cv-master.md` with your complete professional profile. This is the only source of truth — the agent reads it to score offers and write CVs.
+Edit `~/Documents/applyr/cv-master.md` with your complete professional profile. This is the only source of truth — the agent reads it to score offers and write CVs.
 
 ### 3. Connect your agent
 

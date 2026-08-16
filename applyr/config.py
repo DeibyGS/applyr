@@ -45,16 +45,17 @@ cultural_fit = 5
 [cv]
 # cv_master  — the profile applyr reads to fill generated CVs. Fill it before
 #              running 'cv generate'; a stub file produces an empty CV.
-# output_dir — where generated CVs are written. Defaults outside the applyr
-#              config directory so they show up in a file browser without
-#              unhiding dotfiles.
+# output_dir — where generated CVs are written.
+# Both default outside the applyr config directory so they show up in a file
+# browser without unhiding dotfiles — cv_master is hand-edited often, and
+# output_dir holds deliverables you attach elsewhere.
 # Both accept any path, e.g. a private repo you already version. If you point
 # them at a repo, make sure it is gitignored — CVs contain personal data.
 # language   — the language generated CVs are written in when an offer does not
 #              declare its own. Set it to the market you apply in most; an offer
 #              in another language overrides it via "language" in 'applyr add'.
 #              Supported: en, es.
-cv_master = "__APPLYR_DIR__/cv-master.md"
+cv_master = "__CV_HOME__/cv-master.md"
 output_dir = "__CV_HOME__/cv"
 language = "en"
 """
@@ -111,7 +112,7 @@ def _build_defaults() -> dict:
         "weights": dict(DEFAULT_WEIGHTS),
         "cv": {
             "chrome_path": _detect_chrome(),
-            "cv_master": str(APPLYR_DIR / "cv-master.md"),
+            "cv_master": str(CV_HOME / "cv-master.md"),
             "output_dir": str(CV_HOME / "cv"),
             "language": "en",
         },
