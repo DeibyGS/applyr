@@ -4,6 +4,41 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] — 2026-08-16
+
+Found and fixed during a live audit: the user ran applyr end-to-end against 7 real
+LinkedIn job offers, and every finding below was independently reproduced against the
+real database before being fixed.
+
+### Changed
+
+- **`cv_master` default location** moved from `~/.applyr/cv-master.md` to
+  `~/Documents/applyr/cv-master.md`, alongside generated CVs. It's hand-edited often,
+  unlike `applyr.toml`/`jobs.db`, so it follows the same reasoning `output_dir` already
+  used: visible in a normal file browser without unhiding dotfiles. Backward-compatible —
+  `cv_master` is already a standalone `applyr.toml` key, so existing installs keep their
+  current path; only a fresh `applyr init` picks up the new default.
+
+### Fixed
+
+- Duplicate-detection's exact-match check (`find_exact()`) had no `ORDER BY`, so when
+  multiple offers shared the same title+company, `add --force`'s block message could
+  surface an arbitrary stale record instead of the most recent one.
+- `cv cover-letter` always wrote in English regardless of the offer's language — now
+  matches the language `cv generate` already used.
+- `cv cover-letter`'s project-extraction triggered on the word "proyectos" appearing
+  anywhere in cv-master.md (including intro prose, before the real `## PROYECTOS`
+  section) and never turned back off, so it could pull job-history entries into the
+  letter instead of actual projects — now requires a real `## ` section heading and
+  turns off on the next one.
+- `cv cover-letter` left project descriptions blank when cv-master.md wrote `**Stack:**`
+  in bold instead of plain `Stack:`.
+- `cv generate`'s `TAILOR` hint suggested prioritizing the offer's raw tech stack without
+  checking whether the candidate's profile actually evidenced it, sometimes contradicting
+  its own `DE-EMPHASIZE` line on the same topic. It now filters against the profile (same
+  check `generate_cover_letter` already applied) and lists the rest under `NOT INCLUDED`
+  instead of silently dropping them.
+
 ## [1.7.0] — 2026-08-15
 
 ### Added
