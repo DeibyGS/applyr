@@ -150,8 +150,17 @@ def get_output_dir() -> Path:
     return output_dir
 
 
-def _get_tailoring_hints(tech_stack: str | None, topics: dict) -> tuple[list[str], list[str], list[str]]:
+def _get_tailoring_hints(
+    tech_stack: str | None, topics: dict, profile_text: str = ""
+) -> tuple[list[str], list[str], list[str]]:
     """Generate tailoring hints based on tech_stack and topic scores.
+
+    profile_text (cv-master.md, lowercased) filters tech_stack down to what the
+    candidate's own profile actually evidences — the same "never invent skills"
+    check generate_cover_letter already applies to its key_skills. Without it,
+    TAILOR silently told the filling agent to prioritize offer-stated tech the
+    profile has no evidence for; anything filtered out is surfaced instead as
+    NOT INCLUDED, so the gap is explicit rather than silently dropped.
 
     Returns:
         Tuple of (highlight, de_emphasize, not_included) lists
@@ -163,20 +172,17 @@ def _get_tailoring_hints(tech_stack: str | None, topics: dict) -> tuple[list[str
     if tech_stack:
         # Parse tech_stack from comma-separated string
         skills = [s.strip() for s in tech_stack.split(",") if s.strip()]
-        highlight = skills
+        if profile_text:
+            highlight = [s for s in skills if s.lower() in profile_text]
+            not_included = [s for s in skills if s.lower() not in profile_text]
+        else:
+            highlight = skills
 
     # Get strong topics to highlight
     for topic, values in topics.items():
         score = values.get("score", 0)
         if score >= 80:
-            label = {
-                "tech_stack": "Technical Skills",
-                "experience": "Work Experience",
-                "projects": "Projects",
-                "education": "Education",
-                "english": "Languages",
-                "cultural_fit": "Work Preferences",
-            }.get(topic, topic)
+            label = _TOPIC_LABELS.get(topic, topic)
             if label not in highlight:
                 highlight.append(label)
 
@@ -184,14 +190,7 @@ def _get_tailoring_hints(tech_stack: str | None, topics: dict) -> tuple[list[str
     for topic, values in topics.items():
         score = values.get("score", 0)
         if score < 50:
-            label = {
-                "tech_stack": "Technical Skills",
-                "experience": "Work Experience",
-                "projects": "Projects",
-                "education": "Education",
-                "english": "Languages",
-                "cultural_fit": "Work Preferences",
-            }.get(topic, topic)
+            label = _TOPIC_LABELS.get(topic, topic)
             de_emphasize.append(label)
 
     return highlight, de_emphasize, not_included
@@ -210,6 +209,15 @@ def _format_tailoring_hints(highlight: list[str], de_emphasize: list[str], not_i
 
 
 _SENIOR_LEVELS = {"senior", "lead", "director"}
+
+_TOPIC_LABELS = {
+    "tech_stack": "Technical Skills",
+    "experience": "Work Experience",
+    "projects": "Projects",
+    "education": "Education",
+    "english": "Languages",
+    "cultural_fit": "Work Preferences",
+}
 
 
 def _count_pdf_pages(pdf_path: Path) -> int | None:
@@ -370,7 +378,8 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
     # An unfilled template is worse than a missing one: generation succeeds and
     # the agent has nothing to fill the placeholders from, so the failure is
     # silent. setup-agent already warns about this; refuse it here too.
-    report = inspect_cv_master(cv_master.read_text(encoding="utf-8"))
+    cv_master_text = cv_master.read_text(encoding="utf-8")
+    report = inspect_cv_master(cv_master_text)
     if not report.filled:
         error(f"Error: cv-master.md is {report.reason}.")
         die("cv-master.md is still the unfilled template.", code="empty_cv_master",
@@ -432,8 +441,16 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
     finally:
         conn.close()
 
-    highlight, de_emphasize, not_included = _get_tailoring_hints(row["tech_stack"], topics_dict)
+    highlight, de_emphasize, not_included = _get_tailoring_hints(
+        row["tech_stack"], topics_dict, cv_master_text.lower()
+    )
     tailoring_hints = _format_tailoring_hints(highlight, de_emphasize, not_included)
+
+    # Same evidenced list as the TAILOR comment above — the per-section
+    # instructions below used to interpolate row["tech_stack"] raw, telling
+    # the filling agent to "prioritize" offer tech the profile never
+    # evidenced, contradicting the TAILOR/NOT INCLUDED hint right above them.
+    evidenced_stack = ", ".join(highlight) if highlight else (row["tech_stack"] or "the role")
 
     language = resolve_cv_language(row["language"])
     headings = CV_HEADINGS[language]
@@ -451,7 +468,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
 ## {headings['summary']}
 
 [2-3 sentences tailored to {row['title']} at {row['company'] or 'this company'}.
-Highlight relevant skills for: {row['tech_stack'] or 'the role'}.
+Highlight relevant skills for: {evidenced_stack}.
 Match keywords from the job description.
 Include both acronyms and full terms.]
 
@@ -470,7 +487,7 @@ Include both acronyms and full terms.]
 ### [Project Name]
 **{headings['stack']}:** [Technologies] | [REPO_URL]
 
-- [What it does and key technical decisions relevant to {row['tech_stack'] or 'the role'}]
+- [What it does and key technical decisions relevant to {evidenced_stack}]
 
 <!-- Add more projects from cv-master.md if relevant -->
 
@@ -487,7 +504,7 @@ Include both acronyms and full terms.]
 
 ## {headings['skills']}
 
-**{headings['backend']}:** [list — prioritize skills matching: {row['tech_stack'] or 'job requirements'}]
+**{headings['backend']}:** [list — prioritize skills matching: {evidenced_stack}]
 **{headings['frontend']}:** [list]
 **{headings['databases']}:** [list]
 **{headings['devops']}:** [list]
@@ -1312,7 +1329,11 @@ def generate_cover_letter(offer_data: dict, cv_master: dict) -> str:
     """
     from datetime import datetime
 
-    template_path = Path(__file__).parent / "templates" / "cover_letter.md"
+    # Same language the CV is generated in — a letter en inglés for una oferta
+    # en español reads as machine-made, same reasoning as resolve_cv_language().
+    language = resolve_cv_language(offer_data.get("language"))
+    template_name = "cover_letter.md" if language == "en" else f"cover_letter_{language}.md"
+    template_path = Path(__file__).parent / "templates" / template_name
     template = template_path.read_text()
 
     # Key skills to claim: the overlap between what the offer asks for and what
@@ -1338,11 +1359,19 @@ def generate_cover_letter(offer_data: dict, cv_master: dict) -> str:
         desc = project.get("description", project.get("name", ""))
         achievements.append(f"{i+1}. {project.get('name', 'Project')}: {desc}")
 
+    if language == "es":
+        months_es = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                     "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+        today = datetime.now()
+        date_str = f"{today.day} de {months_es[today.month - 1]} de {today.year}"
+    else:
+        date_str = datetime.now().strftime("%B %d, %Y")
+
     # Fill template
     letter = template.format(
         company=offer_data.get("company", "[Company]"),
         title=offer_data.get("title", "[Position]"),
-        date=datetime.now().strftime("%B %d, %Y"),
+        date=date_str,
         key_skills=key_skills,
         achievement_1=achievements[0] if len(achievements) > 0 else "1. [Your top achievement]",
         achievement_2=achievements[1] if len(achievements) > 1 else "2. [Your second achievement]",
@@ -1410,20 +1439,30 @@ def cmd_cv_cover_letter(offer_id: int, as_json: bool = False) -> None:
     if phone_match:
         cv_master["phone"] = phone_match.group(0)
 
-    # Extract projects (simple: look for ### headers under PROYECTOS)
+    # Extract projects (simple: look for ### headers under a ## PROYECTOS/PROJECTS
+    # heading). Must match a real `## ` section heading, not any line that
+    # merely contains the word "proyectos" in prose (e.g. an intro blurb) —
+    # and must turn back off on the next `## ` heading, otherwise every
+    # subsequent section (including ## EXPERIENCIA PROFESIONAL's own `### `
+    # entries) gets swept in as a "project" too.
     in_projects = False
     current_project = None
     for line in cv_text.split('\n'):
-        if 'PROYECTOS' in line.upper() or 'PROJECTS' in line.upper():
-            in_projects = True
+        stripped = line.strip()
+        if stripped.startswith('## '):
+            in_projects = 'PROYECTOS' in stripped.upper() or 'PROJECTS' in stripped.upper()
             continue
         if in_projects and line.startswith('### '):
             if current_project:
                 cv_master["projects"].append(current_project)
             project_name = line[4:].strip()
             current_project = {"name": project_name, "description": ""}
-        elif in_projects and current_project and line.startswith('Stack:'):
-            current_project["description"] = line[6:].strip()
+        elif in_projects and current_project:
+            # Tolerate "Stack:" written plain or **bold** (both appear in
+            # cv-master.md, in different sections).
+            stack_line = stripped.lstrip('*').strip()
+            if stack_line.startswith('Stack:'):
+                current_project["description"] = stack_line[6:].strip()
     if current_project:
         cv_master["projects"].append(current_project)
 
