@@ -125,7 +125,7 @@ class TestConfigTemplate:
         from applyr.config import TOML_TEMPLATE
 
         assert "~/.applyr" not in TOML_TEMPLATE
-        assert "__APPLYR_DIR__" in TOML_TEMPLATE
+        assert "__CV_HOME__" in TOML_TEMPLATE
 
     def test_written_config_points_inside_applyr_home(self, tmp_applyr):
         from applyr.config import create_default_config

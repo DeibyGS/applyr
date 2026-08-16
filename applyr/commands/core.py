@@ -374,9 +374,14 @@ def cmd_init() -> None:
     init_db()
     print(f"  Database ready at {get_db_path()}")
 
-    # Copy a starter cv-master.md only if one does not already exist
-    cv_master_path = APPLYR_DIR / "cv-master.md"
+    # Copy a starter cv-master.md only if one does not already exist. Read the
+    # path from config (just written above) rather than hardcoding APPLYR_DIR,
+    # so a custom cv_master in an existing applyr.toml is respected too.
+    from applyr.cv import get_cv_master_path
+
+    cv_master_path = get_cv_master_path()
     if not cv_master_path.exists():
+        cv_master_path.parent.mkdir(parents=True, exist_ok=True)
         cv_master_path.write_text(_cv_master_template_text())
         print(f"  Created {cv_master_path}  (edit this with your master CV content)")
     else:
@@ -392,7 +397,7 @@ def cmd_init() -> None:
         print(f"  {agent_instructions_dst} already exists — skipped")
 
     print("\napplyr is ready.")
-    print(f"  1. Edit {APPLYR_DIR / 'cv-master.md'} with your professional profile")
+    print(f"  1. Edit {cv_master_path} with your professional profile")
     print("  2. Run 'applyr setup-agent' in your project directory")
     print("     to configure your AI agent (Claude, Cursor, OpenCode, etc.)")
     print("  3. Run 'applyr add <json>' to log your first offer")

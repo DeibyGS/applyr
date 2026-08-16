@@ -38,7 +38,7 @@ for agents that would rather parse than scrape.
 
 Then guide the user through two mandatory steps:
 
-1. **Fill `~/.applyr/cv-master.md`** with their complete professional profile.
+1. **Fill `~/Documents/applyr/cv-master.md`** with their complete professional profile.
 2. **Set the thresholds** in `~/.applyr/applyr.toml` — ask: "What minimum compatibility score should I recommend APPLY at, and what's the lower cutoff for a MAYBE? Defaults are 80% and 60%."
 
 ```toml
@@ -63,7 +63,7 @@ still the blank template, and a CV built on it will contain invented experience.
 Missing Chrome is reported but never blocks: it only stops `cv pdf`.
 
 ```bash
-cat ~/.applyr/cv-master.md
+cat ~/Documents/applyr/cv-master.md
 ```
 
 If empty or missing, STOP — tell the user to fill it in first.
@@ -306,7 +306,7 @@ derived value here — `UNKNOWN` means you skipped confidence entirely, it does 
 User: "Here's a Python backend job at Acme Corp [paste]"
 
 Agent (Matcher):
-1. cat ~/.applyr/cv-master.md
+1. cat ~/Documents/applyr/cv-master.md
 2. applyr search --company "Acme"     → no duplicates
 3. Evaluate topics against cv-master
 4. applyr add '{"title":"...","topics":{...}}'

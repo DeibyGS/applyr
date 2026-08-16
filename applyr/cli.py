@@ -42,7 +42,7 @@ applyr v{__version__} — CLI job application tracker for AI coding agents
 Usage: applyr <command> [options]
 
 Commands:
-  init                          Set up ~/.applyr/ (config, database, templates)
+  init                          Set up ~/.applyr/ (config, database) and starter cv-master.md
   setup-agent [--agent NAME] [--global]  Configure AI agent (--global writes user-wide config)
   add '<json>' [--force]        Register a new job offer (--force skips duplicate check)
   list [--status S] [--sort F]  List offers (--sort: score|date|company|status|id)
@@ -107,9 +107,9 @@ applyr v{__version__} — CLI job application tracker for AI coding agents
 
 Getting started:
 
-  1. applyr init                        Set up config, database, and templates
-  2. Edit ~/.applyr/cv-master.md        Fill in your professional profile
-  3. applyr setup-agent --agent claude  Connect your AI agent (claude, cursor, opencode, generic)
+  1. applyr init                          Set up config, database, and templates
+  2. Edit ~/Documents/applyr/cv-master.md  Fill in your professional profile
+  3. applyr setup-agent --agent claude    Connect your AI agent (claude, cursor, opencode, generic)
 
 Then paste a job offer into your AI agent — it handles the rest.
 Docs: https://github.com/DeibyGS/applyr
