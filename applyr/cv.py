@@ -995,7 +995,25 @@ def cmd_cv_ats_check(cv_file: str, as_json: bool = False) -> None:
     if not cv_path.exists():
         die(f"CV file not found: {cv_file}", code="file_not_found")
 
-    cv_text = cv_path.read_text()
+    try:
+        cv_text = cv_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # A rendered PDF is the most common accident here: cv pdf deletes the
+        # temporary .html it built from, but the .md source usually survives
+        # next to it. Exclude cv_path itself from the candidates — if the
+        # input already ends in .md or .html, with_suffix() returns the same
+        # broken path, which would otherwise point the user right back at it.
+        sibling = next(
+            (s for ext in (".md", ".html") if (s := cv_path.with_suffix(ext)) != cv_path and s.exists()),
+            None,
+        )
+        hint = (
+            f" Try: applyr cv ats-check {sibling}"
+            if sibling
+            else " ats-check reads the CV source (.md or .html), not a rendered PDF."
+        )
+        die(f"{cv_file} is not a text file.{hint}", code="unsupported_format",
+            details={"path": str(cv_path)})
     report = validate_ats_format(cv_text)
 
     if as_json:
@@ -1094,7 +1112,11 @@ def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
     # copy of themselves: every keyword hit, every CV scored 100% STRONG, and a
     # CV mentioning neither AWS nor Redux nor Webpack was reported as covering
     # all three.
-    cv_text = _strip_frontmatter(cv_path.read_text())
+    try:
+        cv_text = _strip_frontmatter(cv_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        die(f"{cv_path} is not readable as text — check how it was saved (expected UTF-8).",
+            code="unsupported_format", details={"path": str(cv_path)})
     report = match_keywords(cv_text, keywords)
 
     if as_json:
@@ -1239,7 +1261,20 @@ def cmd_cv_bullet_optimize(cv_file: str, as_json: bool = False) -> None:
     if not cv_path.exists():
         die(f"CV file not found: {cv_file}", code="file_not_found")
 
-    cv_text = cv_path.read_text()
+    try:
+        cv_text = cv_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        sibling = next(
+            (s for ext in (".md", ".html") if (s := cv_path.with_suffix(ext)) != cv_path and s.exists()),
+            None,
+        )
+        hint = (
+            f" Try: applyr cv bullet-optimize {sibling}"
+            if sibling
+            else " bullet-optimize reads the CV source (.md or .html), not a rendered PDF."
+        )
+        die(f"{cv_file} is not a text file.{hint}", code="unsupported_format",
+            details={"path": str(cv_path)})
 
     # Extract bullet points (lines starting with -)
     bullets = []

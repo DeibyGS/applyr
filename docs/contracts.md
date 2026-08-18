@@ -70,6 +70,7 @@ With `--json`, failures emit one JSON object on stderr
 | `missing_field` | Required field absent from the payload |
 | `missing_value` | A flag was given without its value |
 | `chrome_not_found` | Chrome/Chromium missing, needed for PDF |
+| `unsupported_format` | File exists but isn't readable as text, e.g. a rendered PDF passed to `cv ats-check` |
 | `no_topics` | `rescore` target has no `offer_topics` rows to recompute from |
 | `db_error` | Database could not be opened or initialized |
 | `error` | Unclassified — refining one into a specific code is additive, not breaking |
