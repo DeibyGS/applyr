@@ -60,7 +60,9 @@ Commands:
   rescore <id>                  Recompute compatibility_pct under current weights
   plan [--limit N]              Prioritized learning plan from skill gaps
   salary [--seniority S]        Salary insights by seniority/category
-  export [--format csv|json|md]  Export all data
+  export [--format csv|json|md] [--redact] [--redact-fields F1,F2]
+                                 Export all data (--redact strips sensitive fields;
+                                 --redact-fields replaces the default set, not adds to it)
   cv stats [--min-sample N]     Compare CVs by response and interview rate
   cv compare <v1> <v2>          Compare two CV versions (ATS, keywords)
   response-rate [--json]        Application response rate and trends
@@ -372,7 +374,9 @@ def main():
         if fmt == "markdown":
             fmt = "md"
         filepath = _get_flag(args, "--file")
-        cmd_export(fmt=fmt, filepath=filepath)
+        redact = _has_flag(args, "--redact")
+        redact_fields = _get_flag(args, "--redact-fields")
+        cmd_export(fmt=fmt, filepath=filepath, redact=redact, redact_fields=redact_fields)
 
     elif cmd == "cv":
         if len(args) < 2:

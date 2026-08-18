@@ -46,22 +46,91 @@ def _export_markdown(records: list[dict]) -> str:
 # cmd_export
 # ---------------------------------------------------------------------------
 
-def cmd_export(fmt: str = "csv", filepath: str | None = None) -> None:
-    """Export all offers to CSV, JSON, or Markdown."""
+# Fields redacted by plain `--redact` (no explicit --redact-fields). Same
+# privacy posture as the APPLYR_DIR default above, extended to content: an
+# export meant to be shared publicly (blog post, LinkedIn) shouldn't carry
+# company identity, contact info, salary, or free-text notes. cv_used and
+# cover_letter_file are here too — `cv generate` slugs filenames from the
+# company name (e.g. cv-acme.md), so those columns leak the same identity
+# `company` was just redacted for.
+DEFAULT_REDACT_FIELDS = (
+    "company", "job_url", "contact_name", "contact_role", "location",
+    "salary_min", "salary_max", "notes", "follow_up_notes",
+    "rejection_reason", "summary", "cv_used", "cover_letter_file",
+)
+
+_NUMERIC_COLUMN_TYPES = {"INTEGER", "REAL", "NUMERIC"}
+
+
+def _redact_records(records: list[dict], fields: list[str], column_types: dict[str, str]) -> None:
+    """Replace sensitive field values in place, before any file is written.
+
+    Mutating in memory (never writing the raw value first) is what keeps this
+    safe against a partial-write race leaking data. Numeric columns (per the
+    schema's declared type, not a hardcoded list — so this stays correct for
+    any column `--redact-fields` names, not just the two in the default set)
+    become `None` instead of the string "[REDACTED]", which would otherwise
+    corrupt the column's type for downstream JSON/CSV consumers.
+    """
+    for record in records:
+        for field in fields:
+            if field in record:
+                is_numeric = column_types.get(field, "").upper() in _NUMERIC_COLUMN_TYPES
+                record[field] = None if is_numeric else "[REDACTED]"
+
+
+def cmd_export(
+    fmt: str = "csv",
+    filepath: str | None = None,
+    redact: bool = False,
+    redact_fields: str | None = None,
+) -> None:
+    """Export all offers to CSV, JSON, or Markdown, optionally redacting sensitive fields."""
     if fmt not in ("csv", "json", "md"):
         die(f"Error: unsupported format '{fmt}'. Use 'csv', 'json', or 'md'.", code="invalid_value")
 
     conn = get_conn()
     try:
         rows = conn.execute("SELECT * FROM offers ORDER BY id").fetchall()
+        # Real column names + declared types, read from the schema itself
+        # rather than a hardcoded list, so validation never drifts from
+        # `offers`. Only fetched when redaction is actually requested — the
+        # plain-export path (the common case) skips this round trip.
+        column_types: dict[str, str] = {}
+        if redact or redact_fields:
+            column_types = {row[1]: row[2] for row in conn.execute("PRAGMA table_info(offers)").fetchall()}
     finally:
         conn.close()
+
+    # An explicit --redact-fields list REPLACES the default set rather than
+    # adding to it — `--redact --redact-fields job_url` redacts only job_url,
+    # not the defaults plus job_url. This mirrors AC-B2: list implies intent
+    # even without --redact, and only the complete absence of both flags
+    # keeps `export` byte-for-byte identical to the unredacted default.
+    fields_to_redact: list[str] | None = None
+    if redact_fields:
+        requested = [f.strip() for f in redact_fields.split(",") if f.strip()]
+        if not requested:
+            die("Error: --redact-fields was passed with no field names.", code="invalid_value")
+        invalid = [f for f in requested if f not in column_types]
+        if invalid:
+            die(
+                f"Error: unknown field(s) for --redact-fields: {', '.join(invalid)}",
+                code="invalid_value",
+                details={"invalid_fields": invalid},
+            )
+        fields_to_redact = requested
+    elif redact:
+        fields_to_redact = list(DEFAULT_REDACT_FIELDS)
 
     if not rows:
         print("No offers to export.")
         return
 
     records = [dict(r) for r in rows]
+
+    if fields_to_redact:
+        _redact_records(records, fields_to_redact, column_types)
 
     ext = "md" if fmt == "md" else fmt
     default_name = f"applyr_export.{ext}"
