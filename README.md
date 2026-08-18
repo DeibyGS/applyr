@@ -13,7 +13,8 @@ applyr is the storage layer; your AI coding agent is the brain. Paste a job offe
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
-[![tests](https://img.shields.io/badge/tests-576%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
+[![Lint](https://github.com/DeibyGS/applyr/actions/workflows/pylint.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
+[![tests](https://img.shields.io/badge/tests-655%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-purple)](CONTRIBUTING.md)
 
 [Features](#features) •

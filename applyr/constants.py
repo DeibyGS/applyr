@@ -37,7 +37,7 @@ GAP_PRIORITY_MEDIUM_SHARE = 0.2
 TREND_HISTORY_LIMIT = 12
 # Below this many applied offers in a score band, `stats` shows the count
 # instead of a rate — a rate from 1-2 offers reads as more predictive than it is.
-CALIBRATION_MIN_SAMPLE = 3
+CALIBRATION_MIN_SAMPLE = 5
 
 # CV performance table
 CV_STATS_NAME_WIDTH = 28

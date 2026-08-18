@@ -218,6 +218,22 @@ class TestCvKeywords:
 
         cmd_cv_keywords(offer_id)  # must not raise "No CV found"
 
+    def test_non_utf8_cv_file_dies_with_a_clear_message(self, offer_id, tmp_applyr, capsys):
+        """A hand-edited CV saved with the wrong encoding must not crash with
+        a raw UnicodeDecodeError — same bug class as ats-check (offer #235,
+        2026-08-18), reached here through the DB-resolved path instead of a
+        user-supplied one."""
+        from applyr.cv import cmd_cv_generate, cmd_cv_keywords
+
+        cmd_cv_generate(offer_id)
+        cv_path = next((tmp_applyr / "cv").glob("*.md"))
+        cv_path.write_bytes(b"\xff\xfe not valid utf-8")
+
+        with pytest.raises(SystemExit):
+            cmd_cv_keywords(offer_id)
+        err = capsys.readouterr().err
+        assert "not readable as text" in err
+
 
 class TestKeywordMatchingIgnoresFrontmatter:
     """`cv keywords` matched the offer's keywords against the whole generated
@@ -349,3 +365,105 @@ class TestPageLimitFor:
         md = tmp_path / "cv.md"
         md.write_text("---\noffer_id: 1\n---\nbody")
         assert _page_limit_for(md) == 2
+
+
+class TestCvAtsCheck:
+    """`applyr cv ats-check` reads the CV source, not the rendered output.
+
+    Until this fix, passing the .pdf `cv pdf` produces raised a bare
+    UnicodeDecodeError from read_text() instead of a clear, actionable error —
+    found auditing a real offer (Zinco, #235) on 2026-08-18.
+    """
+
+    def test_pdf_input_dies_with_a_clear_message_not_a_stack_trace(self, tmp_path):
+        from applyr.cv import cmd_cv_ats_check
+
+        pdf = tmp_path / "cv-zinco.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\nnot valid utf-8: \xff\xfe")
+
+        with pytest.raises(SystemExit):
+            cmd_cv_ats_check(str(pdf))
+
+    def test_hints_at_the_sibling_md_when_it_exists(self, tmp_path, capsys):
+        from applyr.cv import cmd_cv_ats_check
+
+        (tmp_path / "cv-zinco.md").write_text("# CV\n")
+        pdf = tmp_path / "cv-zinco.pdf"
+        pdf.write_bytes(b"\xff\xfe not text")
+
+        with pytest.raises(SystemExit):
+            cmd_cv_ats_check(str(pdf))
+        err = capsys.readouterr().err
+        assert str(tmp_path / "cv-zinco.md") in err
+
+    def test_omits_the_hint_when_no_sibling_md_exists(self, tmp_path, capsys):
+        from applyr.cv import cmd_cv_ats_check
+
+        pdf = tmp_path / "cv-orphan.pdf"
+        pdf.write_bytes(b"\xff\xfe not text")
+
+        with pytest.raises(SystemExit):
+            cmd_cv_ats_check(str(pdf))
+        err = capsys.readouterr().err
+        assert "rendered PDF" in err
+
+    def test_hints_at_the_sibling_html_when_no_md_exists(self, tmp_path, capsys):
+        """cv pdf can be run directly on an .html source (legacy support) —
+        the hint must not assume .md is the only valid sibling."""
+        from applyr.cv import cmd_cv_ats_check
+
+        (tmp_path / "cv-zinco.html").write_text("<html></html>")
+        pdf = tmp_path / "cv-zinco.pdf"
+        pdf.write_bytes(b"\xff\xfe not text")
+
+        with pytest.raises(SystemExit):
+            cmd_cv_ats_check(str(pdf))
+        err = capsys.readouterr().err
+        assert str(tmp_path / "cv-zinco.html") in err
+
+    def test_does_not_point_back_at_itself_when_the_md_is_the_broken_file(self, tmp_path, capsys):
+        """If cv-acme.md itself is non-UTF-8 (e.g. pasted from Word as
+        cp1252), with_suffix('.md') on a path already ending in .md returns
+        the same path — the hint must not tell the user to retry the exact
+        file that just failed."""
+        from applyr.cv import cmd_cv_ats_check
+
+        broken_md = tmp_path / "cv-acme.md"
+        broken_md.write_bytes(b"\xff\xfe not utf-8")
+
+        with pytest.raises(SystemExit):
+            cmd_cv_ats_check(str(broken_md))
+        err = capsys.readouterr().err
+        # The message legitimately names the broken file ("X is not a text
+        # file") — what must NOT happen is the retry hint suggesting the
+        # user run the command again on that same broken file.
+        assert f"Try: applyr cv ats-check {broken_md}" not in err
+        assert "rendered PDF" in err
+        assert "rendered PDF" in err
+
+
+class TestCvBulletOptimize:
+    """Same bug class as TestCvAtsCheck: `cv bullet-optimize` also takes a
+    user-supplied file path directly and hit the identical bare
+    UnicodeDecodeError on a rendered PDF."""
+
+    def test_pdf_input_dies_with_a_clear_message_not_a_stack_trace(self, tmp_path):
+        from applyr.cv import cmd_cv_bullet_optimize
+
+        pdf = tmp_path / "cv-zinco.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\nnot valid utf-8: \xff\xfe")
+
+        with pytest.raises(SystemExit):
+            cmd_cv_bullet_optimize(str(pdf))
+
+    def test_hints_at_the_sibling_md_when_it_exists(self, tmp_path, capsys):
+        from applyr.cv import cmd_cv_bullet_optimize
+
+        (tmp_path / "cv-zinco.md").write_text("# CV\n")
+        pdf = tmp_path / "cv-zinco.pdf"
+        pdf.write_bytes(b"\xff\xfe not text")
+
+        with pytest.raises(SystemExit):
+            cmd_cv_bullet_optimize(str(pdf))
+        err = capsys.readouterr().err
+        assert str(tmp_path / "cv-zinco.md") in err

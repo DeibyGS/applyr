@@ -501,6 +501,159 @@ class TestExportStaysInsideApplyrHome:
         assert not (tmp_applyr / "applyr_export.json").exists()
 
 
+class TestExportRedaction:
+    """`export --redact` extends the APPLYR_DIR privacy posture above to
+    content: a shareable export must not leak company, contact, salary, or
+    note fields unless the caller opts in."""
+
+    def _seed(self):
+        _add(
+            company="Acme",
+            job_url="https://acme.example/job/1",
+            contact_name="Jane Recruiter",
+            contact_role="Talent Lead",
+            location="Berlin",
+            salary_min=30000,
+            salary_max=40000,
+            notes="Great culture fit",
+        )
+
+    def test_plain_export_is_unchanged(self, tmp_db, tmp_applyr, monkeypatch):
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        self._seed()
+        workflow.cmd_export(fmt="json")
+
+        data = json.loads((tmp_applyr / "applyr_export.json").read_text(encoding="utf-8"))
+        assert data[0]["company"] == "Acme"
+        assert data[0]["salary_min"] == 30000
+        assert data[0]["notes"] == "Great culture fit"
+
+    def test_redact_alone_hits_the_default_field_set(self, tmp_db, tmp_applyr, monkeypatch):
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        self._seed()
+        workflow.cmd_export(fmt="json", redact=True)
+
+        data = json.loads((tmp_applyr / "applyr_export.json").read_text(encoding="utf-8"))
+        record = data[0]
+        assert record["company"] == "[REDACTED]"
+        assert record["job_url"] == "[REDACTED]"
+        assert record["contact_name"] == "[REDACTED]"
+        assert record["notes"] == "[REDACTED]"
+        assert record["salary_min"] is None
+        assert record["salary_max"] is None
+        # Untouched: not in the default redact set.
+        assert record["title"] == "Backend Dev"
+
+    def test_redact_fields_overrides_not_merges_the_default_set(self, tmp_db, tmp_applyr, monkeypatch):
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        self._seed()
+        workflow.cmd_export(fmt="json", redact_fields="company")
+
+        data = json.loads((tmp_applyr / "applyr_export.json").read_text(encoding="utf-8"))
+        record = data[0]
+        assert record["company"] == "[REDACTED]"
+        # Default-set fields left alone because an explicit list overrides,
+        # rather than extends, the default.
+        assert record["job_url"] == "https://acme.example/job/1"
+        assert record["notes"] == "Great culture fit"
+
+    def test_redact_fields_alone_activates_redaction(self, tmp_db, tmp_applyr, monkeypatch):
+        """No --redact flag at all, just an explicit field list — still redacts."""
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        self._seed()
+        workflow.cmd_export(fmt="json", redact=False, redact_fields="notes")
+
+        data = json.loads((tmp_applyr / "applyr_export.json").read_text(encoding="utf-8"))
+        assert data[0]["notes"] == "[REDACTED]"
+        assert data[0]["company"] == "Acme"
+
+    def test_invalid_redact_field_dies_and_writes_nothing(self, tmp_db, tmp_applyr, monkeypatch):
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        self._seed()
+
+        with pytest.raises(SystemExit) as exc:
+            workflow.cmd_export(fmt="json", redact_fields="not_a_real_column")
+        assert exc.value.code != 0
+        assert not (tmp_applyr / "applyr_export.json").exists()
+
+    def test_redaction_is_consistent_across_csv_and_json(self, tmp_db, tmp_applyr, monkeypatch):
+        import csv
+
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        self._seed()
+
+        workflow.cmd_export(fmt="json", redact=True, filepath=str(tmp_applyr / "out.json"))
+        workflow.cmd_export(fmt="csv", redact=True, filepath=str(tmp_applyr / "out.csv"))
+
+        json_record = json.loads((tmp_applyr / "out.json").read_text(encoding="utf-8"))[0]
+        with open(tmp_applyr / "out.csv", newline="", encoding="utf-8") as f:
+            csv_record = next(csv.DictReader(f))
+
+        assert json_record["company"] == "[REDACTED]"
+        assert csv_record["company"] == "[REDACTED]"
+        assert json_record["salary_min"] is None
+        assert csv_record["salary_min"] == ""
+
+    def test_redact_fields_of_only_commas_dies_instead_of_exporting_unredacted(self, tmp_db, tmp_applyr, monkeypatch):
+        """`--redact-fields ","` strips to an empty request list — must die,
+        not silently fall through to an unredacted export."""
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        self._seed()
+
+        with pytest.raises(SystemExit) as exc:
+            workflow.cmd_export(fmt="json", redact_fields=", ,")
+        assert exc.value.code != 0
+        assert not (tmp_applyr / "applyr_export.json").exists()
+
+    def test_default_set_also_redacts_company_derived_filenames_and_followup_notes(self, tmp_db, tmp_applyr, monkeypatch):
+        """cv_used/cover_letter_file are slugged from company (cv generate),
+        and follow_up_notes is free text parallel to notes — all three leaked
+        past the original default set."""
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        _add(
+            company="Acme",
+            cv_used="cv-acme.md",
+            cover_letter_file="cover-acme.md",
+            follow_up_notes="mentioned they'd reply by Friday",
+        )
+        workflow.cmd_export(fmt="json", redact=True)
+
+        record = json.loads((tmp_applyr / "applyr_export.json").read_text(encoding="utf-8"))[0]
+        assert record["cv_used"] == "[REDACTED]"
+        assert record["cover_letter_file"] == "[REDACTED]"
+        assert record["follow_up_notes"] == "[REDACTED]"
+
+    def test_redact_fields_detects_numeric_type_beyond_the_original_pair(self, tmp_db, tmp_applyr, monkeypatch):
+        """Numeric-ness is read from the schema, not a hardcoded {salary_min,
+        salary_max} set — any numeric column redacted via --redact-fields
+        must become null, not the string "[REDACTED]" (which would corrupt
+        the column's type for downstream JSON/CSV consumers)."""
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        _add(company="Acme")  # compatibility_pct defaults to 0, an INTEGER
+        workflow.cmd_export(fmt="json", redact_fields="compatibility_pct")
+
+        record = json.loads((tmp_applyr / "applyr_export.json").read_text(encoding="utf-8"))[0]
+        assert record["compatibility_pct"] is None
+
+
 class TestListSortAndLimitValidation:
     """`--status` was validated because an unknown value "reads as 'no offers'
     rather than 'you mistyped it'" — the comment is in the source. Two lines
