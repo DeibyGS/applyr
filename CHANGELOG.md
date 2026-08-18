@@ -4,6 +4,33 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] — 2026-08-19
+
+### Added
+
+- **`applyr export --redact` / `--redact-fields`** — export CSV/JSON/Markdown with
+  sensitive fields stripped, so a real export can be shared publicly (e.g. as evidence
+  in a blog post) without leaking company identity, contact info, salary, or notes.
+  `--redact` alone uses a sensible default field set (including `cv_used` /
+  `cover_letter_file`, which are slugged from the company name and would otherwise
+  re-leak the identity `company` was just redacted for); `--redact-fields "a,b"`
+  redacts exactly that list instead. Numeric columns redact to `null`, not a
+  type-corrupting string, determined from the live schema rather than a hardcoded set.
+
+### Fixed
+
+- `cv ats-check`, `cv bullet-optimize`, and `cv keywords` crashed with a raw
+  `UnicodeDecodeError` instead of a clear error when given a binary file (most
+  commonly a rendered `.pdf` passed by mistake instead of its `.md`/`.html` source) —
+  found auditing a real offer (Zinco, #235) on 2026-08-18. All three now die with an
+  actionable message, and `ats-check`/`bullet-optimize` suggest the sibling `.md` or
+  `.html` source file when one exists.
+
+### Changed
+
+- `stats`' score-calibration sample floor raised from 3 to 5 resolved offers per band
+  — a rate computed from 3-4 offers read as more predictive than it actually is.
+
 ## [1.8.0] — 2026-08-16
 
 Found and fixed during a live audit: the user ran applyr end-to-end against 7 real
