@@ -434,7 +434,11 @@ class TestCvAtsCheck:
         with pytest.raises(SystemExit):
             cmd_cv_ats_check(str(broken_md))
         err = capsys.readouterr().err
-        assert str(broken_md) not in err
+        # The message legitimately names the broken file ("X is not a text
+        # file") — what must NOT happen is the retry hint suggesting the
+        # user run the command again on that same broken file.
+        assert f"Try: applyr cv ats-check {broken_md}" not in err
+        assert "rendered PDF" in err
         assert "rendered PDF" in err
 
 
