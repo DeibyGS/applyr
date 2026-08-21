@@ -8,7 +8,7 @@ from pathlib import Path
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS
 from applyr.cv_master import inspect_cv_master
-from applyr.errors import die, error, warn
+from applyr.errors import die, error, read_text_or_die, warn
 
 
 def _die_chrome(message: str, result) -> None:
@@ -814,10 +814,7 @@ def cmd_cv_review(cv_file: str, as_json: bool = False) -> None:
     import json
 
     cv_path = Path(cv_file).resolve()
-    if not cv_path.exists():
-        die(f"Error: CV file not found: {cv_file}")
-
-    content = cv_path.read_text(encoding="utf-8")
+    content = read_text_or_die(cv_path)
 
     # Parse markdown directly (no _strip_html_tags needed)
     if cv_path.suffix == ".md":

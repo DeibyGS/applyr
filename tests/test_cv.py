@@ -442,6 +442,47 @@ class TestCvAtsCheck:
         assert "rendered PDF" in err
 
 
+class TestCvReview:
+    """Same bug class as TestCvAtsCheck: `cv review` is the single most-invoked
+    command in the documented agent workflow (called in a loop until READY TO
+    SEND) and, until this fix, was the one sibling command that never got the
+    UnicodeDecodeError guard from PR #71."""
+
+    INVALID_PDF = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\nnot valid utf-8: \xff\xfe"
+
+    def test_missing_file_dies_with_a_clear_message_not_a_stack_trace(self, tmp_path):
+        from applyr.cv import cmd_cv_review
+
+        missing = tmp_path / "does-not-exist.md"
+        with pytest.raises(SystemExit):
+            cmd_cv_review(str(missing))
+
+    def test_pdf_input_dies_with_a_clear_message_not_a_stack_trace(self, tmp_path):
+        from applyr.cv import cmd_cv_review
+
+        pdf = tmp_path / "cv-zinco.pdf"
+        pdf.write_bytes(self.INVALID_PDF)
+
+        with pytest.raises(SystemExit):
+            cmd_cv_review(str(pdf))
+
+    def test_pdf_input_dies_the_same_way_in_json_mode(self, tmp_path, capsys):
+        from applyr.cv import cmd_cv_review
+        from applyr.errors import set_json_mode
+
+        pdf = tmp_path / "cv-zinco.pdf"
+        pdf.write_bytes(self.INVALID_PDF)
+
+        set_json_mode(True)
+        try:
+            with pytest.raises(SystemExit):
+                cmd_cv_review(str(pdf), as_json=True)
+        finally:
+            set_json_mode(False)
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error"]["code"] == "unsupported_format"
+
+
 class TestCvBulletOptimize:
     """Same bug class as TestCvAtsCheck: `cv bullet-optimize` also takes a
     user-supplied file path directly and hit the identical bare
