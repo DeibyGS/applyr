@@ -14,7 +14,7 @@ applyr is the storage layer; your AI coding agent is the brain. Paste a job offe
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
 [![Lint](https://github.com/DeibyGS/applyr/actions/workflows/pylint.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
-[![tests](https://img.shields.io/badge/tests-655%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
+[![tests](https://img.shields.io/badge/tests-715%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-purple)](CONTRIBUTING.md)
 
 [Features](#features) •
@@ -348,7 +348,7 @@ tests/
 git clone https://github.com/DeibyGS/applyr.git
 cd applyr
 pip install -e ".[dev]"
-pytest                             # 576 tests, ~4s
+pytest                             # 715 tests, ~5s
 ```
 
 ---
@@ -361,7 +361,7 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 |-------------|------------------------------|
 | Domain model & 32-column schema | Python implementation |
 | Scoring engine & threshold logic | CLI scaffolding |
-| ATS CV template & locked CSS | Test suite (576 tests) |
+| ATS CV template & locked CSS | Test suite (715 tests) |
 | Architecture & code review | Module split & CI |
 
 **Process:** `Spec (SDD) → AI implementation → Human review → Test → Merge`
