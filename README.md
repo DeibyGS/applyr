@@ -6,7 +6,7 @@
 
 applyr is the storage layer; your AI coding agent is the brain. Paste a job offer, get a weighted 0–100 compatibility score, an APPLY / SKIP recommendation, skill gaps, and a tailored ATS-safe CV — local, private, agent-native.
 
-**Fast to start** — one command. **Local-first** — SQLite on your machine, no API keys, nothing leaves your system.
+**Fast to start** — one command. **Local-first** — SQLite on your machine, no API keys, nothing leaves your system unless you opt in to the update check (`check_updates` in `applyr.toml`, off by default).
 
 [![PyPI version](https://img.shields.io/pypi/v/applyr?color=blue)](https://pypi.org/project/applyr/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/applyr?color=brightgreen)](https://pypi.org/project/applyr/)

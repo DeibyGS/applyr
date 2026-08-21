@@ -1,6 +1,10 @@
 # ADR 001 — Local-first storage
 
 **Status:** Accepted
+**Superseded by:** [ADR 010](010-opt-in-pypi-update-check.md) — narrowly, the "no network
+call of any kind" clause below is lifted for one opt-in, default-off, non-telemetry version
+check. Everything else on this page (all state in `~/.applyr/`, no account, no server, no
+sync, no telemetry) still stands; kept as-is per this project's immutable-ADR convention.
 **Date:** 2026-08-07 (recorded retroactively; decision made at project start)
 
 ## Context

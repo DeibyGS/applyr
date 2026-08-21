@@ -4,7 +4,15 @@ import os
 import tomllib
 from pathlib import Path
 
-from applyr.constants import DEFAULT_WEIGHTS, DEFAULT_THRESHOLD, DEFAULT_THRESHOLD_APPLY, DEFAULT_THRESHOLD_MAYBE, DEFAULT_FOLLOWUP_DAYS, DEFAULT_LIST_LIMIT
+from applyr.constants import (
+    DEFAULT_WEIGHTS,
+    DEFAULT_THRESHOLD,
+    DEFAULT_THRESHOLD_APPLY,
+    DEFAULT_THRESHOLD_MAYBE,
+    DEFAULT_FOLLOWUP_DAYS,
+    DEFAULT_LIST_LIMIT,
+    DEFAULT_CHECK_UPDATES,
+)
 
 APPLYR_DIR = Path(os.environ.get("APPLYR_HOME", Path.home() / ".applyr"))
 
@@ -32,6 +40,10 @@ threshold = 65          # Minimum compatibility % to recommend applying (legacy,
 threshold_apply = 80    # Score >= this → APPLY
 threshold_maybe = 60    # Score >= this → MAYBE (below → LOW MATCH)
 followup_days = 10      # Days before follow-up reminder
+check_updates = false   # Opt-in: 'doctor' checks PyPI for a newer applyr version
+                        # (cached 24h, silent on failure). Off by default — applyr
+                        # is local-first (see ADR-001, ADR-010) and makes zero
+                        # network calls unless you explicitly turn this on.
 
 [weights]
 # Relative importance of each scoring topic (auto-normalized)
@@ -108,6 +120,7 @@ def _build_defaults() -> dict:
             "followup_days": DEFAULT_FOLLOWUP_DAYS,
             "db_path": str(APPLYR_DIR / "jobs.db"),
             "list_limit": DEFAULT_LIST_LIMIT,
+            "check_updates": DEFAULT_CHECK_UPDATES,
         },
         "weights": dict(DEFAULT_WEIGHTS),
         "cv": {

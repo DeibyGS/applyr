@@ -138,6 +138,52 @@ class TestDoctorSchemaForwardCompat:
         assert "note(s) to review" in out
 
 
+class TestUpdateCheck:
+    """Opt-in only (ADR-010) — disabled by default must be byte-identical to
+    pre-feature `doctor` output; enabled behavior is mocked, never hits PyPI."""
+
+    def _enable_update_check_mock(self, doctor_home, monkeypatch, return_value):
+        """Enable check_updates in config and mock check_for_update to return the given value."""
+        (doctor_home / "applyr.toml").write_text("[general]\nthreshold = 65\ncheck_updates = true\n")
+        monkeypatch.setattr(
+            "applyr.commands.workflow.check_for_update",
+            lambda applyr_dir, version: return_value
+        )
+
+    def test_disabled_by_default_prints_no_update_line(self, doctor_home, capsys):
+        assert _run() == 0
+        assert "Update" not in capsys.readouterr().out
+
+    def test_disabled_by_default_omits_json_key(self, doctor_home, capsys):
+        code = _run(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert "update_available" not in payload
+
+    def test_enabled_with_newer_version_prints_update_line(self, doctor_home, capsys, monkeypatch):
+        self._enable_update_check_mock(doctor_home, monkeypatch, "99.0.0")
+        assert _run() == 0
+        out = capsys.readouterr().out
+        assert "v99.0.0 available (pip install --upgrade applyr)" in out
+
+    def test_enabled_with_newer_version_adds_json_key(self, doctor_home, capsys, monkeypatch):
+        self._enable_update_check_mock(doctor_home, monkeypatch, "99.0.0")
+        code = _run(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert payload["update_available"] == "99.0.0"
+
+    def test_enabled_with_no_newer_version_prints_nothing(self, doctor_home, capsys, monkeypatch):
+        self._enable_update_check_mock(doctor_home, monkeypatch, None)
+        assert _run() == 0
+        assert "Update" not in capsys.readouterr().out
+
+    def test_update_check_never_affects_exit_code(self, doctor_home, monkeypatch):
+        self._enable_update_check_mock(doctor_home, monkeypatch, "99.0.0")
+        (doctor_home / "jobs.db").unlink()
+        assert _run() == 1
+
+
 class TestCVOutputPrivacy:
     """Generated CVs hold personal data — landing output_dir inside an
     ungitignored git repo risks a `git add .` publishing it by accident."""

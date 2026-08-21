@@ -28,6 +28,9 @@ DEFAULT_THRESHOLD_APPLY = 80
 DEFAULT_THRESHOLD_MAYBE = 60
 DEFAULT_FOLLOWUP_DAYS = 10
 DEFAULT_LIST_LIMIT = 50
+# Opt-in only — ADR-010 narrows ADR-001's "no network call" clause for this
+# single, auditable case. Off by default: a fresh `applyr init` never calls out.
+DEFAULT_CHECK_UPDATES = False
 FOLLOWUP_UPCOMING_DAYS = 5
 # Skill-gap priority, as a share of the worst gap rather than a count of
 # sightings: an absolute recurrence threshold marks every topic HIGH once a
@@ -61,6 +64,13 @@ DUPLICATE_COMPANY_HISTORY_LIMIT = 5
 CHROME_TIMEOUT_SECONDS = 30
 # Chrome's stderr can be very long; only the head is useful for diagnosis.
 CHROME_STDERR_SNIPPET = 200
+UPDATE_CHECK_TIMEOUT_SECONDS = 3
+
+# ---------------------------------------------------------------------------
+# PyPI update check (opt-in, see ADR-010 and specs/pypi-update-check/spec.md)
+# ---------------------------------------------------------------------------
+PYPI_UPDATE_CHECK_URL = "https://pypi.org/pypi/applyr/json"
+UPDATE_CHECK_CACHE_TTL_HOURS = 24
 
 # ---------------------------------------------------------------------------
 # Validation
