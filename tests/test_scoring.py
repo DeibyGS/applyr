@@ -5,6 +5,82 @@ import pytest
 from applyr.scoring import calculate_score
 
 
+class TestScoreBreakdownMatchesCalculateScore:
+    """`_show_score_breakdown`'s printed "Total" previously summed score*weight
+    without dividing by the weights actually used, silently diverging from
+    calculate_score() whenever fewer than all topics were scored — the
+    rubric-encouraged common case (omit topics the offer doesn't mention).
+    Live repro: offer #234 (Procesia), header showed 78%, the breakdown's own
+    "Total" line showed 58.2%, same command, same screen."""
+
+    def test_total_matches_calculate_score_on_partial_topics(self, tmp_applyr, capsys):
+        from applyr.commands._helpers import _show_score_breakdown
+        from applyr.config import load_config
+
+        # Mirrors the real offer #234 repro: 4 of 6 topics scored.
+        topics_for_calculate = {
+            "tech_stack": {"score": 80, "detail": ""},
+            "experience": {"score": 65, "detail": ""},
+            "projects": {"score": 85, "detail": ""},
+            "cultural_fit": {"score": 75, "detail": ""},
+        }
+        expected = calculate_score(topics_for_calculate)
+
+        weights = load_config()["weights"]
+        topics_for_breakdown = [{"topic": t, "score": v["score"]} for t, v in topics_for_calculate.items()]
+        _show_score_breakdown(topics_for_breakdown, weights)
+
+        out = capsys.readouterr().out
+        total_line = next(line for line in out.splitlines() if line.strip().startswith("Total"))
+        printed_pct = float(total_line.split()[1].rstrip("%"))
+        assert printed_pct == pytest.approx(expected, abs=0.5)
+
+    def test_total_still_correct_when_all_topics_are_scored(self, tmp_applyr, capsys):
+        from applyr.commands._helpers import _show_score_breakdown
+        from applyr.config import load_config
+
+        topics_for_calculate = {t: {"score": 90, "detail": ""} for t in
+                                 ("tech_stack", "education", "english", "experience", "projects", "cultural_fit")}
+        expected = calculate_score(topics_for_calculate)
+        assert expected == 90  # sanity: uniform score, any weights, total must equal it
+
+        weights = load_config()["weights"]
+        topics_for_breakdown = [{"topic": t, "score": 90} for t in topics_for_calculate]
+        _show_score_breakdown(topics_for_breakdown, weights)
+
+        out = capsys.readouterr().out
+        total_line = next(line for line in out.splitlines() if line.strip().startswith("Total"))
+        printed_pct = float(total_line.split()[1].rstrip("%"))
+        assert printed_pct == pytest.approx(90.0, abs=0.5)
+
+    def test_out_of_range_score_excluded_from_total_not_just_the_divisor(self, tmp_applyr, capsys):
+        """Fixing the divisor alone (total_weight instead of 100%) was not
+        enough: an out-of-range score left IN the numerator can still push
+        Total above 100%, or otherwise off calculate_score()'s value — found
+        by /code-review on this same PR. tech_stack=150 must be excluded
+        entirely, the same way calculate_score() already excludes it."""
+        from applyr.commands._helpers import _show_score_breakdown
+        from applyr.config import load_config
+
+        topics_for_calculate = {
+            "tech_stack": {"score": 150, "detail": "typo'd a 15 as 150"},
+            "projects": {"score": 90, "detail": ""},
+        }
+        expected = calculate_score(topics_for_calculate)
+        assert expected == 90  # tech_stack excluded entirely by calculate_score()
+
+        weights = load_config()["weights"]
+        topics_for_breakdown = [{"topic": t, "score": v["score"]} for t, v in topics_for_calculate.items()]
+        _show_score_breakdown(topics_for_breakdown, weights)
+
+        out = capsys.readouterr().out
+        assert "tech_stack" not in out and "Technical skills" not in out
+        total_line = next(line for line in out.splitlines() if line.strip().startswith("Total"))
+        printed_pct = float(total_line.split()[1].rstrip("%"))
+        assert printed_pct == pytest.approx(expected, abs=0.5)
+        assert printed_pct <= 100.0
+
+
 @pytest.mark.unit
 class TestCalculateScore:
 

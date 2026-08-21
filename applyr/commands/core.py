@@ -181,6 +181,8 @@ def _show_match_breakdown(topics: list[dict], topic_labels: dict) -> None:
     for t in topics:
         score = t.get("score", 0)
         classification = _classify_topic(score)
+        if classification == "invalid":
+            continue
         entry = {
             "topic": t["topic"],
             "score": score,
@@ -223,6 +225,8 @@ def _get_match_breakdown(topics: list[dict]) -> dict:
     for t in topics:
         score = t.get("score", 0)
         classification = _classify_topic(score)
+        if classification == "invalid":
+            continue
         entry = {"topic": t["topic"], "score": score, "detail": t.get("detail", ""), "confidence": t.get("confidence")}
         if classification == "strong":
             strong.append(entry)
@@ -251,6 +255,8 @@ def _get_why_you_match(topics: list[dict], topic_labels: dict) -> tuple[list[str
         entry = f"• {label}: {detail}" if detail else f"• {label} (score: {score})"
 
         classification = _classify_topic(score)
+        if classification == "invalid":
+            continue
         if classification == "strong":
             strong.append((score, entry))
         elif classification == "partial":
@@ -708,6 +714,9 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
                     code="invalid_value",
                     details={"field": "confidence", "topic": topic_key, "value": confidence,
                              "valid": list(VALID_CONFIDENCE_LEVELS)})
+            if isinstance(score, (int, float)) and not 0 <= score <= 100:
+                warn(f"  Warning: topic '{topic_key}' score {score} is outside 0-100 and "
+                     "will not count toward the compatibility percentage.")
             if not detail:
                 warn(f"  Warning: topic '{topic_key}' has no 'detail' — add a short justification for the score.")
             conn.execute(
