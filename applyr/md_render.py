@@ -8,7 +8,9 @@ See docs/adr/008-md-first-cv-pipeline.md for the rationale.
 """
 
 import re
-from applyr.errors import die
+from pathlib import Path
+
+from applyr.errors import die, read_text_or_die
 
 
 # Supported HTML tags (ATS-safe: no tables, no flexbox, no images)
@@ -167,8 +169,7 @@ def render_markdown_file_to_html(md_path: str) -> str:
     Returns:
         HTML string.
     """
-    with open(md_path, encoding="utf-8") as f:
-        content = f.read()
+    content = read_text_or_die(Path(md_path))
 
     # Strip YAML frontmatter
     if content.startswith("---"):
