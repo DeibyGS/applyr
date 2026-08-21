@@ -377,6 +377,59 @@ class TestWeightsUsedCapture:
         assert _row(tmp_applyr, 1)["weights_used"] is None
 
 
+class TestOutOfRangeTopicScoreWarning:
+    """A topic score outside [0, 100] was silently stored, correctly excluded
+    from compatibility_pct by calculate_score(), but still shown as a
+    legitimate "Strong" or "Missing" skill in `add`'s own breakdown — the same
+    command's output contradicted itself. `add` already warns for an unknown
+    topic *key* (see the sibling test below); this mirrors that for an
+    out-of-range *score*."""
+
+    def test_warns_on_a_score_above_100(self, tmp_db, tmp_applyr, capsys):
+        _add(company="A", topics={"tech_stack": {"score": 150, "detail": "x"}})
+        err = capsys.readouterr().err
+        assert "tech_stack" in err
+        assert "150" in err
+        assert "outside 0-100" in err
+
+    def test_warns_on_a_negative_score(self, tmp_db, tmp_applyr, capsys):
+        _add(company="A", topics={"tech_stack": {"score": -10, "detail": "x"}})
+        err = capsys.readouterr().err
+        assert "outside 0-100" in err
+
+    def test_does_not_warn_on_an_in_range_score(self, tmp_db, tmp_applyr, capsys):
+        _add(company="A", topics={"tech_stack": {"score": 80, "detail": "x"}})
+        err = capsys.readouterr().err
+        assert "outside 0-100" not in err
+
+    def test_out_of_range_score_is_still_stored_unclamped(self, tmp_db, tmp_applyr):
+        conn_id = 1
+        _add(company="A", topics={"tech_stack": {"score": 150, "detail": "x"}})
+        import sqlite3
+        conn = sqlite3.connect(tmp_applyr / "jobs.db")
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT score FROM offer_topics WHERE offer_id = ? AND topic = ?",
+                (conn_id, "tech_stack"),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row["score"] == 150
+
+    def test_out_of_range_score_does_not_appear_as_strong_or_missing(self, tmp_db, tmp_applyr, capsys):
+        """The compatibility% already excludes this topic correctly — the bug
+        was that the printed Strong/Partial/Missing breakdown still listed it,
+        contradicting the percentage shown right above it."""
+        _add(company="A", topics={
+            "tech_stack": {"score": 150, "detail": "x"},
+            "projects": {"score": 90, "detail": "y"},
+        })
+        out = capsys.readouterr().out
+        assert "150%" not in out
+        assert "Projects: 90%" in out
+
+
 class TestGapPriorityScalesWithTheDatabase:
     """Priority keyed off a fixed recurrence count (>= 3 == HIGH) marked every
     topic HIGH once the database held a few hundred offers — exactly when the
@@ -616,6 +669,21 @@ class TestExportRedaction:
 
         with pytest.raises(SystemExit) as exc:
             workflow.cmd_export(fmt="json", redact_fields=", ,")
+        assert exc.value.code != 0
+        assert not (tmp_applyr / "applyr_export.json").exists()
+
+    def test_redact_fields_of_literal_empty_string_dies_instead_of_exporting_unredacted(self, tmp_db, tmp_applyr, monkeypatch):
+        """`--redact-fields ""` is a falsy string that used to short-circuit
+        past the "no field names" validation entirely (`if redact_fields:`),
+        silently producing an unredacted export instead of dying like the
+        equivalent `", ,"` case above."""
+        from applyr.commands import workflow
+
+        monkeypatch.setattr(workflow, "APPLYR_DIR", tmp_applyr)
+        self._seed()
+
+        with pytest.raises(SystemExit) as exc:
+            workflow.cmd_export(fmt="json", redact_fields="")
         assert exc.value.code != 0
         assert not (tmp_applyr / "applyr_export.json").exists()
 

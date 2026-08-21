@@ -109,7 +109,7 @@ def cmd_export(
     # even without --redact, and only the complete absence of both flags
     # keeps `export` byte-for-byte identical to the unredacted default.
     fields_to_redact: list[str] | None = None
-    if redact_fields:
+    if redact_fields is not None:
         requested = [f.strip() for f in redact_fields.split(",") if f.strip()]
         if not requested:
             die("Error: --redact-fields was passed with no field names.", code="invalid_value")

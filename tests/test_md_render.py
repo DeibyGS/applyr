@@ -63,3 +63,16 @@ class TestRenderMarkdownFileToHtml:
         html = render_markdown_file_to_html(str(md_file))
         assert "Hello" in html
         assert "title" not in html
+
+    def test_missing_file_dies_with_a_clear_message_not_a_stack_trace(self, tmp_path):
+        missing = tmp_path / "does-not-exist.md"
+        with pytest.raises(SystemExit):
+            render_markdown_file_to_html(str(missing))
+
+    def test_binary_file_dies_instead_of_raising_unicode_decode_error(self, tmp_path):
+        """Reached via `cv pdf <file.md>` when the markdown source is
+        mis-encoded — previously an unhandled UnicodeDecodeError."""
+        md_file = tmp_path / "cv-broken.md"
+        md_file.write_bytes(b"\xff\xfe not valid utf-8")
+        with pytest.raises(SystemExit):
+            render_markdown_file_to_html(str(md_file))

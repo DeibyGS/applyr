@@ -60,12 +60,16 @@ def _derive_confidence(topics: list[dict]) -> str:
 
 
 def _classify_topic(score: int) -> str:
-    """Classify a topic score into Strong/Partial/Missing.
+    """Classify a topic score into Strong/Partial/Missing/Invalid.
 
     Returns:
-        "strong" if score >= 80, "partial" if 50-79, "missing" if < 50
+        "invalid" if score is outside [0, 100] (excluded from compatibility% by
+        calculate_score() too — see docs/adr/004-weighted-scoring.md), "strong"
+        if score >= 80, "partial" if 50-79, else "missing".
     """
-    if score >= 80:
+    if not 0 <= score <= 100:
+        return "invalid"
+    elif score >= 80:
         return "strong"
     elif score >= 50:
         return "partial"
@@ -89,13 +93,21 @@ def _show_score_breakdown(topics: list[dict], weights: dict) -> None:
         return
 
     print("\n  Score breakdown:")
-    total = 0
+    total_contribution = 0.0
+    total_weight = 0.0
     for t in topics:
         score = t.get("score", 0)
         topic = t.get("topic", "")
+        if _classify_topic(score) == "invalid":
+            # Same exclusion calculate_score() and the Strong/Partial/Missing
+            # breakdown already apply — an out-of-range score must not shift
+            # Total away from the compatibility% shown next to it (it could
+            # even push Total above 100%).
+            continue
         weight = weights.get(topic, 0.1)
         contribution = score * weight
-        total += contribution
+        total_contribution += contribution
+        total_weight += weight
         label = {
             "tech_stack": "Technical skills",
             "experience": "Experience",
@@ -106,5 +118,10 @@ def _show_score_breakdown(topics: list[dict], weights: dict) -> None:
         }.get(topic, topic)
         print(f"    {label:<20} {score:>3}% × {weight:.0%} weight = {contribution:.1f} contribution")
 
+    # Divide by total_weight actually used (not 100%) so this matches
+    # calculate_score() — omitting topics is expected (see scoring rubric),
+    # and a raw sum of contributions silently diverges from the compatibility
+    # percentage shown above whenever fewer than all topics are scored.
+    total_pct = total_contribution / total_weight if total_weight else 0.0
     print(f"    {'':─<30}")
-    print(f"    {'Total':<20} {total:.1f}%")
+    print(f"    {'Total':<20} {total_pct:.1f}%")

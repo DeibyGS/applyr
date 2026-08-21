@@ -70,6 +70,14 @@ class TestClassifyTopic:
         assert _classify_topic(49) == "missing"
         assert _classify_topic(0) == "missing"
 
+    def test_invalid_above_100(self):
+        assert _classify_topic(150) == "invalid"
+        assert _classify_topic(101) == "invalid"
+
+    def test_invalid_below_zero(self):
+        assert _classify_topic(-1) == "invalid"
+        assert _classify_topic(-10) == "invalid"
+
 
 class TestClassifyIcon:
     def test_strong(self):
@@ -100,6 +108,19 @@ class TestGetMatchBreakdown:
         assert result["strong"][0]["topic"] == "tech_stack"
         assert result["partial"][0]["topic"] == "experience"
         assert result["missing"][0]["topic"] == "projects"
+
+    def test_out_of_range_score_appears_in_no_bucket(self):
+        """A score outside [0, 100] previously fell into the `else` branch
+        and was displayed as "Missing" (or "Strong" if >100), contradicting
+        the compatibility% that already excludes it — must appear nowhere."""
+        topics = [
+            {"topic": "tech_stack", "score": 150, "detail": "typo'd a 15 as 150"},
+            {"topic": "projects", "score": 90, "detail": "Relevant projects"},
+        ]
+        result = _get_match_breakdown(topics)
+        all_topics = [e["topic"] for bucket in result.values() for e in bucket]
+        assert "tech_stack" not in all_topics
+        assert "projects" in all_topics
 
 
 class TestGetWhyYouMatch:
@@ -171,6 +192,19 @@ class TestGetWhyYouMatch:
         why_match, weakness = _get_why_you_match(topics, topic_labels)
         assert len(why_match) == 3  # Only top 3
 
+    def test_out_of_range_score_is_never_the_biggest_weakness(self):
+        """An out-of-range score used to fall into the `else` (missing)
+        branch, so a stray -10 or 150 could win "biggest weakness" purely by
+        being numerically lowest — not because it's a real gap."""
+        topics = [
+            {"topic": "tech_stack", "score": -10, "detail": "bad input"},
+            {"topic": "experience", "score": 40, "detail": "junior"},
+        ]
+        labels = {"tech_stack": "Tech Stack", "experience": "Experience"}
+        _, weakness = _get_why_you_match(topics, labels)
+        assert "Experience" in weakness
+        assert "Tech Stack" not in weakness
+
 
 from applyr.commands._helpers import _show_score_breakdown
 
@@ -201,3 +235,8 @@ class TestShowScoreBreakdown:
         assert "Technical skills" in captured.out
         assert "Experience" in captured.out
         assert "Total" in captured.out
+        # Total must be the weighted AVERAGE (divided by weights actually
+        # used: 0.3+0.15=0.45), not the raw contribution sum (24+9=33) — the
+        # raw sum silently disagreed with the real compatibility% whenever
+        # fewer than all topics were scored, which is the common case.
+        assert "73.3%" in captured.out
