@@ -125,3 +125,40 @@ class TestModeToggle:
         assert errors.is_json_mode() is False
         errors.set_json_mode(True)
         assert errors.is_json_mode() is True
+
+
+class TestReadTextOrDie:
+    """Shared helper behind cv review, cv compare, and cv pdf's .md branch —
+    previously each read a user-supplied file path directly, so a missing or
+    binary file crashed with an unhandled traceback instead of a clean die()."""
+
+    def test_returns_file_content_on_success(self, tmp_path):
+        cv = tmp_path / "cv.md"
+        cv.write_text("# CV\n")
+        assert errors.read_text_or_die(cv) == "# CV\n"
+
+    def test_missing_file_dies_with_file_not_found_code(self, tmp_path, capsys):
+        errors.set_json_mode(True)
+        missing = tmp_path / "does-not-exist.md"
+        with pytest.raises(SystemExit):
+            errors.read_text_or_die(missing)
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error"]["code"] == "file_not_found"
+
+    def test_binary_file_dies_with_unsupported_format_code(self, tmp_path, capsys):
+        errors.set_json_mode(True)
+        pdf = tmp_path / "cv.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\nnot valid utf-8: \xff\xfe")
+        with pytest.raises(SystemExit):
+            errors.read_text_or_die(pdf)
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error"]["code"] == "unsupported_format"
+        assert payload["error"]["details"] == {"path": str(pdf)}
+
+    def test_custom_not_found_code_is_honored(self, tmp_path, capsys):
+        errors.set_json_mode(True)
+        missing = tmp_path / "does-not-exist.md"
+        with pytest.raises(SystemExit):
+            errors.read_text_or_die(missing, code_not_found="not_found")
+        payload = json.loads(capsys.readouterr().err)
+        assert payload["error"]["code"] == "not_found"

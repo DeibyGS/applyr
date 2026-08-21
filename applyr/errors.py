@@ -10,6 +10,7 @@ docs/adr/007-structured-json-errors.md
 
 import json
 import sys
+from pathlib import Path
 from typing import Any, NoReturn
 
 # Process-wide output mode, set once by cli.py — same pattern as colors.py.
@@ -77,3 +78,22 @@ def die(
         # needs via error(), and only the JSON payload is still missing.
         print(text if text is not None else message, file=sys.stderr)
     sys.exit(exit_code)
+
+
+def read_text_or_die(path: Path, code_not_found: str = "file_not_found") -> str:
+    """Read `path` as UTF-8 text, or die() with the shared cv-file error contract.
+
+    Shared by every command that reads a user-supplied CV file path (cv review,
+    cv compare, cv pdf's markdown branch) so a missing file or a binary/mis-encoded
+    one (e.g. a rendered PDF passed by mistake) always gets the same structured
+    `file_not_found` / `unsupported_format` error instead of an unhandled traceback.
+    `ats-check`/`bullet-optimize`/`keywords` keep their own inline guards (with
+    sibling-file hints) and do not use this helper.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        die(f"CV file not found: {path}", code=code_not_found)
+    except UnicodeDecodeError:
+        die(f"{path} is not a text file.", code="unsupported_format",
+            details={"path": str(path)})
