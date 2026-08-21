@@ -94,4 +94,4 @@ class TestLanguageValidation:
     def test_accepts_offer_without_language(self, tmp_applyr, tmp_db):
         from applyr.commands.core import cmd_add
 
-        cmd_add('{"title": "Dev"}')  # must not raise
+        cmd_add('{"title": "Dev", "company": "Acme"}')  # must not raise

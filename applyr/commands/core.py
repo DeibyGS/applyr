@@ -547,8 +547,13 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     title: str = (data.get("title") or "").strip()
     if not title:
         die("Error: 'title' is required.", code="missing_field", details={"field": "title"})
+    company: str = (data.get("company") or "").strip()
+    if not company:
+        die("Error: 'company' is required.", code="missing_field", details={"field": "company"},
+            text="  Hint: if the posting hides the employer, use a placeholder like "
+                 "\"Empresa Confidencial\" — never leave it out. Without it, duplicate "
+                 "detection and per-company metrics can't work.")
     # --- Optional scalars --------------------------------------------------
-    company: str | None = data.get("company")
     summary: str | None = data.get("summary")
     notes: str | None = data.get("notes")
     status: str = data.get("status", "pending")

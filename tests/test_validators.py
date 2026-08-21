@@ -115,20 +115,26 @@ class TestDuplicateDetection:
         finally:
             conn.close()
 
-    def test_null_company_match(self, tmp_db):
+    def test_null_company_is_rejected_by_the_db(self, tmp_db):
+        """A NULL/empty company used to slip past duplicate detection entirely
+        (nothing to match against) and left offers no follow-up could act on
+        — see the NOT NULL + non-empty CHECK constraint added in schema v10.
+        The COALESCE in the queries above stays as defense in depth, but this
+        specific gap can no longer reach the database at all."""
+        import sqlite3
+
         from applyr.db import get_conn
         conn = get_conn(tmp_db)
         try:
-            conn.execute(
-                "INSERT INTO offers (title, company, status) VALUES (?, ?, ?)",
-                ("Dev", None, "pending"),
-            )
-            conn.commit()
-            dup = conn.execute(
-                """SELECT id FROM offers
-                   WHERE LOWER(title) = LOWER(?) AND LOWER(COALESCE(company,'')) = LOWER(COALESCE(?,''))""",
-                ("Dev", None),
-            ).fetchone()
-            assert dup is not None
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO offers (title, company, status) VALUES (?, ?, ?)",
+                    ("Dev", None, "pending"),
+                )
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO offers (title, company, status) VALUES (?, ?, ?)",
+                    ("Dev", "   ", "pending"),
+                )
         finally:
             conn.close()

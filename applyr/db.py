@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -57,13 +57,83 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
     # NULL rather than backfilled with a guess, same reasoning as `language`
     # in (3, 4) — there is no honest way to invent a weight config nobody recorded.
     (8, 9): ["ALTER TABLE offers ADD COLUMN weights_used TEXT"],
+    # `company` used to be fully optional, which let `add` create offers no
+    # duplicate check could ever catch again (no company to match against) and
+    # no follow-up could act on. SQLite can't ALTER a column to add NOT NULL,
+    # so this rebuilds the table. Unlike `language`/`weights_used` above, an
+    # empty company on a pre-existing row isn't a value nobody recorded — it's
+    # a value the old code let stand in for one that was never captured, so a
+    # placeholder is honest here in a way a guessed language wouldn't be.
+    #
+    # `foreign_keys` must be OFF for the rebuild: offer_topics/learning_gaps
+    # reference offers(id) with ON DELETE CASCADE, and with enforcement ON,
+    # `DROP TABLE offers` performs an implicit delete-all on it first — wiping
+    # every offer's topics and gaps before the table itself is even dropped.
+    (9, 10): [
+        "PRAGMA foreign_keys = OFF",
+        """CREATE TABLE offers_new (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            title             TEXT    NOT NULL,
+            company           TEXT    NOT NULL CHECK (length(trim(company)) > 0),
+            summary           TEXT,
+            date_received     TEXT,
+            date_applied      TEXT,
+            date_responded    TEXT,
+            compatibility_pct INTEGER DEFAULT 0,
+            status            TEXT    DEFAULT 'pending',
+            applied           INTEGER DEFAULT 0,
+            canal             TEXT,
+            cv_used           TEXT,
+            follow_up_date    TEXT,
+            follow_up_done    INTEGER DEFAULT 0,
+            follow_up_notes   TEXT,
+            work_mode         TEXT,
+            location          TEXT,
+            salary_min        INTEGER,
+            salary_max        INTEGER,
+            salary_period     TEXT    DEFAULT 'annual',
+            seniority_level   TEXT,
+            role_category     TEXT,
+            tech_stack        TEXT,
+            language          TEXT,
+            cover_letter      INTEGER DEFAULT 0,
+            cover_letter_file TEXT,
+            contact_name      TEXT,
+            contact_role      TEXT,
+            job_url           TEXT,
+            rejection_reason  TEXT,
+            response_status   TEXT    DEFAULT 'no_response',
+            notes             TEXT,
+            created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
+            weights_used      TEXT
+        )""",
+        """INSERT INTO offers_new SELECT
+            id, title,
+            COALESCE(NULLIF(TRIM(company), ''), 'Empresa no registrada (pre-validación)'),
+            summary, date_received, date_applied, date_responded, compatibility_pct,
+            status, applied, canal, cv_used, follow_up_date, follow_up_done, follow_up_notes,
+            work_mode, location, salary_min, salary_max, salary_period,
+            seniority_level, role_category, tech_stack, language,
+            cover_letter, cover_letter_file, contact_name, contact_role, job_url,
+            rejection_reason, response_status, notes, created_at, weights_used
+        FROM offers""",
+        "DROP TABLE offers",
+        "ALTER TABLE offers_new RENAME TO offers",
+        # Re-enabling here is a documented no-op: this INSERT above already
+        # opened an implicit transaction, and SQLite ignores `foreign_keys`
+        # changes while one is active. Every other connection in this codebase
+        # calls get_conn(), which sets `PRAGMA foreign_keys = ON` at connect
+        # time regardless — this statement only documents the intent for
+        # whoever reads this migration next.
+        "PRAGMA foreign_keys = ON",
+    ],
 }
 
 SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS offers (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     title             TEXT    NOT NULL,
-    company           TEXT,
+    company           TEXT    NOT NULL CHECK (length(trim(company)) > 0),
     summary           TEXT,
     -- Dates
     date_received     TEXT,
@@ -213,6 +283,16 @@ def _run_migrations(conn: sqlite3.Connection, current: int, target: int) -> None
                 # error is real and must surface.
                 if "duplicate column name" not in str(exc):
                     raise
+        # Each version's migration commits on its own rather than all of them
+        # sharing one transaction through to init_db's final commit. Without
+        # this, an earlier step's implicit BEGIN (any UPDATE/INSERT, e.g.
+        # (6, 7)'s UPDATE) stays open into later ones — and a `PRAGMA
+        # foreign_keys` toggle is a silent no-op while a transaction is open,
+        # which is exactly what let a later migration's FK-cascade guard
+        # around a table rebuild go unenforced. Connection.commit() no-ops
+        # safely when nothing is pending, so this is free for every migration
+        # that doesn't need it.
+        conn.commit()
         version = next_version
     conn.execute("UPDATE schema_version SET version = ?", (target,))
 

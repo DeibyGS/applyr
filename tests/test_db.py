@@ -189,7 +189,7 @@ class TestOffersCrud:
         conn = get_conn(tmp_db)
         try:
             conn.execute(
-                "INSERT INTO offers (title) VALUES (?)", ("Test",)
+                "INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme")
             )
             conn.execute(
                 "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (?, ?, ?, ?)",
@@ -207,7 +207,7 @@ class TestOffersCrud:
     def test_cascade_delete(self, tmp_db):
         conn = get_conn(tmp_db)
         try:
-            conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+            conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
             conn.execute(
                 "INSERT INTO offer_topics (offer_id, topic, score) VALUES (?, ?, ?)",
                 (1, "tech_stack", 90),
@@ -286,7 +286,7 @@ class TestLearningGapsCrud:
     def test_insert_and_query(self, tmp_db):
         conn = get_conn(tmp_db)
         try:
-            conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+            conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
             conn.execute(
                 "INSERT INTO learning_gaps (offer_id, topic, gap_detail, severity, suggested_action) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -305,7 +305,7 @@ class TestLearningGapsCrud:
     def test_cascade_delete(self, tmp_db):
         conn = get_conn(tmp_db)
         try:
-            conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+            conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
             conn.execute(
                 "INSERT INTO learning_gaps (offer_id, topic, gap_detail) VALUES (?, ?, ?)",
                 (1, "tech_stack", "Missing skill"),
@@ -321,7 +321,7 @@ class TestLearningGapsCrud:
     def test_default_severity(self, tmp_db):
         conn = get_conn(tmp_db)
         try:
-            conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+            conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
             conn.execute(
                 "INSERT INTO learning_gaps (offer_id, topic, gap_detail) VALUES (?, ?, ?)",
                 (1, "english", "Needs B2"),
@@ -355,8 +355,8 @@ class TestMigrationV6ToV7:
     def _seed(self, tmp_db, status):
         conn = get_conn(tmp_db)
         conn.execute(
-            "INSERT INTO offers (title, status, applied, response_status) VALUES (?, ?, 0, 'no_response')",
-            ("Backend Dev", status),
+            "INSERT INTO offers (title, company, status, applied, response_status) VALUES (?, ?, ?, 0, 'no_response')",
+            ("Backend Dev", "Acme", status),
         )
         conn.execute("UPDATE schema_version SET version = 6")
         conn.commit()
@@ -396,7 +396,7 @@ class TestMigrationV7ToV8:
 
     def test_existing_topic_rows_get_null_confidence(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES ('Backend Dev')")
+        conn.execute("INSERT INTO offers (title, company) VALUES ('Backend Dev', 'Acme')")
         conn.execute(
             "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (1, 'tech_stack', 70, 'legacy')"
         )
@@ -437,7 +437,7 @@ class TestMigrationV8ToV9:
 
     def test_existing_offer_rows_get_null_weights_used(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title, compatibility_pct) VALUES ('Backend Dev', 70)")
+        conn.execute("INSERT INTO offers (title, company, compatibility_pct) VALUES ('Backend Dev', 'Acme', 70)")
         conn.execute("UPDATE schema_version SET version = 8")
         conn.commit()
         conn.close()
@@ -475,6 +475,167 @@ class TestMigrationV8ToV9:
         finally:
             conn.close()
         assert "weights_used" in columns
+
+
+@pytest.mark.unit
+class TestMigrationV9ToV10:
+    """`company` used to be fully optional, which let `add` create offers no
+    duplicate check could ever match again and no follow-up could act on.
+    This migration rebuilds `offers` with company NOT NULL + non-empty,
+    backfilling any pre-existing empty/NULL value with a placeholder."""
+
+    def _seed_v9(self, tmp_path, company):
+        """Build a standalone v9 database from scratch (never through tmp_db,
+        which already has the v10 CHECK constraint active) so a bad company
+        value can legitimately be inserted, matching the pattern used for the
+        v7/v8 migration tests above."""
+        import sqlite3
+
+        db_path = str(tmp_path / "v9.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE offers (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                title             TEXT    NOT NULL,
+                company           TEXT,
+                summary           TEXT,
+                date_received     TEXT,
+                date_applied      TEXT,
+                date_responded    TEXT,
+                compatibility_pct INTEGER DEFAULT 0,
+                status            TEXT    DEFAULT 'pending',
+                applied           INTEGER DEFAULT 0,
+                canal             TEXT,
+                cv_used           TEXT,
+                follow_up_date    TEXT,
+                follow_up_done    INTEGER DEFAULT 0,
+                follow_up_notes   TEXT,
+                work_mode         TEXT,
+                location          TEXT,
+                salary_min        INTEGER,
+                salary_max        INTEGER,
+                salary_period     TEXT    DEFAULT 'annual',
+                seniority_level   TEXT,
+                role_category     TEXT,
+                tech_stack        TEXT,
+                language          TEXT,
+                cover_letter      INTEGER DEFAULT 0,
+                cover_letter_file TEXT,
+                contact_name      TEXT,
+                contact_role      TEXT,
+                job_url           TEXT,
+                rejection_reason  TEXT,
+                response_status   TEXT    DEFAULT 'no_response',
+                notes             TEXT,
+                created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
+                weights_used      TEXT
+            );
+            CREATE TABLE offer_topics (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                offer_id   INTEGER REFERENCES offers(id) ON DELETE CASCADE,
+                topic      TEXT,
+                score      INTEGER,
+                detail     TEXT,
+                confidence TEXT
+            );
+            CREATE TABLE learning_gaps (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                offer_id        INTEGER REFERENCES offers(id) ON DELETE CASCADE,
+                topic           TEXT NOT NULL,
+                gap_detail      TEXT NOT NULL,
+                severity        TEXT DEFAULT 'medium',
+                suggested_action TEXT,
+                created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+        """)
+        conn.execute(
+            "INSERT INTO offers (title, company, compatibility_pct) VALUES (?, ?, ?)",
+            ("Legacy offer", company, 55),
+        )
+        conn.execute(
+            "INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (1, 'tech_stack', 55, 'legacy')"
+        )
+        conn.execute(
+            "INSERT INTO learning_gaps (offer_id, topic, gap_detail) VALUES (1, 'tech_stack', 'legacy gap')"
+        )
+        conn.execute("INSERT INTO schema_version (version) VALUES (9)")
+        conn.commit()
+        conn.close()
+        return db_path
+
+    def test_null_company_is_backfilled_with_a_placeholder(self, tmp_path):
+        db_path = self._seed_v9(tmp_path, None)
+        init_db(db_path)
+        conn = get_conn(db_path)
+        try:
+            row = conn.execute("SELECT company FROM offers WHERE id = 1").fetchone()
+        finally:
+            conn.close()
+        assert row["company"]  # non-empty
+        assert row["company"] != "None"
+
+    def test_empty_string_company_is_backfilled_with_a_placeholder(self, tmp_path):
+        db_path = self._seed_v9(tmp_path, "   ")
+        init_db(db_path)
+        conn = get_conn(db_path)
+        try:
+            row = conn.execute("SELECT company FROM offers WHERE id = 1").fetchone()
+        finally:
+            conn.close()
+        assert row["company"].strip()
+
+    def test_real_company_is_preserved_unchanged(self, tmp_path):
+        db_path = self._seed_v9(tmp_path, "Acme")
+        init_db(db_path)
+        conn = get_conn(db_path)
+        try:
+            row = conn.execute("SELECT company FROM offers WHERE id = 1").fetchone()
+        finally:
+            conn.close()
+        assert row["company"] == "Acme"
+
+    def test_offer_topics_and_learning_gaps_survive_the_rebuild(self, tmp_path):
+        """The regression this migration almost shipped with: rebuilding
+        `offers` while `PRAGMA foreign_keys` is (even transiently) ON
+        cascade-deletes every child row via ON DELETE CASCADE before the
+        table is even dropped."""
+        db_path = self._seed_v9(tmp_path, "Acme")
+        init_db(db_path)
+        conn = get_conn(db_path)
+        try:
+            topics = conn.execute("SELECT * FROM offer_topics WHERE offer_id = 1").fetchall()
+            gaps = conn.execute("SELECT * FROM learning_gaps WHERE offer_id = 1").fetchall()
+        finally:
+            conn.close()
+        assert len(topics) == 1
+        assert len(gaps) == 1
+
+    def test_new_row_without_company_is_rejected(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("INSERT INTO offers (title, company) VALUES ('X', NULL)")
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("INSERT INTO offers (title, company) VALUES ('X', '')")
+        finally:
+            conn.close()
+
+    def test_migration_idempotent(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 9")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+        init_db(tmp_db)  # must not raise on the second pass
+
+        conn = get_conn(tmp_db)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        finally:
+            conn.close()
+        assert version == SCHEMA_VERSION
 
 
 @pytest.mark.unit
