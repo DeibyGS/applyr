@@ -16,6 +16,7 @@ from applyr.cv_master import inspect_cv_master
 from applyr.cv_stats import build_report
 from applyr.db import SCHEMA_VERSION, get_conn, get_schema_version
 from applyr.errors import die
+from applyr.update_check import check_for_update
 
 
 # ---------------------------------------------------------------------------
@@ -309,13 +310,22 @@ def cmd_doctor(as_json: bool = False) -> None:
     ]
     issues = [c for c in checks if c["status"] == "issue"]
 
+    # Opt-in only (ADR-010): disabled by default, so this stays None for
+    # every user who has not set check_updates=true in applyr.toml.
+    update_available = None
+    if config["general"].get("check_updates"):
+        update_available = check_for_update(APPLYR_DIR, __version__)
+
     if as_json:
-        print(json.dumps({
+        report = {
             "version": __version__,
             "healthy": not issues,
             "issues": len(issues),
             "checks": checks,
-        }, indent=2))
+        }
+        if update_available:
+            report["update_available"] = update_available
+        print(json.dumps(report, indent=2))
     else:
         print(f"applyr v{__version__} — health check\n")
         for check in checks:
@@ -324,6 +334,8 @@ def cmd_doctor(as_json: bool = False) -> None:
             print(f"  {check['name']:<13}: {check['message']}")
             if check["hint"]:
                 print(f"                 {check['hint']}")
+        if update_available:
+            print(f"  {'Update':<13}: v{update_available} available (pip install --upgrade applyr)")
         print()
         # A `note` is not an issue and must not fail the run, but claiming
         # "all checks passed" right under a line reading STALE reads as a bug

@@ -14,6 +14,7 @@ reverses one of them.
 | [007](007-structured-json-errors.md) | Structured JSON errors on stderr with stable codes | Accepted |
 | [008](008-md-first-cv-pipeline.md) | MD-first CV pipeline — markdown drafts, HTML+PDF at render | Accepted |
 | [009](009-weight-versioning-and-rebalance.md) | Weight versioning + rescore + rebalanced `DEFAULT_WEIGHTS` — supersedes 004 | Accepted |
+| [010](010-opt-in-pypi-update-check.md) | Opt-in, default-off PyPI version check in `doctor` — narrowly supersedes 001 | Accepted |
 
 ## Conventions
 
