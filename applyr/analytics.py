@@ -8,6 +8,7 @@ from collections import Counter
 
 from applyr.db import get_conn
 from applyr.ats import validate_ats_format
+from applyr.errors import read_text_or_die
 
 TECH_KEYWORDS = [
     "python", "javascript", "typescript", "react", "vue", "angular", "node",
@@ -29,8 +30,8 @@ def _extract_text_keywords(text: str) -> list[str]:
 
 def compare_cvs(v1_path: str, v2_path: str) -> dict:
     """Compare two CV versions and return ATS compatibility score delta, keyword coverage delta, and recommendations."""
-    v1_html = Path(v1_path).read_text(encoding="utf-8")
-    v2_html = Path(v2_path).read_text(encoding="utf-8")
+    v1_html = read_text_or_die(Path(v1_path))
+    v2_html = read_text_or_die(Path(v2_path))
 
     v1_ats = validate_ats_format(v1_html)
     v2_ats = validate_ats_format(v2_html)

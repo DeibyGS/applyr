@@ -59,6 +59,27 @@ class TestCompareCvs:
         assert "recommendations" in result
         assert len(result["recommendations"]) > 0
 
+    def test_missing_file_dies_instead_of_raising_file_not_found_error(self, tmp_path):
+        """Previously compare_cvs had no existence check at all — a missing
+        path crashed with a raw FileNotFoundError traceback."""
+        v1 = tmp_path / "does-not-exist.html"
+        v2 = tmp_path / "cv2.html"
+        v2.write_text("<html><body>CV</body></html>")
+
+        with pytest.raises(SystemExit):
+            compare_cvs(str(v1), str(v2))
+
+    def test_binary_file_dies_instead_of_raising_unicode_decode_error(self, tmp_path):
+        """Previously compare_cvs had no UnicodeDecodeError guard — a rendered
+        PDF passed by mistake crashed with a raw traceback."""
+        v1 = tmp_path / "cv1.pdf"
+        v1.write_bytes(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\nnot valid utf-8: \xff\xfe")
+        v2 = tmp_path / "cv2.html"
+        v2.write_text("<html><body>CV</body></html>")
+
+        with pytest.raises(SystemExit):
+            compare_cvs(str(v1), str(v2))
+
 
 class TestResponseRate:
     """Test response rate calculation."""
