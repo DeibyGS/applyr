@@ -4,6 +4,19 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] — 2026-08-21
+
+### Added
+
+- **Opt-in PyPI update check** — `check_updates = true` in `applyr.toml`'s `[general]`
+  section makes `applyr doctor` check PyPI's public JSON API for a newer release (cached
+  24h on disk, stdlib `urllib.request` only, 3s timeout) and print one line when a newer
+  version is available. Off by default: a fresh `applyr init` makes zero network calls,
+  and any failure (no connection, timeout, malformed response) is completely silent —
+  `doctor`'s exit code and existing checks are unaffected. See ADR-010, which narrowly
+  supersedes ADR-001's "no network call of any kind" clause for this single, auditable,
+  non-telemetry case.
+
 ## [1.9.0] — 2026-08-19
 
 ### Added
