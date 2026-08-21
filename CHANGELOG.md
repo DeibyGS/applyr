@@ -4,6 +4,32 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.1] — 2026-08-22
+
+### Fixed
+
+- **`applyr cv review`, `cv compare`, and `cv pdf <file.md>` crashed with a raw Python
+  traceback** instead of a clean error when given a missing or binary/mis-encoded file —
+  `cv review` in particular is the single most-invoked command in the documented agent
+  workflow (called in a loop until READY TO SEND). All three now share a
+  `read_text_or_die()` helper and give the same structured `file_not_found` /
+  `unsupported_format` error their already-fixed siblings (`ats-check`, `bullet-optimize`,
+  `keywords`) give.
+- **A topic score outside `0-100` was silently stored and excluded from the compatibility
+  percentage, but still displayed as a legitimate "Strong" or "Missing" skill** in
+  `add`/`show`'s own breakdown — the same command's output contradicted itself. `add` now
+  warns on an out-of-range score (mirroring the existing unknown-topic-key warning), and
+  the out-of-range topic no longer appears in the Strong/Partial/Missing breakdown or the
+  "why you match"/"biggest weakness" summary.
+- **`applyr show`'s "Score breakdown" table could disagree with the "Compatibility"
+  percentage shown directly above it**, whenever fewer than all six topics were scored —
+  the common case the scoring rubric itself recommends (omit topics the offer doesn't
+  mention). The breakdown's printed "Total" now always matches the real compatibility
+  score.
+- **`applyr export --redact-fields ""` (an explicit empty string) silently produced an
+  unredacted export** instead of failing the way the equivalent `--redact-fields ",  ,"`
+  already did.
+
 ## [1.11.0] — 2026-08-21
 
 ### Changed
