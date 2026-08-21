@@ -353,7 +353,7 @@ class TestPageLimitFor:
     def test_mid_seniority_gets_one_page(self, tmp_db, tmp_applyr, tmp_path):
         from applyr.commands.core import cmd_add
 
-        cmd_add(json.dumps({"title": "Backend Dev", "seniority_level": "mid"}))
+        cmd_add(json.dumps({"title": "Backend Dev", "company": "Acme", "seniority_level": "mid"}))
         md = tmp_path / "cv.md"
         md.write_text("---\noffer_id: 1\n---\nbody")
         assert _page_limit_for(md) == 1
@@ -361,7 +361,7 @@ class TestPageLimitFor:
     def test_senior_seniority_gets_two_pages(self, tmp_db, tmp_applyr, tmp_path):
         from applyr.commands.core import cmd_add
 
-        cmd_add(json.dumps({"title": "Staff Eng", "seniority_level": "senior"}))
+        cmd_add(json.dumps({"title": "Staff Eng", "company": "Acme", "seniority_level": "senior"}))
         md = tmp_path / "cv.md"
         md.write_text("---\noffer_id: 1\n---\nbody")
         assert _page_limit_for(md) == 2

@@ -397,7 +397,7 @@ class TestGlobalFlags:
         # are no-ops in --json mode by design (see errors.py's error()
         # docstring), so the assertion here is just that stdout stays pure
         # JSON — not that the warning gets redirected anywhere.
-        payload = json.dumps({"title": "Backend Dev", "topics": {"not_a_real_topic": {"score": 50}}})
+        payload = json.dumps({"title": "Backend Dev", "company": "Acme", "topics": {"not_a_real_topic": {"score": 50}}})
         out, err, code = _run(run_cli, capsys, ["--json", "add", payload])
         assert code == 0
         data = json.loads(out)  # must not raise — stdout must be pure JSON
@@ -896,6 +896,7 @@ class TestConfidenceThroughRealCliRouting:
     def test_invalid_confidence_exits_nonzero_through_cli(self, run_cli, capsys, tmp_db):
         offer_json = json.dumps({
             "title": "Test Engineer",
+            "company": "Acme",
             "topics": {"tech_stack": {"score": 85, "detail": "x", "confidence": "extremely high"}},
         })
         out, err, code = _run(run_cli, capsys, ["add", offer_json])
@@ -928,3 +929,33 @@ class TestAddMalformedJson:
         out, err, code = _run(run_cli, capsys, ["add", "--json", ""])
         assert code != 0
         assert json.loads(err)["error"]["code"] == "invalid_json"
+
+
+class TestAddRequiredFields:
+    """`company` used to be optional, which let an offer be saved with no
+    way to ever match it as a duplicate again and nothing for a follow-up to
+    act on (see schema v10 migration). It is now required the same way
+    `title` already was."""
+
+    def test_missing_company_dies_with_missing_field_code(self, run_cli, capsys, tmp_db):
+        payload = json.dumps({"title": "Backend Dev"})
+        out, err, code = _run(run_cli, capsys, ["add", "--json", payload])
+        assert code != 0
+        assert out == ""
+        error = json.loads(err)["error"]
+        assert error["code"] == "missing_field"
+        assert error["details"]["field"] == "company"
+
+    def test_blank_company_is_treated_as_missing(self, run_cli, capsys, tmp_db):
+        payload = json.dumps({"title": "Backend Dev", "company": "   "})
+        out, err, code = _run(run_cli, capsys, ["add", "--json", payload])
+        assert code != 0
+        assert json.loads(err)["error"]["details"]["field"] == "company"
+
+    def test_confidential_employer_uses_a_placeholder_not_omission(self, run_cli, capsys, tmp_db):
+        """The documented escape hatch for postings that hide the employer:
+        a placeholder string, never an absent/empty company."""
+        payload = json.dumps({"title": "Backend Dev", "company": "Empresa Confidencial"})
+        out, err, code = _run(run_cli, capsys, ["add", "--json", payload])
+        assert code == 0
+        assert json.loads(out)["company"] == "Empresa Confidencial"

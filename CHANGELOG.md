@@ -4,6 +4,29 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.11.0] — 2026-08-21
+
+### Changed
+
+- **`company` is now required on `applyr add`**, the same way `title` already was. It used
+  to be fully optional, which let an offer be saved with no way to ever match it as a
+  duplicate again and nothing for a follow-up or per-company metric to attach to. If a
+  posting hides the employer, use a placeholder like `"Empresa Confidencial"` instead of
+  omitting the field. Schema v10 backfills any pre-existing empty/NULL `company` with a
+  placeholder and adds a `NOT NULL` + non-empty `CHECK` constraint at the database level —
+  migrations run automatically on the next `doctor`/DB-touching command, no action needed.
+
+### Fixed
+
+- **Migration chains could silently drop `offer_topics`/`learning_gaps` rows.** All pending
+  migrations ran inside one shared transaction, so a `PRAGMA foreign_keys` toggle inside a
+  later migration was a silent no-op if an earlier migration in the same chain had already
+  opened one (any `UPDATE`/`INSERT` does). A table-rebuild migration under that condition
+  would have its `ON DELETE CASCADE` fire on the implicit delete-all `DROP TABLE` performs
+  on a table with active FK enforcement — wiping every child row before the parent was even
+  dropped. Each migration step now commits on its own, closing that window. No released
+  version shipped a migration that hit this path; it was caught in testing before release.
+
 ## [1.10.0] — 2026-08-21
 
 ### Added

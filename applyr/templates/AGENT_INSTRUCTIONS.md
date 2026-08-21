@@ -132,7 +132,10 @@ average and redistributes its weight across the rest; it does not count as a zer
 
 #### JSON template
 
-Required: `title`. All others optional — fill what you can extract:
+Required: `title`, `company`. All others optional — fill what you can extract. If a
+posting hides the employer, use a placeholder like `"Empresa Confidencial"` rather than
+omitting the field — an offer with no company can never be matched as a duplicate again,
+and its own metrics/follow-ups have nothing to attach to.
 
 ```json
 {

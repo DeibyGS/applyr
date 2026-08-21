@@ -14,7 +14,7 @@ import pytest
 
 def _add(**fields):
     from applyr.commands.core import cmd_add
-    cmd_add(json.dumps({"title": "Backend Dev", **fields}))
+    cmd_add(json.dumps({"title": "Backend Dev", "company": "Acme", **fields}))
 
 
 def _row(tmp_applyr, offer_id):
@@ -38,19 +38,52 @@ class TestMigrationNoBackfill:
         """
         db_path = str(tmp_applyr / "jobs.db")
         conn = sqlite3.connect(db_path)
+        # Full pre-v10 column set: the (9, 10) migration rebuilds this table
+        # with an explicit SELECT of every column, so a stripped-down proxy
+        # table (as this test used before schema v10 existed) would fail with
+        # "no such column" partway through the chained 8 -> 9 -> 10 migration.
         conn.execute(
             """CREATE TABLE offers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                title             TEXT    NOT NULL,
+                company           TEXT,
+                summary           TEXT,
+                date_received     TEXT,
+                date_applied      TEXT,
+                date_responded    TEXT,
                 compatibility_pct INTEGER DEFAULT 0,
-                status TEXT DEFAULT 'pending'
+                status            TEXT    DEFAULT 'pending',
+                applied           INTEGER DEFAULT 0,
+                canal             TEXT,
+                cv_used           TEXT,
+                follow_up_date    TEXT,
+                follow_up_done    INTEGER DEFAULT 0,
+                follow_up_notes   TEXT,
+                work_mode         TEXT,
+                location          TEXT,
+                salary_min        INTEGER,
+                salary_max        INTEGER,
+                salary_period     TEXT    DEFAULT 'annual',
+                seniority_level   TEXT,
+                role_category     TEXT,
+                tech_stack        TEXT,
+                language          TEXT,
+                cover_letter      INTEGER DEFAULT 0,
+                cover_letter_file TEXT,
+                contact_name      TEXT,
+                contact_role      TEXT,
+                job_url           TEXT,
+                rejection_reason  TEXT,
+                response_status   TEXT    DEFAULT 'no_response',
+                notes             TEXT,
+                created_at        TEXT    DEFAULT CURRENT_TIMESTAMP
             )"""
         )
         conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
         conn.execute("INSERT INTO schema_version (version) VALUES (8)")
         conn.execute(
-            "INSERT INTO offers (title, compatibility_pct, status) VALUES (?, ?, ?)",
-            ("Pre-v9 offer", 77, "applied"),
+            "INSERT INTO offers (title, company, compatibility_pct, status) VALUES (?, ?, ?, ?)",
+            ("Pre-v9 offer", "Acme", 77, "applied"),
         )
         conn.commit()
         conn.close()
@@ -64,7 +97,7 @@ class TestMigrationNoBackfill:
         row = conn.execute("SELECT * FROM offers WHERE title = 'Pre-v9 offer'").fetchone()
         conn.close()
 
-        assert version == SCHEMA_VERSION == 9
+        assert version == SCHEMA_VERSION
         assert "weights_used" in row.keys()
         assert row["weights_used"] is None
         # The pre-existing score itself must be untouched by the migration.
@@ -77,8 +110,9 @@ class TestFreshInstallSchema:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(offers)").fetchall()}
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
         conn.close()
+        from applyr.db import SCHEMA_VERSION
         assert "weights_used" in cols
-        assert version == 9
+        assert version == SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -180,10 +214,11 @@ class TestStatsExcludeUnknownWeights:
         from applyr.commands.analytics import cmd_stats
 
         # Known-weights offer: score 80.
-        _add(title="Known Weights Offer", topics={"tech_stack": {"score": 80, "detail": "x"}})
+        _add(title="Known Weights Offer", company="Acme", topics={"tech_stack": {"score": 80, "detail": "x"}})
         # Unknown-weights offer (explicit override): score 0, would drag the
-        # average down to 40 if wrongly included.
-        _add(title="Unknown Weights Offer", compatibility_pct=0)
+        # average down to 40 if wrongly included. Different company so the
+        # near-duplicate title check doesn't collide the two offers.
+        _add(title="Unknown Weights Offer", company="Globex", compatibility_pct=0)
 
         capsys.readouterr()
         cmd_stats(as_json=True)
@@ -197,10 +232,11 @@ class TestStatsExcludeUnknownWeights:
 
         # Known-weights offer scored high enough for the "apply" band, with a
         # status that counts toward calibration ("applied", not pending).
-        _add(title="Known Weights Offer", topics={"tech_stack": {"score": 95, "detail": "x"}}, status="applied")
+        _add(title="Known Weights Offer", company="Acme", topics={"tech_stack": {"score": 95, "detail": "x"}}, status="applied")
         # Unknown-weights offer, also "applied" status, also high score —
-        # must be excluded from the apply band's "total".
-        _add(title="Unknown Weights Offer", compatibility_pct=95, status="applied")
+        # must be excluded from the apply band's "total". Different company
+        # so the near-duplicate title check doesn't collide the two offers.
+        _add(title="Unknown Weights Offer", company="Globex", compatibility_pct=95, status="applied")
 
         capsys.readouterr()
         cmd_stats(as_json=True)
@@ -263,7 +299,7 @@ class TestAddJsonContractGap:
         capsys.readouterr()
         monkeypatch.setattr(
             sys, "argv",
-            ["applyr", "add", json.dumps({"title": "X", "topics": {"tech_stack": {"score": 80, "detail": "d"}}}), "--json"],
+            ["applyr", "add", json.dumps({"title": "X", "company": "Acme", "topics": {"tech_stack": {"score": 80, "detail": "d"}}}), "--json"],
         )
         from applyr.cli import main
         main()

@@ -58,7 +58,7 @@ class TestGapsSave:
 
     def test_save_multiple_gaps(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+        conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
         conn.commit()
         conn.close()
 
@@ -78,7 +78,7 @@ class TestGapsSave:
 
     def test_save_empty_gaps_dies(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+        conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
         conn.commit()
         conn.close()
 
@@ -88,7 +88,7 @@ class TestGapsSave:
 
     def test_save_invalid_json_dies(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+        conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
         conn.commit()
         conn.close()
 
@@ -97,7 +97,7 @@ class TestGapsSave:
 
     def test_save_invalid_topic_dies(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+        conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
         conn.commit()
         conn.close()
 
@@ -109,7 +109,7 @@ class TestGapsSave:
 
     def test_save_invalid_severity_dies(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+        conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
         conn.commit()
         conn.close()
 
@@ -128,7 +128,7 @@ class TestGapsSave:
 
     def test_save_default_severity(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+        conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
         conn.commit()
         conn.close()
 
@@ -144,7 +144,7 @@ class TestGapsSave:
 
     def test_save_json_output(self, tmp_db, capsys):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+        conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
         conn.commit()
         conn.close()
 
@@ -216,7 +216,7 @@ class TestGapsStats:
 
     def test_stats_multiple_gaps(self, tmp_db, capsys):
         conn = get_conn(tmp_db)
-        conn.execute("INSERT INTO offers (title) VALUES (?)", ("Test",))
+        conn.execute("INSERT INTO offers (title, company) VALUES (?, ?)", ("Test", "Acme"))
         conn.execute(
             "INSERT INTO learning_gaps (offer_id, topic, gap_detail, severity) VALUES (?, ?, ?, ?)",
             (1, "tech_stack", "Gap 1", "high"),

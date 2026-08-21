@@ -9,7 +9,7 @@ from applyr.commands.core import cmd_add, cmd_show
 
 
 def _add(**fields):
-    cmd_add(json.dumps({"title": "Backend Dev", **fields}))
+    cmd_add(json.dumps({"title": "Backend Dev", "company": "Acme", **fields}))
 
 
 @pytest.mark.unit
