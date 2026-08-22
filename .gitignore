@@ -25,3 +25,6 @@ cv/
 CLAUDE.md
 .cursorrules
 .worktrees/
+
+# Visual UI frontend (applyr/ui/frontend) — npm-managed, not vendored
+node_modules/
