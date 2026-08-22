@@ -67,6 +67,7 @@ Commands:
   cv compare <v1> <v2>          Compare two CV versions (ATS, keywords)
   response-rate [--json]        Application response rate and trends
   doctor [--json]               Check configuration and database health (exit 1 if unhealthy)
+  ui [--port P]                 Start the Visual UI backend on 127.0.0.1 (needs: pip install applyr[ui])
   version                       Show version
   help                          Show this help
 
@@ -194,14 +195,24 @@ def main():
         force = _has_flag(args, "--force")
         if force:
             args.remove("--force")
+        # Same extract-before-positional-parsing reasoning as --force: an
+        # `--intake-id <n>` pair left in `args` would otherwise get swallowed
+        # into the positional JSON/file/stdin branches below.
+        intake_id: int | None = None
+        if _has_flag(args, "--intake-id"):
+            idx = args.index("--intake-id")
+            value = _get_flag(args, "--intake-id")
+            del args[idx:idx + 2]
+            intake_id = _safe_int(value, "--intake-id")
         # `--help` must win over JSON parsing, otherwise asking for usage is
         # reported as an invalid-JSON error.
         wants_help = len(args) >= 2 and args[1] in ("--help", "-h")
         if wants_help or (len(args) < 2 and sys.stdin.isatty()):
-            print("Usage: applyr add '<json>' [--force]")
+            print("Usage: applyr add '<json>' [--force] [--intake-id <id>]")
             print("       applyr add offer.json")
             print("       cat offer.json | applyr add -")
             print("  --force: add even if a duplicate offer is detected")
+            print("  --intake-id: mark the given ui_intake row (Visual UI) as promoted to this offer")
             print("  Required: title")
             print("  Optional: company, summary, date_received, date_applied,")
             print("            compatibility_pct, status, canal, work_mode,")
@@ -218,7 +229,7 @@ def main():
             raw = args[1]
         else:
             raw = sys.stdin.read()
-        cmd_add(raw, force=force, as_json=as_json)
+        cmd_add(raw, force=force, as_json=as_json, intake_id=intake_id)
 
     elif cmd == "list":
         status = _get_flag(args, "--status")
@@ -366,6 +377,24 @@ def main():
 
     elif cmd == "doctor":
         cmd_doctor(as_json=as_json)
+
+    elif cmd == "ui":
+        # No --host override: binding anywhere but loopback would expose an
+        # unauthenticated API over real personal data (CV/application
+        # history) to the local network — see the NFR in
+        # specs/visual-ui/spec.md and docs/visual-ui/AGENTS.md.
+        port_raw = _get_flag(args, "--port")
+        port = _safe_int(port_raw, "--port") if port_raw is not None else 8000
+        # `applyr.ui.server` has no top-level fastapi/uvicorn import (so this
+        # import always succeeds), but calling run() does — that's where the
+        # ImportError we're guarding against actually happens.
+        from applyr.ui.server import run
+        try:
+            run(port=port)
+        except ImportError:
+            die("The Visual UI dashboard needs extra dependencies that "
+                "aren't installed.", code="missing_dependency",
+                text="  Install them with: pip install applyr[ui]")
 
     elif cmd == "export":
         fmt = _get_flag(args, "--format") or "csv"

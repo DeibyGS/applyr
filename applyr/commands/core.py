@@ -39,6 +39,7 @@ from applyr.db import (
     get_db_path,
     init_db,
 )
+from applyr.intake import mark_intake_promoted
 from applyr.scoring import calculate_score
 from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum
 from applyr.duplicates import find_company_offers, find_exact, find_similar
@@ -525,12 +526,17 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
 # cmd_add
 # ---------------------------------------------------------------------------
 
-def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
+def cmd_add(raw: str, force: bool = False, as_json: bool = False, intake_id: int | None = None) -> None:
     """Parse JSON and insert a new job offer into the database.
 
     Blocks on an exact or near-identical duplicate at the same company unless
     force is set. Previous offers at the same company are reported but never
     block — see applyr/duplicates.py.
+
+    `intake_id`, when given, must name a pending `ui_intake` row (Visual UI
+    dashboard). It is promoted to this offer in the same transaction as the
+    insert below — the whole `add` fails, with nothing persisted, if the
+    intake row doesn't exist or was already promoted.
     """
     # --- Parse input -------------------------------------------------------
     try:
@@ -726,6 +732,26 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
             # Track gaps: topics below the MAYBE cutoff (for in-memory notice only)
             if isinstance(score, (int, float)) and score < threshold_maybe:
                 skill_gaps.append((topic_key, threshold_maybe - score))
+
+        # --- Visual UI intake linkage ---------------------------------------
+        # Must stay AFTER the offers/offer_topics inserts above, not before.
+        # Two concurrent `add --intake-id N` calls are only safe against a
+        # double-promotion race because SQLite serializes writers starting at
+        # the first write statement in a transaction — by the time
+        # mark_intake_promoted's pending-check SELECT runs here, no other
+        # writer can have interleaved. That's a side effect of this ordering,
+        # not an explicit lock (verified under `threading.Barrier`-forced
+        # concurrency in tests/test_visual_ui_slice1_adversarial.py). Moving
+        # the intake check earlier reopens the race.
+        if intake_id is not None:
+            try:
+                mark_intake_promoted(intake_id, offer_id, conn)
+            except ValueError as exc:
+                # Same connection, no commit yet: die() exits before the
+                # commit below runs, so SQLite rolls back the offer/topics
+                # insert above along with the failed promotion — add either
+                # fully succeeds or leaves nothing behind.
+                die(f"Error: {exc}", code="invalid_intake_id", details={"intake_id": intake_id})
 
         conn.commit()
     finally:
