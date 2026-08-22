@@ -706,6 +706,94 @@ class TestMigrationGapFailsCleanly:
         assert version == 6
 
 
+@pytest.mark.unit
+class TestMigrationV10ToV11:
+    """Visual UI slice 1: adds the ui_intake table for offers pasted/uploaded
+    through the dashboard before an AI agent has scored and promoted them."""
+
+    def test_creates_ui_intake_table(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 10")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        assert "ui_intake" in {r["name"] for r in tables}
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        assert row["version"] == SCHEMA_VERSION
+        conn.close()
+
+    def test_migration_idempotent(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 10")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+        init_db(tmp_db)  # must not raise on the second pass
+
+        conn = get_conn(tmp_db)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        finally:
+            conn.close()
+        assert version == SCHEMA_VERSION
+
+    def test_fresh_install_has_ui_intake_table(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            tables = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert "ui_intake" in {r["name"] for r in tables}
+
+    def test_ui_intake_status_index_exists(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            indexes = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='ui_intake'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert "idx_ui_intake_status" in {r["name"] for r in indexes}
+
+    def test_blank_raw_text_is_rejected(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("INSERT INTO ui_intake (raw_text) VALUES ('   ')")
+        finally:
+            conn.close()
+
+    def test_offers_and_topics_are_unaffected(self, tmp_db):
+        """A schema change for a new, unrelated table must not disturb
+        existing data — same guardrail spirit as the v9->v10 rebuild tests."""
+        conn = get_conn(tmp_db)
+        conn.execute("INSERT INTO offers (title, company, compatibility_pct) VALUES ('Dev', 'Acme', 70)")
+        conn.execute("INSERT INTO offer_topics (offer_id, topic, score, detail) VALUES (1, 'tech_stack', 70, 'ok')")
+        conn.execute("UPDATE schema_version SET version = 10")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        try:
+            offer = conn.execute("SELECT * FROM offers WHERE id = 1").fetchone()
+            topics = conn.execute("SELECT * FROM offer_topics WHERE offer_id = 1").fetchall()
+        finally:
+            conn.close()
+        assert offer["company"] == "Acme"
+        assert len(topics) == 1
+
+
 class TestMigrationFailureIsAStructuredCliError:
     """Same gap as above, but through the CLI entry point — confirms
     init_db()'s RuntimeError becomes a clean die(code='db_error'), not an

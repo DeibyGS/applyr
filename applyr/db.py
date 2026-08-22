@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -127,6 +127,23 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         # whoever reads this migration next.
         "PRAGMA foreign_keys = ON",
     ],
+    # Visual UI slice 1: intake queue for offers pasted/uploaded through the
+    # dashboard before an AI agent has scored and promoted them via
+    # `applyr add --intake-id`. Deliberately not the `offers` table — an
+    # unprocessed paste has no title/company yet, and `offers.status`
+    # already means "scored, awaiting apply decision", not "unanalyzed".
+    (10, 11): [
+        """CREATE TABLE IF NOT EXISTS ui_intake (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            raw_text    TEXT    NOT NULL CHECK (length(trim(raw_text)) > 0),
+            source_note TEXT,
+            status      TEXT    DEFAULT 'pending',
+            offer_id    INTEGER REFERENCES offers(id) ON DELETE SET NULL,
+            created_at  TEXT    DEFAULT CURRENT_TIMESTAMP,
+            promoted_at TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ui_intake_status ON ui_intake(status)",
+    ],
 }
 
 SCHEMA_SQL = """\
@@ -200,9 +217,22 @@ CREATE TABLE IF NOT EXISTS learning_gaps (
 CREATE INDEX IF NOT EXISTS idx_learning_gaps_offer_id ON learning_gaps(offer_id);
 CREATE INDEX IF NOT EXISTS idx_learning_gaps_topic ON learning_gaps(topic);
 CREATE INDEX IF NOT EXISTS idx_learning_gaps_severity ON learning_gaps(severity);
+
+CREATE TABLE IF NOT EXISTS ui_intake (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    raw_text    TEXT    NOT NULL CHECK (length(trim(raw_text)) > 0),
+    source_note TEXT,
+    status      TEXT    DEFAULT 'pending',
+    offer_id    INTEGER REFERENCES offers(id) ON DELETE SET NULL,
+    created_at  TEXT    DEFAULT CURRENT_TIMESTAMP,
+    promoted_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ui_intake_status ON ui_intake(status);
 """
 
 VALID_STATUSES = ("pending", "applied", "waiting", "in_process", "rejected", "discarded", "offer")
+VALID_INTAKE_STATUSES = ("pending", "promoted")
 VALID_CHANNELS = ("linkedin_easy", "linkedin_direct", "email", "portal", "referral", "other")
 VALID_WORK_MODES = ("remote", "hybrid", "onsite")
 VALID_SENIORITY = ("trainee", "entry_level", "junior", "mid", "senior", "lead", "director")
