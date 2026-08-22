@@ -90,7 +90,27 @@ giant upfront spec for the whole feature).
 
 ## Status
 
-Setup only so far: worktree + integration branch created (2026-08-23). No implementation
-yet. Next step: `/sdd` for the first vertical slice (see chat session for the agreed
-slice-by-slice approach — backend skeleton + minimal data model + upload endpoint +
-polling, before any visual polish).
+**Slice 1 implemented (2026-08-23)** — `specs/visual-ui/spec.md`, status IMPLEMENTED.
+Backend (`applyr/ui/server.py` + `api.py`), `ui_intake` table + migration
+(`applyr/db.py`, `applyr/intake.py`), `applyr add --intake-id` linkage
+(`applyr/commands/core.py`), `applyr ui` CLI command, `applyr[ui]` optional extra
+(`pyproject.toml`), frontend scaffold (`applyr/ui/frontend/`, unstyled), ADR-011. 35
+new backend tests (`tests/test_ui_intake.py`, `tests/test_ui_api.py`,
+`tests/test_ui_cli.py`), full suite green (756 tests), manual end-to-end pass verified
+against a live server: paste offer -> `add --intake-id` -> promoted -> real score
+visible via `/api/jobs`, full topic breakdown via `/api/jobs/{id}`.
+
+Known follow-ups (not blockers for this slice, tracked here so they aren't lost):
+- Frontend scaffold's `npm audit` flags a moderate esbuild/vite dev-server advisory
+  (GHSA-67mh-4wv8-2f99) — fixing needs a vite major bump (5.x -> 8.x), deferred rather
+  than absorbed into this slice; low real risk given the loopback-only threat model, but
+  should be revisited before this frontend gets built out further.
+- Unrelated applyr core bug found while testing (NOT part of this feature, not fixed
+  here): running `applyr init`/`setup-agent` with cwd inside the applyr repo itself
+  duplicates content into the repo's own root `AGENTS.md` instead of detecting it's
+  already current. Saved to Engram (`bug-agents-md-duplication-on-repo-self-init`) for a
+  separate fix.
+
+Next: propose the next vertical slice (visual polish — Tailwind/shadcn/Framer Motion,
+still 2D per the invariants above — or the Kanban/archive view) to the user before
+starting it; each slice gets its own `/sdd` spec, not one upfront spec for everything.
