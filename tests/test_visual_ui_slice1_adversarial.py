@@ -12,6 +12,8 @@ import sqlite3
 import threading
 
 import pytest
+
+pytest.importorskip("fastapi", reason="requires the optional applyr[ui] extra")
 from fastapi.testclient import TestClient
 
 from applyr.commands.core import cmd_add

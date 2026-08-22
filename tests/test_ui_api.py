@@ -1,6 +1,8 @@
 """Tests for applyr/ui/api.py — the Visual UI backend's HTTP routes."""
 
 import pytest
+
+pytest.importorskip("fastapi", reason="requires the optional applyr[ui] extra")
 from fastapi.testclient import TestClient
 
 from applyr.db import get_conn
