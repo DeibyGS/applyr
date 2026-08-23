@@ -39,12 +39,21 @@ infra choices were rejected, see "Explicitly rejected" below).
 |---|---|
 | Backend | FastAPI, single process, embeds/serves the built frontend |
 | DB | Existing SQLite via `applyr/db.py` — no new engine, minimal schema additions only if truly needed |
-| Real-time | Polling via TanStack Query `refetchInterval` (2-3s). No WebSocket in v1. |
+| Real-time | Plain `fetch` + `setInterval` polling (2-3s), wrapped in shared hooks (`useIntakeAndJobs`, `useThresholds`). No WebSocket in v1. |
 | Frontend | React + TypeScript + Vite |
-| Styling | Tailwind CSS + shadcn/ui + Radix UI + Lucide icons |
+| Styling | Tailwind CSS v4 (`@tailwindcss/vite`) + shadcn/ui + Radix UI + Lucide icons |
 | Animation | Framer Motion, 2D/CSS only — no Three.js / 3D |
-| Client state | Zustand |
+| Client state | Plain `useState`/`useEffect` — no global store adopted (no Zustand). Revisit only if prop-drilling actually becomes painful; it hasn't across 3 slices. |
+| Routing | `react-router` v8 (Slice 3+) — real URLs per page, `<BrowserRouter>`/`<Routes>` |
 | Packaging | `pip install applyr[ui]` — optional extra. Core `applyr` CLI stays dependency-light (stdlib + colorama), do not add FastAPI/React deps to the base install. |
+
+Corrected 2026-08-23 after 3 slices of real implementation: this table originally named
+TanStack Query and Zustand, neither of which was ever actually installed — plain
+`fetch`/`useState`/`setInterval` covered every real need so far. Table above now
+reflects what's actually in the codebase, not the original upfront guess. Revisit
+TanStack Query specifically if request deduplication/caching across pages becomes a
+real problem (3 pages now poll independently via the shared hooks — acceptable at this
+scale, not necessarily forever).
 
 ## Frontend structure (locked in 2026-08-23 — read before adding any file)
 
@@ -55,11 +64,15 @@ multi-slice dashboard debuggable instead of turning into a junk drawer.
 
 ```
 applyr/ui/frontend/src/
-├── main.tsx / App.tsx / index.css   # entry point + thin root composition
+├── main.tsx / App.tsx / index.css   # entry point + route definitions (Slice 3+)
 ├── assets/                          # images (agent illustrations, etc.)
 ├── api/                             # the ONLY place that calls fetch()
 │   ├── client.ts                    # base wrapper (error shape, base URL)
 │   ├── intake.ts, jobs.ts, config.ts  # one file per backend resource, typed
+├── layout/                          # app chrome: Sidebar, AppShell, ComingSoon —
+│                                     # navigation/shell, not a business domain
+├── pages/                           # one file per route (Slice 3+), thin — composes
+│                                     # features/* and layout/*, no logic of its own
 ├── features/<domain>/               # agents/, jobs/, intake/, kanban/ (later), ...
 │   ├── SomeComponent.tsx            # PascalCase, feature-specific UI
 │   ├── some-logic.ts                # kebab-case, PURE function, no React/DOM
@@ -67,7 +80,11 @@ applyr/ui/frontend/src/
 │   └── types.ts
 ├── components/ui/                   # shadcn-generated primitives ONLY — never
 │                                     # hand-write a component directly in here
-├── hooks/                           # cross-feature hooks only (rare)
+├── hooks/                           # cross-feature hooks only (rare) — e.g.
+│                                     # useIntakeAndJobs, useThresholds,
+│                                     # useSelectedJob: 2-3 pages each needed the
+│                                     # same fetch/polling, shared here instead of
+│                                     # duplicated per page
 └── lib/                             # small: cn() helper + app-wide constants only
 ```
 
@@ -90,6 +107,10 @@ Rules (don't relitigate these per-slice — they're decided):
    for exported functions/variables.
 7. **Tests are colocated**, never a top-level `__tests__/` tree — a feature folder
    should be fully self-contained and movable/deletable as a unit.
+8. **`layout/` is app chrome, `pages/` is route composition — neither is a feature.**
+   A page file should mostly just import from `features/*`/`layout/*` and lay them
+   out; if a page starts accumulating its own business logic, that logic belongs in
+   a `features/` folder instead.
 
 ## Explicitly rejected (do not add later without a real trigger)
 
@@ -171,15 +192,30 @@ palette values (`highlight`, `danger`, `ring`) were adjusted after failing the c
 full Python suite green (771 tests). Confirmed visually by the user against their
 real data (245 real offers) before merging.
 
-Next: Slice 3 — sidebar navigation shell (Oficina/Ofertas/Agentes/Entrevistas/
-Archivador/Analytics/Ajustes), scoped down in chat 2026-08-23: react-router for real
-URLs per tab; ships the full 7-tab shell but with real content only in
-Oficina/Agentes/Archivador this slice — Ofertas/Entrevistas/Analytics/Ajustes show an
-honest "coming soon" state rather than invented data (Analytics needs a new
-`GET /api/stats`-style endpoint wrapping the existing `cmd_stats` funnel logic;
-Entrevistas can only reflect `status == 'in_process'`, applyr has no real interview
-scheduling/date field despite the reference mockup showing one — never fabricate
-that); Ajustes is read-only (displays `/api/config`) — an editable settings page that
-writes to `applyr.toml` is deliberately deferred to its own future slice given the
-concurrency/validation risk of a config-file write endpoint. Each slice still gets its
-own `/sdd` spec, not one upfront spec for everything.
+**Slice 3 implemented (2026-08-23)** — `specs/visual-ui-slice-3/spec.md`, status
+IMPLEMENTED. Sidebar navigation shell via `react-router` v8: 7 real routes (`/office`,
+`/offers`, `/agents`, `/interviews`, `/archive`, `/analytics`, `/settings`), `/`
+redirects to `/office`. New structure: `src/layout/` (Sidebar, AppShell, ComingSoon)
+and `src/pages/` (one per route), added to the locked convention above. Real content
+in Office (relocated Slice 2 dashboard, unchanged behavior), Agents (`AgentCard`
+gained a `variant="compact"|"detailed"` prop, same real/not-connected data, no new
+source), Archive (offers grouped by the real 7-value `status` enum via
+`group-by-status.ts`, unit-tested as a drift tripwire against Python's
+`VALID_STATUSES`). Offers/Analytics/Settings show a shared honest `ComingSoon`;
+Interviews shows specific copy (applyr has no interview-scheduling date/time field,
+only `status == 'in_process'` as a proxy — never fabricate a schedule). No backend
+changes. 3 shared hooks extracted (`useIntakeAndJobs`, `useThresholds`,
+`useSelectedJob`) once 2-3 pages needed the same fetch/polling — avoids the
+duplication a straight per-page implementation would have produced. 13/13 Vitest,
+771 Python tests still green (untouched backend). All 7 routes verified reachable via
+direct URL/reload, not just sidebar clicks.
+
+Also corrected in this pass: the Stack table above previously named TanStack Query and
+Zustand as decided — neither was ever installed across 3 slices; corrected to reflect
+what's actually in the codebase (plain `fetch`/`useState`/shared hooks).
+
+Next: office background image (user will generate one background illustration — no
+characters, no baked-in text/data — to slot into the `.office-bg` CSS hook already
+prepared in `index.css`); then further slices for Offers/Analytics (`GET /api/stats`
+wrapping `cmd_stats`)/Settings (read view now, editable later needs its own
+concurrency-focused spec) as they come up. Each slice still gets its own `/sdd` spec.
