@@ -12,6 +12,7 @@ import os
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from applyr.commands.analytics import _stats_payload, _trends_payload
 from applyr.commands.workflow import _check_cv_master
 from applyr.config import load_config
 from applyr.db import get_conn
@@ -132,5 +133,33 @@ def get_job_detail(job_id: int) -> dict:
         result = dict(offer)
         result["topics"] = [dict(topic) for topic in topics]
         return result
+    finally:
+        conn.close()
+
+
+@router.get("/api/stats")
+def get_stats() -> dict:
+    """Same aggregate payload as `applyr stats --json` (funnel, channel/work-mode
+    breakdown, salary, score calibration) — reuses `_stats_payload`, never
+    reimplements the aggregation SQL here."""
+    conn = get_conn()
+    try:
+        payload = _stats_payload(conn)
+    finally:
+        conn.close()
+    if payload is None:
+        return {"total": 0}
+    return payload
+
+
+@router.get("/api/trends")
+def get_trends(period: str = Query(default="week")) -> list[dict]:
+    """Same payload as `applyr trends --period <p> --json` — reuses
+    `_trends_payload`, never reimplements the aggregation SQL here."""
+    if period not in ("week", "month"):
+        raise HTTPException(status_code=400, detail="period must be 'week' or 'month'")
+    conn = get_conn()
+    try:
+        return _trends_payload(conn, period)
     finally:
         conn.close()

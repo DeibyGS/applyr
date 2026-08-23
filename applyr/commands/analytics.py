@@ -200,79 +200,117 @@ def _score_calibration(conn) -> tuple[dict, int]:
     return bands, excluded
 
 
+def _stats_payload(conn) -> dict | None:
+    """Build the aggregate stats payload shared by `cmd_stats` and `GET /api/stats`.
+
+    Returns None when the database has zero offers (the empty-state signal both
+    the CLI and the API branch on).
+    """
+    total = conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0]
+    if total == 0:
+        return None
+
+    discarded = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'discarded'").fetchone()[0]
+    pending   = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'pending'").fetchone()[0]
+    # Excludes weights_used IS NULL for the same reason _score_calibration
+    # does (ADR 009): mixing scores from different/unknown weight configs
+    # into one average would silently combine numbers that mean different
+    # things.
+    avg_compat = conn.execute(
+        "SELECT AVG(compatibility_pct) FROM offers WHERE weights_used IS NOT NULL"
+    ).fetchone()[0] or 0
+    avg_compat_excluded = conn.execute(
+        "SELECT COUNT(*) FROM offers WHERE weights_used IS NULL"
+    ).fetchone()[0]
+
+    # Conversion funnel. `responded` excludes `waiting`: that status means
+    # the application is out and nothing has come back, which is why
+    # `update` schedules a follow-up for it. Counting it as a reply made
+    # this funnel disagree with `response-rate` on identical data — 14%
+    # against 9% on a real 206-offer database.
+    applied    = conn.execute("SELECT COUNT(*) FROM offers WHERE status != 'pending' AND status != 'discarded'").fetchone()[0]
+    reply_slots = ", ".join("?" * len(REPLY_STATUSES))
+    responded  = conn.execute(
+        f"SELECT COUNT(*) FROM offers WHERE status IN ({reply_slots})",
+        sorted(REPLY_STATUSES),
+    ).fetchone()[0]
+    interview  = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'in_process'").fetchone()[0]
+    offers_cnt = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'offer'").fetchone()[0]
+
+    # Channel breakdown
+    channels = conn.execute(
+        "SELECT canal, COUNT(*) as cnt FROM offers WHERE canal IS NOT NULL GROUP BY canal ORDER BY cnt DESC"
+    ).fetchall()
+
+    # Work mode breakdown
+    modes = conn.execute(
+        "SELECT work_mode, COUNT(*) as cnt FROM offers WHERE work_mode IS NOT NULL GROUP BY work_mode ORDER BY cnt DESC"
+    ).fetchall()
+
+    # Salary stats
+    sal = conn.execute(
+        "SELECT MIN(salary_min), MAX(salary_min), AVG(salary_min) FROM offers WHERE salary_min IS NOT NULL"
+    ).fetchone()
+
+    calibration, excluded_unknown_weights = _score_calibration(conn)
+
+    def _pct_or_none(num, denom):
+        return round(num / denom * 100) if denom else None
+
+    payload = {
+        "total": total, "pending": pending, "discarded": discarded,
+        "avg_compatibility_pct": round(avg_compat, 1),
+        "avg_compatibility_pct_excluded_unknown_weights": avg_compat_excluded,
+        "funnel": {"applied": applied, "responded": responded, "interview": interview, "offer": offers_cnt},
+        # Same percentage-of-previous-stage math the text CLI output has always
+        # shown (`_pct` below) — exposed in JSON too so API consumers (Visual UI
+        # Analytics page) never have to re-derive it client-side.
+        "funnel_pct": {
+            "applied": _pct_or_none(applied, total),
+            "responded": _pct_or_none(responded, applied),
+            "interview": _pct_or_none(interview, responded),
+            "offer": _pct_or_none(offers_cnt, interview),
+        },
+        "channels": {ch["canal"]: ch["cnt"] for ch in channels},
+        "work_modes": {m["work_mode"]: m["cnt"] for m in modes},
+        "score_calibration": calibration,
+        "excluded_unknown_weights": excluded_unknown_weights,
+    }
+    if sal and sal[0] is not None:
+        payload["salary"] = {"min": sal[0], "max": sal[1], "avg": round(sal[2])}
+    return payload
+
+
 def cmd_stats(as_json: bool = False) -> None:
     """Print aggregate statistics for the offer database."""
     conn = get_conn()
     try:
-        total = conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0]
-        if total == 0:
-            print("No offers in the database yet.")
-            return
-
-        discarded = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'discarded'").fetchone()[0]
-        pending   = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'pending'").fetchone()[0]
-        # Excludes weights_used IS NULL for the same reason _score_calibration
-        # does (ADR 009): mixing scores from different/unknown weight configs
-        # into one average would silently combine numbers that mean different
-        # things.
-        avg_compat = conn.execute(
-            "SELECT AVG(compatibility_pct) FROM offers WHERE weights_used IS NOT NULL"
-        ).fetchone()[0] or 0
-        avg_compat_excluded = conn.execute(
-            "SELECT COUNT(*) FROM offers WHERE weights_used IS NULL"
-        ).fetchone()[0]
-
-        # Conversion funnel. `responded` excludes `waiting`: that status means
-        # the application is out and nothing has come back, which is why
-        # `update` schedules a follow-up for it. Counting it as a reply made
-        # this funnel disagree with `response-rate` on identical data — 14%
-        # against 9% on a real 206-offer database.
-        applied    = conn.execute("SELECT COUNT(*) FROM offers WHERE status != 'pending' AND status != 'discarded'").fetchone()[0]
-        reply_slots = ", ".join("?" * len(REPLY_STATUSES))
-        responded  = conn.execute(
-            f"SELECT COUNT(*) FROM offers WHERE status IN ({reply_slots})",
-            sorted(REPLY_STATUSES),
-        ).fetchone()[0]
-        interview  = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'in_process'").fetchone()[0]
-        offers_cnt = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'offer'").fetchone()[0]
-
-        # Channel breakdown
-        channels = conn.execute(
-            "SELECT canal, COUNT(*) as cnt FROM offers WHERE canal IS NOT NULL GROUP BY canal ORDER BY cnt DESC"
-        ).fetchall()
-
-        # Work mode breakdown
-        modes = conn.execute(
-            "SELECT work_mode, COUNT(*) as cnt FROM offers WHERE work_mode IS NOT NULL GROUP BY work_mode ORDER BY cnt DESC"
-        ).fetchall()
-
-        # Salary stats
-        sal = conn.execute(
-            "SELECT MIN(salary_min), MAX(salary_min), AVG(salary_min) FROM offers WHERE salary_min IS NOT NULL"
-        ).fetchone()
-
-        calibration, excluded_unknown_weights = _score_calibration(conn)
+        payload = _stats_payload(conn)
     finally:
         conn.close()
 
+    if payload is None:
+        print("No offers in the database yet.")
+        return
+
     if as_json:
-        payload = {
-            "total": total, "pending": pending, "discarded": discarded,
-            "avg_compatibility_pct": round(avg_compat, 1),
-            "avg_compatibility_pct_excluded_unknown_weights": avg_compat_excluded,
-            "funnel": {"applied": applied, "responded": responded, "interview": interview, "offer": offers_cnt},
-            "channels": {ch["canal"]: ch["cnt"] for ch in channels},
-            "work_modes": {m["work_mode"]: m["cnt"] for m in modes},
-            "score_calibration": calibration,
-            "excluded_unknown_weights": excluded_unknown_weights,
-        }
-        if sal and sal[0] is not None:
-            payload["salary"] = {"min": sal[0], "max": sal[1], "avg": round(sal[2])}
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
     def _pct(num, denom):
         return f"{round(num / denom * 100)}%" if denom else "—"
+
+    total, pending, discarded = payload["total"], payload["pending"], payload["discarded"]
+    avg_compat = payload["avg_compatibility_pct"]
+    avg_compat_excluded = payload["avg_compatibility_pct_excluded_unknown_weights"]
+    funnel = payload["funnel"]
+    applied, responded, interview, offers_cnt = (
+        funnel["applied"], funnel["responded"], funnel["interview"], funnel["offer"]
+    )
+    channels, modes = payload["channels"], payload["work_modes"]
+    sal = payload.get("salary")
+    calibration = payload["score_calibration"]
+    excluded_unknown_weights = payload["excluded_unknown_weights"]
 
     print("\n--- Stats ---\n")
     print(f"  Total offers    : {total}")
@@ -288,19 +326,19 @@ def cmd_stats(as_json: bool = False) -> None:
 
     if channels:
         print(f"\n  Channel Breakdown:")
-        for ch in channels:
-            print(f"    {ch['canal']:<20} {ch['cnt']}")
+        for canal, cnt in channels.items():
+            print(f"    {canal:<20} {cnt}")
 
     if modes:
         print(f"\n  Work Mode Breakdown:")
-        for m in modes:
-            print(f"    {m['work_mode']:<12} {m['cnt']}")
+        for mode, cnt in modes.items():
+            print(f"    {mode:<12} {cnt}")
 
-    if sal and sal[0] is not None:
+    if sal:
         print(f"\n  Salary (salary_min, where provided):")
-        print(f"    Min : {sal[0]:,}")
-        print(f"    Max : {sal[1]:,}")
-        print(f"    Avg : {round(sal[2]):,}")
+        print(f"    Min : {sal['min']:,}")
+        print(f"    Max : {sal['max']:,}")
+        print(f"    Avg : {sal['avg']:,}")
 
     if any(b["total"] for b in calibration.values()) or excluded_unknown_weights:
         print(f"\n  Score Calibration (does a higher score predict a better outcome?):")
@@ -518,31 +556,53 @@ def cmd_followups(as_json: bool = False) -> None:
 # cmd_trends
 # ---------------------------------------------------------------------------
 
+def _trends_payload(conn, period: str) -> list[dict]:
+    """Build the trends payload shared by `cmd_trends` and `GET /api/trends`.
+
+    Both current callers pre-validate `period` before calling this (`cmd_trends`
+    exits via `die()`, the API raises `HTTPException(400)`) — the guard below is
+    a defensive backstop so a future caller that skips that step fails loudly
+    instead of silently grouping by the wrong format.
+    """
+    if period not in ("week", "month"):
+        raise ValueError(f"period must be 'week' or 'month', got {period!r}")
+    fmt = "%Y-W%W" if period == "week" else "%Y-%m"
+
+    rows = conn.execute(
+        f"""
+        SELECT strftime('{fmt}', COALESCE(date_applied, date_received)) AS period,
+               COUNT(*) AS cnt
+        FROM offers
+        WHERE COALESCE(date_applied, date_received) IS NOT NULL
+        GROUP BY period
+        ORDER BY period DESC
+        LIMIT {TREND_HISTORY_LIMIT}
+        """,
+    ).fetchall()
+
+    payload = []
+    for i, r in enumerate(rows):
+        cnt = r["cnt"]
+        prev_cnt = rows[i + 1]["cnt"] if i + 1 < len(rows) else None
+        growth = None
+        if prev_cnt is not None and prev_cnt > 0:
+            growth = round((cnt - prev_cnt) / prev_cnt * 100)
+        payload.append({"period": r["period"], "count": cnt, "growth_pct": growth})
+    return payload
+
+
 def cmd_trends(period: str = "week", as_json: bool = False) -> None:
     """Group applications by week or month and show growth vs previous period."""
     if period not in ("week", "month"):
         die("Error: period must be 'week' or 'month'.")
 
-    # SQLite strftime format
-    fmt = "%Y-W%W" if period == "week" else "%Y-%m"
-
     conn = get_conn()
     try:
-        rows = conn.execute(
-            f"""
-            SELECT strftime('{fmt}', COALESCE(date_applied, date_received)) AS period,
-                   COUNT(*) AS cnt
-            FROM offers
-            WHERE COALESCE(date_applied, date_received) IS NOT NULL
-            GROUP BY period
-            ORDER BY period DESC
-            LIMIT {TREND_HISTORY_LIMIT}
-            """,
-        ).fetchall()
+        payload = _trends_payload(conn, period)
     finally:
         conn.close()
 
-    if not rows:
+    if not payload:
         if as_json:
             print(json.dumps([], indent=2, ensure_ascii=False))
         else:
@@ -550,28 +610,16 @@ def cmd_trends(period: str = "week", as_json: bool = False) -> None:
         return
 
     if as_json:
-        payload = []
-        for i, r in enumerate(rows):
-            cnt = r["cnt"]
-            prev_cnt = rows[i + 1]["cnt"] if i + 1 < len(rows) else None
-            growth = None
-            if prev_cnt is not None and prev_cnt > 0:
-                growth = round((cnt - prev_cnt) / prev_cnt * 100)
-            payload.append({"period": r["period"], "count": cnt, "growth_pct": growth})
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
     print(f"\n--- Trends by {period.capitalize()} ---\n")
-    for i, r in enumerate(rows):
-        cnt = r["cnt"]
-        prev_cnt = rows[i + 1]["cnt"] if i + 1 < len(rows) else None
-        if prev_cnt is not None and prev_cnt > 0:
-            growth = round((cnt - prev_cnt) / prev_cnt * 100)
-            growth_str = f"  ({'+' if growth >= 0 else ''}{growth}% vs prev)"
-        else:
-            growth_str = ""
+    for entry in payload:
+        cnt = entry["count"]
+        growth = entry["growth_pct"]
+        growth_str = f"  ({'+' if growth >= 0 else ''}{growth}% vs prev)" if growth is not None else ""
         bar = _bar(cnt, width=TREND_BAR_WIDTH)
-        print(f"  {r['period']}  {bar}  {cnt:>3}{growth_str}")
+        print(f"  {entry['period']}  {bar}  {cnt:>3}{growth_str}")
     print()
 
 
