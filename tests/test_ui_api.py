@@ -54,6 +54,57 @@ class TestConfig:
 
 
 @pytest.mark.unit
+class TestSettingsEndpoint:
+
+    def test_returns_thresholds_and_raw_weights(self, client, tmp_applyr):
+        (tmp_applyr / "cv-master.md").write_text("# CV Master\n\n" + "Real experience. " * 50)
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["threshold_apply"] == 80
+        assert body["threshold_maybe"] == 60
+        assert body["weights"]["tech_stack"] == 35
+        assert body["cv_master_status"] == "ok"
+
+    def test_warning_status_when_cv_master_missing(self, client, tmp_applyr):
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["cv_master_status"] == "warning"
+
+    def test_warning_status_when_cv_master_too_thin(self, client, tmp_applyr):
+        (tmp_applyr / "cv-master.md").write_text("# CV Master\n\nDeveloper.\n")
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        assert resp.json()["cv_master_status"] == "warning"
+
+    def test_never_exposes_a_filesystem_path(self, client, tmp_applyr):
+        (tmp_applyr / "cv-master.md").write_text("# CV Master\n\n" + "Real experience. " * 50)
+        resp = client.get("/api/settings")
+        assert str(tmp_applyr) not in resp.text
+        assert "cv-master.md" not in resp.text
+
+    def test_never_exposes_a_filesystem_path_when_cv_master_is_missing(self, client, tmp_applyr):
+        # Exercises the "NOT FOUND" branch specifically — the sibling test
+        # above only ever writes a filled cv-master.md, so it exercises the
+        # "ok" .replace() branch and never actually proves this one strips
+        # the path too.
+        resp = client.get("/api/settings")
+        assert resp.json()["cv_master_status"] == "warning"
+        assert str(tmp_applyr) not in resp.text
+        assert "cv-master.md" not in resp.text
+
+    def test_never_exposes_the_full_config_file(self, client, tmp_applyr):
+        (tmp_applyr / "applyr.toml").write_text(
+            "[general]\nthreshold_apply = 65\nthreshold_maybe = 55\n"
+            'chrome_path = "/some/local/marker/value"\n'
+        )
+        resp = client.get("/api/settings")
+        assert "chrome_path" not in resp.text
+        assert "/some/local/marker/value" not in resp.text
+
+
+@pytest.mark.unit
 class TestIntakeEndpoints:
 
     def test_create_intake(self, client):

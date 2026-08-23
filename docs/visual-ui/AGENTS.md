@@ -244,9 +244,29 @@ not something to fold into a slice. **Agreed next step: a dedicated RADAR + ADR
 session (would become ADR-012) before any implementation**, not bundled into current
 work. Until then, Office keeps its simple ambient background image (see below).
 
+**Slice 6 implemented (2026-08-23)** — `specs/visual-ui-slice-6-settings/spec.md`,
+status IMPLEMENTED. Real `/settings` page replacing the `ComingSoon` stub, read-only.
+New `GET /api/settings` returns `threshold_apply`/`threshold_maybe`, the raw integer
+per-topic weights from `applyr.toml` (`config["weights_raw"]`, not the normalized
+decimals `calculate_score` uses internally), and a CV Master `ok`/`warning` status
+badge reusing `doctor`'s existing `_check_cv_master()` check — the API strips the
+local filesystem path out of the message before it leaves the machine, extending the
+same privacy boundary `GET /api/config` already established for `chrome_path`.
+Frontend: `features/settings/` (`ThresholdsCard`, `WeightsCard`,
+`CvMasterStatusBadge` with icon+text so status is never color-alone), no new npm
+dependency (`Card`/`Badge` primitives only, no charts — this is config display, not
+analytics). No editing/POST in this slice by design; editable settings deferred to a
+future spec needing its own concurrency/validation analysis. 5 new backend tests
+(happy path, missing CV master, too-thin CV master, 2 path-privacy assertions), full
+Python suite green (776 tests), 25/25 Vitest, `tsc --noEmit` clean. Manually verified
+`GET /api/settings` via curl against the user's real config (custom thresholds 65/55,
+default weights, `cv_master_status: "ok"` with no path in the response); could not
+visually confirm chart-free page rendering in a browser — no browser-driving tool
+available this session, disclosed rather than assumed.
+
 Next: office background image (user will generate a simple ambient illustration as a
 placeholder — no characters, no baked-in text/data — to slot into the `.office-bg`
 CSS hook already prepared in `index.css`; swappable later if "Applyr World" is
-approved); then Analytics (`GET /api/stats` wrapping `cmd_stats`)/Settings (read view
-now, editable later needs its own concurrency-focused spec) as they come up. Each
-slice still gets its own `/sdd` spec.
+approved); then Interviews as it comes up (blocked on deciding whether
+`status == 'in_process'` alone is enough or real interview-scheduling data should be
+added to the schema first). Each slice still gets its own `/sdd` spec.

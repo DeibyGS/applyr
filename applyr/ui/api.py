@@ -7,9 +7,12 @@ job (ADR-003). This module is the read/intake surface only.
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from applyr.commands.workflow import _check_cv_master
 from applyr.config import load_config
 from applyr.db import get_conn
 from applyr.intake import create_intake, get_intake, list_intake
@@ -45,6 +48,41 @@ def get_config() -> dict:
     return {
         "threshold_apply": general["threshold_apply"],
         "threshold_maybe": general["threshold_maybe"],
+    }
+
+
+@router.get("/api/settings")
+def get_settings() -> dict:
+    """Read-only view of scoring thresholds, per-topic weights, and CV Master
+    health. Reuses `doctor`'s `_check_cv_master()` for the "is the profile still
+    a blank template" logic rather than reimplementing it, but strips the local
+    filesystem path out of its message before responding — same boundary
+    `GET /api/config` already draws for chrome_path etc. (never a local path
+    over the API, even on loopback). Coupled to `_check_cv_master()`'s exact two
+    message formats ("OK (<path>, N words...)" / "NOT FOUND — <path>") by
+    design — if that formatting changes, this sanitization needs updating too."""
+    config = load_config()
+    general = config["general"]
+
+    check = _check_cv_master()
+    # Derived from the already-loaded `config` rather than a second
+    # get_cv_master_path() call (which would re-parse applyr.toml on its own)
+    # — _check_cv_master() still does its own internal load, but this keeps
+    # this route to 2 parses instead of 3.
+    cv_master_path = os.path.expanduser(config["cv"]["cv_master"])
+    if check["status"] == "ok":
+        message = check["message"].replace(f"({cv_master_path}, ", "(")
+    elif cv_master_path in check["message"]:
+        message = "NOT FOUND — run 'applyr init' to create a template."
+    else:
+        message = check["message"]
+
+    return {
+        "threshold_apply": general["threshold_apply"],
+        "threshold_maybe": general["threshold_maybe"],
+        "weights": config["weights_raw"],
+        "cv_master_status": "ok" if check["status"] == "ok" else "warning",
+        "cv_master_message": message,
     }
 
 
