@@ -214,8 +214,39 @@ Also corrected in this pass: the Stack table above previously named TanStack Que
 Zustand as decided — neither was ever installed across 3 slices; corrected to reflect
 what's actually in the codebase (plain `fetch`/`useState`/shared hooks).
 
-Next: office background image (user will generate one background illustration — no
-characters, no baked-in text/data — to slot into the `.office-bg` CSS hook already
-prepared in `index.css`); then further slices for Offers/Analytics (`GET /api/stats`
-wrapping `cmd_stats`)/Settings (read view now, editable later needs its own
-concurrency-focused spec) as they come up. Each slice still gets its own `/sdd` spec.
+**Slice 4 implemented (2026-08-23)** — `specs/visual-ui-slice-4-offers/spec.md`, status
+IMPLEMENTED. Real `/offers` page replacing the `ComingSoon` stub: toggle between List
+(filterable by status/work_mode, single-select each; min-score threshold; sortable by
+date/score with a re-click-to-reverse direction) and Kanban (columns via the existing
+`groupByStatus`, same filtered set as List, strictly read-only — no drag-and-drop). New
+`features/jobs/offer-filters.ts` (pure `filterJobs`/`sortJobs`, 10 Vitest tests),
+`OffersToolbar.tsx`, `KanbanBoard.tsx` — all built from existing `Button`/`Input`
+primitives, zero new npm dependencies, zero backend changes. Detail panel reuses the
+existing `useSelectedJob`/`JobDetail`; view/filter/sort state lives in `OffersPage` so
+it survives opening/closing that panel. Manually verified against 246 real offers via
+local dev servers (backend resolved from worktree cwd, frontend on Vite + CORS).
+**Scope amendment during verification:** user flagged that `OfficePage.tsx` still
+rendered the full unfiltered job list at the bottom — a duplication now that Offers
+owns job browsing. Removed in the same PR: Office now shows only header + `AgentRow` +
+`IntakeForm`/`PendingIntakeList` (agent status + intake queue, no offer browsing).
+23/23 Vitest tests green, `tsc --noEmit` clean, both `/simplify-lean` passes returned
+"no changes needed".
+
+**"Applyr World" concept — proposed, deferred (2026-08-23):** user pitched a much
+larger pivot for Office — an isometric/2.5D animated pipeline (PixiJS/Phaser), agents
+physically walking offers through Scout → Analyst → Decision → CV/ATS/Writer stages,
+driven by a real-time event bus (`offer.created`, `scoring.completed`, etc.). This
+conflicts with 3 already-locked decisions above (polling-only/no WebSocket in v1,
+Framer Motion 2D/CSS-only animation, no scale-oriented infra for a single local user)
+and was classified as an **architectural** decision (high cost of reversal, new
+render engine, new event contract) per the project's decision-classification rule —
+not something to fold into a slice. **Agreed next step: a dedicated RADAR + ADR
+session (would become ADR-012) before any implementation**, not bundled into current
+work. Until then, Office keeps its simple ambient background image (see below).
+
+Next: office background image (user will generate a simple ambient illustration as a
+placeholder — no characters, no baked-in text/data — to slot into the `.office-bg`
+CSS hook already prepared in `index.css`; swappable later if "Applyr World" is
+approved); then Analytics (`GET /api/stats` wrapping `cmd_stats`)/Settings (read view
+now, editable later needs its own concurrency-focused spec) as they come up. Each
+slice still gets its own `/sdd` spec.
