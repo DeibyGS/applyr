@@ -46,6 +46,51 @@ infra choices were rejected, see "Explicitly rejected" below).
 | Client state | Zustand |
 | Packaging | `pip install applyr[ui]` — optional extra. Core `applyr` CLI stays dependency-light (stdlib + colorama), do not add FastAPI/React deps to the base install. |
 
+## Frontend structure (locked in 2026-08-23 — read before adding any file)
+
+Feature-based/domain organization, not the old "everything in `components/`" pattern —
+this is current React/Vite best practice (Robin Wieruch's 2026 folder-structure guide
+is the most-cited reference on this specific question) and is what keeps a growing
+multi-slice dashboard debuggable instead of turning into a junk drawer.
+
+```
+applyr/ui/frontend/src/
+├── main.tsx / App.tsx / index.css   # entry point + thin root composition
+├── assets/                          # images (agent illustrations, etc.)
+├── api/                             # the ONLY place that calls fetch()
+│   ├── client.ts                    # base wrapper (error shape, base URL)
+│   ├── intake.ts, jobs.ts, config.ts  # one file per backend resource, typed
+├── features/<domain>/               # agents/, jobs/, intake/, kanban/ (later), ...
+│   ├── SomeComponent.tsx            # PascalCase, feature-specific UI
+│   ├── some-logic.ts                # kebab-case, PURE function, no React/DOM
+│   ├── some-logic.test.ts           # colocated, not a separate __tests__ tree
+│   └── types.ts
+├── components/ui/                   # shadcn-generated primitives ONLY — never
+│                                     # hand-write a component directly in here
+├── hooks/                           # cross-feature hooks only (rare)
+└── lib/                             # small: cn() helper + app-wide constants only
+```
+
+Rules (don't relitigate these per-slice — they're decided):
+
+1. **A feature folder owns everything specific to it** — components, pure logic,
+   types, tests, colocated. When `jobs` grows (Kanban, detail panel, timeline), it
+   grows inside `features/jobs/`, not spread across generic folders.
+2. **`components/ui/` is shadcn-only.** App-specific UI always lives in the relevant
+   `features/` folder, never here.
+3. **`api/` is the only HTTP boundary.** Features import typed functions from `api/`;
+   they never call `fetch` directly. Keeps the backend contract centralized and mockable.
+4. **Pure logic lives in its own file, separate from the component that uses it** —
+   e.g. `agent-status.ts` vs `AgentCard.tsx`. This is what makes it unit-testable with
+   Vitest with zero DOM/jsdom setup, and it's why a "styling-only" slice can still ship
+   real, fast unit tests instead of skipping tests entirely.
+5. **`lib/` stays small on purpose.** If something feels like it belongs in `lib/` but
+   is really about jobs or agents specifically, it goes in that feature folder instead.
+6. **Naming:** kebab-case for `.ts` files, PascalCase for `.tsx` components, camelCase
+   for exported functions/variables.
+7. **Tests are colocated**, never a top-level `__tests__/` tree — a feature folder
+   should be fully self-contained and movable/deletable as a unit.
+
 ## Explicitly rejected (do not add later without a real trigger)
 
 PostgreSQL, Redis, Celery + queues, WebSockets (v1), auth/multi-tenancy, 3D/Three.js,
@@ -111,6 +156,30 @@ Known follow-ups (not blockers for this slice, tracked here so they aren't lost)
   already current. Saved to Engram (`bug-agents-md-duplication-on-repo-self-init`) for a
   separate fix.
 
-Next: propose the next vertical slice (visual polish — Tailwind/shadcn/Framer Motion,
-still 2D per the invariants above — or the Kanban/archive view) to the user before
-starting it; each slice gets its own `/sdd` spec, not one upfront spec for everything.
+**Slice 2 implemented (2026-08-23)** — `specs/visual-ui-slice-2/spec.md`, status
+IMPLEMENTED. Real design system (Tailwind v4 + shadcn/ui CLI, warm graphite palette,
+teal accent, Fraunces/Inter self-hosted, `lucide-react` icons only). New
+`GET /api/config` endpoint (read-only thresholds). Agent row with the user's 5
+real character illustrations (normalized, compressed to WebP, ~2.3MB -> ~274KB);
+Recruiter/Matching show real derived status, CV/ATS/Application honestly show "not
+connected yet." Job list restyled as cards with real-threshold color coding; job
+detail restyled with the same information as Slice 1. Intake form/list restyled.
+Frontend restructured into the locked feature-based layout (`api/`, `features/*`,
+`components/ui/` shadcn-only). WCAG AA contrast verified via script — 3 initial
+palette values (`highlight`, `danger`, `ring`) were adjusted after failing the check.
+10 new Vitest unit tests for the pure logic (`agent-status.ts`, `score-color.ts`),
+full Python suite green (771 tests). Confirmed visually by the user against their
+real data (245 real offers) before merging.
+
+Next: Slice 3 — sidebar navigation shell (Oficina/Ofertas/Agentes/Entrevistas/
+Archivador/Analytics/Ajustes), scoped down in chat 2026-08-23: react-router for real
+URLs per tab; ships the full 7-tab shell but with real content only in
+Oficina/Agentes/Archivador this slice — Ofertas/Entrevistas/Analytics/Ajustes show an
+honest "coming soon" state rather than invented data (Analytics needs a new
+`GET /api/stats`-style endpoint wrapping the existing `cmd_stats` funnel logic;
+Entrevistas can only reflect `status == 'in_process'`, applyr has no real interview
+scheduling/date field despite the reference mockup showing one — never fabricate
+that); Ajustes is read-only (displays `/api/config`) — an editable settings page that
+writes to `applyr.toml` is deliberately deferred to its own future slice given the
+concurrency/validation risk of a config-file write endpoint. Each slice still gets its
+own `/sdd` spec, not one upfront spec for everything.
