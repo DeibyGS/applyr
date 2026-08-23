@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from applyr.config import load_config
 from applyr.db import get_conn
 from applyr.intake import create_intake, get_intake, list_intake
 
@@ -32,6 +33,19 @@ class IntakeCreate(BaseModel):
 @router.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@router.get("/api/config")
+def get_config() -> dict:
+    """Read-only view of the score thresholds the frontend needs to color-code
+    compatibility scores correctly. Deliberately narrow: never the full config
+    file, which can hold local filesystem details (e.g. chrome_path) with no
+    reason to leave the machine, even over loopback."""
+    general = load_config()["general"]
+    return {
+        "threshold_apply": general["threshold_apply"],
+        "threshold_maybe": general["threshold_maybe"],
+    }
 
 
 @router.post("/api/intake", status_code=201)
