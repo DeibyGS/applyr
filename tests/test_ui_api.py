@@ -161,6 +161,88 @@ class TestJobsEndpoints:
 
 
 @pytest.mark.unit
+class TestStatsEndpoint:
+
+    def test_empty_database_returns_total_zero_not_error(self, client):
+        resp = client.get("/api/stats")
+        assert resp.status_code == 200
+        assert resp.json() == {"total": 0}
+
+    def test_matches_cmd_stats_json_shape(self, client, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute(
+                "INSERT INTO offers (title, company, status, compatibility_pct, "
+                "weights_used, canal, work_mode, salary_min) "
+                "VALUES ('Dev', 'Acme', 'applied', 80, 'v1', 'linkedin_easy', 'remote', 40000)"
+            )
+            conn.execute(
+                "INSERT INTO offers (title, company, status, compatibility_pct, weights_used) "
+                "VALUES ('QA', 'Beta', 'offer', 90, 'v1')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = client.get("/api/stats")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        assert body["funnel"] == {"applied": 2, "responded": 1, "interview": 0, "offer": 1}
+        assert body["funnel_pct"]["applied"] == 100
+        assert body["channels"] == {"linkedin_easy": 1}
+        assert body["work_modes"] == {"remote": 1}
+        assert body["salary"] == {"min": 40000, "max": 40000, "avg": 40000}
+
+
+@pytest.mark.unit
+class TestTrendsEndpoint:
+
+    def test_no_dated_offers_returns_empty_list(self, client):
+        resp = client.get("/api/trends")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_default_period_is_week(self, client, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute(
+                "INSERT INTO offers (title, company, date_applied) "
+                "VALUES ('Dev', 'Acme', '2026-08-10')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = client.get("/api/trends")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["count"] == 1
+
+    def test_invalid_period_is_400(self, client):
+        resp = client.get("/api/trends", params={"period": "year"})
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["error"] is True
+
+    def test_month_period(self, client, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute(
+                "INSERT INTO offers (title, company, date_applied) "
+                "VALUES ('Dev', 'Acme', '2026-08-10')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = client.get("/api/trends", params={"period": "month"})
+        assert resp.status_code == 200
+        assert resp.json()[0]["period"] == "2026-08"
+
+
+@pytest.mark.unit
 class TestCors:
 
     def test_allows_the_vite_dev_origin(self, client):

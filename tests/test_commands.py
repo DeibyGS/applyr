@@ -317,6 +317,26 @@ class TestScoreCalibration:
         assert payload["excluded_unknown_weights"] == 1
 
 
+class TestTrendsPayloadValidation:
+    """`_trends_payload` is shared by `cmd_trends` (validates via `die()`) and
+    `GET /api/trends` (validates via `HTTPException`) — both callers
+    pre-validate `period`, but the function itself also guards against an
+    invalid value reaching it directly, so a future caller that skips
+    pre-validation fails loudly instead of silently grouping by the wrong
+    date format."""
+
+    def test_rejects_invalid_period(self, tmp_db):
+        from applyr.commands.analytics import _trends_payload
+        from applyr.db import get_conn
+
+        conn = get_conn(tmp_db)
+        try:
+            with pytest.raises(ValueError, match="period must be"):
+                _trends_payload(conn, "year")
+        finally:
+            conn.close()
+
+
 class TestAvgCompatExcludesUnknownWeights:
     """`stats`'s overall average and `summary`'s weekly average must not
     silently mix compatibility_pct values produced under different (or
