@@ -18,6 +18,13 @@ export const OFFER_STATUSES = [
 
 export type OfferStatus = (typeof OFFER_STATUSES)[number];
 
+export function formatStatusLabel(status: string): string {
+  return status
+    .split("_")
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export function groupByStatus(jobs: JobSummary[]): Record<OfferStatus, JobSummary[]> {
   const grouped = Object.fromEntries(
     OFFER_STATUSES.map((status) => [status, [] as JobSummary[]])
