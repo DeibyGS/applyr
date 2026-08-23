@@ -42,7 +42,7 @@ infra choices were rejected, see "Explicitly rejected" below).
 | Real-time | Plain `fetch` + `setInterval` polling (2-3s), wrapped in shared hooks (`useIntakeAndJobs`, `useThresholds`). No WebSocket in v1. |
 | Frontend | React + TypeScript + Vite |
 | Styling | Tailwind CSS v4 (`@tailwindcss/vite`) + shadcn/ui + Radix UI + Lucide icons |
-| Animation | Framer Motion, 2D/CSS only — no Three.js / 3D |
+| Animation | Framer Motion, 2D/CSS only, everywhere except Office. Office's future "Applyr World" scene uses PixiJS instead (narrowed by [ADR-012](../adr/012-applyr-world-pixijs-engine.md) — not implemented yet, engine decision only). No Three.js / 3D anywhere. |
 | Charts | Recharts (added Slice 5) — first chart library; the funnel/trend/breakdown charts on the Analytics page need real geometry (funnel segments, trend lines) that plain CSS bars can't do well. Frontend-only dependency, zero impact on the Python `applyr[ui]` extra. Chart colors are never picked by eye — validated per-app with the dataviz skill's CVD-safety script against the real `--background` surface before use (see `index.css`'s `--chart-1..6` tokens and their validation note). |
 | Client state | Plain `useState`/`useEffect` — no global store adopted (no Zustand). Revisit only if prop-drilling actually becomes painful; it hasn't across 3 slices. |
 | Routing | `react-router` v8 (Slice 3+) — real URLs per page, `<BrowserRouter>`/`<Routes>` |
@@ -233,17 +233,37 @@ owns job browsing. Removed in the same PR: Office now shows only header + `Agent
 23/23 Vitest tests green, `tsc --noEmit` clean, both `/simplify-lean` passes returned
 "no changes needed".
 
-**"Applyr World" concept — proposed, deferred (2026-08-23):** user pitched a much
-larger pivot for Office — an isometric/2.5D animated pipeline (PixiJS/Phaser), agents
-physically walking offers through Scout → Analyst → Decision → CV/ATS/Writer stages,
-driven by a real-time event bus (`offer.created`, `scoring.completed`, etc.). This
+**"Applyr World" concept — proposed (2026-08-23), engine decided via RADAR + ADR-012
+(2026-08-23):** user pitched a much larger pivot for Office — an isometric/2.5D
+animated pipeline, agents physically walking offers through
+Scout → Analyst → Decision → CV/ATS/Writer stages, driven by real state changes. This
 conflicts with 3 already-locked decisions above (polling-only/no WebSocket in v1,
 Framer Motion 2D/CSS-only animation, no scale-oriented infra for a single local user)
 and was classified as an **architectural** decision (high cost of reversal, new
-render engine, new event contract) per the project's decision-classification rule —
-not something to fold into a slice. **Agreed next step: a dedicated RADAR + ADR
-session (would become ADR-012) before any implementation**, not bundled into current
-work. Until then, Office keeps its simple ambient background image (see below).
+render engine) per the project's decision-classification rule — not something to fold
+into a slice.
+
+**RADAR + `docs/adr/012-applyr-world-pixijs-engine.md` (Accepted):** requirements
+gathered from the project owner before the RADAR — visual delight is the primary
+driver (secondary benefit: pipeline visibility, already covered by Office's existing
+card view), one large dedicated build rather than incremental slices, must never fake
+state (extends the existing "no simulated progress" principle to this feature
+explicitly), must integrate into Office/the sidebar rather than replace or silo it.
+**Decision: PixiJS**, single WebGL canvas in `OfficePage.tsx`, hand-written isometric
+depth-sorting (sort-by-Y), driven by the existing polling hooks — no WebSocket, no new
+backend endpoint to render the scene. Rejected: pushing Framer Motion/CSS further (the
+status quo the proposal reacted against — can't do real isometric depth-sorting or
+WebGL-grade sprite animation), Phaser (full game framework — physics/input/multi-scene
+management this single-scene, no-input visualization never uses; its own game loop
+sits awkwardly next to React's render cycle), and full 3D/Three.js (already rejected
+above, not reopened). This is an **engine decision only** — it does NOT authorize
+implementation. Before any code: its own `/sdd` spec with a hard-bounded MVP cut (the
+RADAR's top risk was unbounded scope given the "one big session, delight-focused"
+framing), plus explicit design answers for poll-tick interpolation (no teleporting
+sprites), real sprite-asset production (the 5 existing agent portraits are static
+illustrations, not walk-cycle sprite sheets — a real content cost, not just code), and
+a single well-tested React/Pixi lifecycle bridge component. Not scheduled yet. Until
+then, Office keeps its simple ambient background image (see below).
 
 **Slice 5 implemented (2026-08-23)** — `specs/visual-ui-slice-5-analytics/spec.md`,
 status IMPLEMENTED. Real `/analytics` page replacing the `ComingSoon` stub. New
@@ -308,7 +328,8 @@ browser-driving tool available this session, disclosed rather than assumed.
 
 Next: office background image (user will generate a simple ambient illustration as a
 placeholder — no characters, no baked-in text/data — to slot into the `.office-bg`
-CSS hook already prepared in `index.css`; swappable later if "Applyr World" is
-approved). Analytics, Settings, and Interviews are all done — no more planned slices
-until "Applyr World" gets its RADAR + ADR-012 session (see above). Each slice still
-gets its own `/sdd` spec.
+CSS hook already prepared in `index.css`; swappable later once "Applyr World"
+implementation starts). Analytics, Settings, and Interviews are all done. "Applyr
+World"'s RADAR + ADR-012 (engine: PixiJS) is done too, but implementation is NOT
+scheduled — needs its own `/sdd` spec with a hard-bounded MVP first (see the ADR's
+Notes). Each slice still gets its own `/sdd` spec.
