@@ -25,6 +25,35 @@ class TestHealth:
 
 
 @pytest.mark.unit
+class TestConfig:
+
+    def test_returns_default_thresholds(self, client):
+        resp = client.get("/api/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == {"threshold_apply", "threshold_maybe"}
+        assert isinstance(body["threshold_apply"], int)
+        assert isinstance(body["threshold_maybe"], int)
+
+    def test_returns_the_users_actual_configured_thresholds(self, client, tmp_applyr):
+        (tmp_applyr / "applyr.toml").write_text(
+            "[general]\nthreshold_apply = 65\nthreshold_maybe = 55\n"
+        )
+        resp = client.get("/api/config")
+        assert resp.status_code == 200
+        assert resp.json() == {"threshold_apply": 65, "threshold_maybe": 55}
+
+    def test_never_exposes_the_full_config_file(self, client, tmp_applyr):
+        (tmp_applyr / "applyr.toml").write_text(
+            "[general]\nthreshold_apply = 65\nthreshold_maybe = 55\n"
+            'chrome_path = "/some/local/marker/value"\n'
+        )
+        resp = client.get("/api/config")
+        assert "chrome_path" not in resp.text
+        assert "/some/local/marker/value" not in resp.text
+
+
+@pytest.mark.unit
 class TestIntakeEndpoints:
 
     def test_create_intake(self, client):
