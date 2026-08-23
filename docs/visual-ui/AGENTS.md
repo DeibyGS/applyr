@@ -309,12 +309,27 @@ default weights, `cv_master_status: "ok"` with no path in the response); could n
 visually confirm chart-free page rendering in a browser — no browser-driving tool
 available this session, disclosed rather than assumed.
 
+**Slice 7 implemented (2026-08-23)** — `specs/visual-ui-slice-7-interviews/spec.md`,
+status IMPLEMENTED. Resolves the Slice 3 deferral: real `/interviews` page, proxy-only
+(`status == 'in_process'`), no schema change — user explicitly chose this over adding
+real interview-scheduling data to the DB when asked directly (a schema change would be
+a migration, higher cost of reversal, needing `/adversarial-test` and its own deeper
+spec). 100% client-side filter over the already-polled `GET /api/jobs` — zero new
+backend endpoint, zero new npm dependency. New pure
+`features/jobs/filter-in-process.ts` (4 Vitest tests), `InterviewsPage.tsx` rewired
+onto the same `useIntakeAndJobs`/`useThresholds`/`useSelectedJob`/`JobList`/`JobDetail`
+pattern `ArchivePage` already established, applied to a single status instead of all
+7. Honest subtitle copy carried forward from the old `ComingSoon` stub text (no
+fabricated interview dates/times). 35/35 Vitest green, `tsc --noEmit` clean, no Python
+changes so no new backend tests. Manually verified via curl against the user's real
+246-offer database: 0 offers currently `in_process`, so the live page correctly renders
+its empty state (not a bug). Could not visually confirm rendering in a browser — no
+browser-driving tool available this session, disclosed rather than assumed.
+
 Next: office background image (user will generate a simple ambient illustration as a
 placeholder — no characters, no baked-in text/data — to slot into the `.office-bg`
 CSS hook already prepared in `index.css`; swappable later once "Applyr World"
-implementation starts). Analytics and Settings are both done. Interviews (the
-`status == 'in_process'` proxy-only blocker) is resolved and implemented via Slice 7,
-PR #84 (not yet merged into this branch's history at the time of this ADR). "Applyr
+implementation starts). Analytics, Settings, and Interviews are all done. "Applyr
 World"'s RADAR + ADR-012 (engine: PixiJS) is done too, but implementation is NOT
 scheduled — needs its own `/sdd` spec with a hard-bounded MVP first (see the ADR's
 Notes). Each slice still gets its own `/sdd` spec.
