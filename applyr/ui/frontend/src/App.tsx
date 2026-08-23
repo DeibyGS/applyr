@@ -1,133 +1,23 @@
 import { useEffect, useState } from "react";
-import { createIntake, getJob, listIntake, listJobs, IntakeRow, JobDetail, JobSummary } from "./api";
+import { AgentRow } from "@/features/agents/AgentRow";
+import { deriveAgentStatuses } from "@/features/agents/agent-status";
+import { IntakeForm } from "@/features/intake/IntakeForm";
+import { PendingIntakeList } from "@/features/intake/PendingIntakeList";
+import { JobList } from "@/features/jobs/JobList";
+import { JobDetail } from "@/features/jobs/JobDetail";
+import { listIntake, type IntakeRow } from "@/api/intake";
+import { listJobs, getJob, type JobSummary, type JobDetail as JobDetailType } from "@/api/jobs";
+import { getConfig, type Thresholds } from "@/api/config";
 
 const POLL_INTERVAL_MS = 3000;
-
-function IntakeForm({ onCreated }: { onCreated: () => void }) {
-  const [rawText, setRawText] = useState("");
-  const [sourceNote, setSourceNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      await createIntake(rawText, sourceNote);
-      setRawText("");
-      setSourceNote("");
-      onCreated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <h2>Paste a job offer</h2>
-      <textarea
-        value={rawText}
-        onChange={(e) => setRawText(e.target.value)}
-        placeholder="Paste the full job offer text here..."
-        rows={8}
-        cols={60}
-        required
-      />
-      <br />
-      <input
-        value={sourceNote}
-        onChange={(e) => setSourceNote(e.target.value)}
-        placeholder="Source (optional, e.g. LinkedIn)"
-      />
-      <br />
-      <button type="submit" disabled={submitting || !rawText.trim()}>
-        {submitting ? "Saving..." : "Add to pending"}
-      </button>
-      {error && <p role="alert">{error}</p>}
-    </form>
-  );
-}
-
-function PendingIntakeList({ rows }: { rows: IntakeRow[] }) {
-  return (
-    <section>
-      <h2>Waiting for your agent ({rows.length})</h2>
-      <ul>
-        {rows.map((row) => (
-          <li key={row.id}>
-            #{row.id} — {row.raw_text.slice(0, 80)}
-            {row.raw_text.length > 80 ? "..." : ""}
-            {row.source_note ? ` (${row.source_note})` : ""}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function JobDetailPanel({ job }: { job: JobDetail }) {
-  return (
-    <div>
-      <h3>
-        {job.title} — {job.company}
-      </h3>
-      <p>
-        Status: {job.status} | Compatibility: {job.compatibility_pct}%
-      </p>
-      <table>
-        <thead>
-          <tr>
-            <th>Topic</th>
-            <th>Score</th>
-            <th>Confidence</th>
-            <th>Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {job.topics.map((t) => (
-            <tr key={t.topic}>
-              <td>{t.topic}</td>
-              <td>{t.score}</td>
-              <td>{t.confidence ?? "—"}</td>
-              <td>{t.detail}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function JobList({ jobs }: { jobs: JobSummary[] }) {
-  const [selected, setSelected] = useState<JobDetail | null>(null);
-
-  async function select(id: number) {
-    setSelected(await getJob(id));
-  }
-
-  return (
-    <section>
-      <h2>Jobs ({jobs.length})</h2>
-      <ul>
-        {jobs.map((job) => (
-          <li key={job.id}>
-            <button onClick={() => select(job.id)}>
-              #{job.id} {job.title} — {job.company} ({job.compatibility_pct}%, {job.status})
-            </button>
-          </li>
-        ))}
-      </ul>
-      {selected && <JobDetailPanel job={selected} />}
-    </section>
-  );
-}
+const DEFAULT_THRESHOLDS: Thresholds = { threshold_apply: 80, threshold_maybe: 60 };
 
 export default function App() {
   const [pendingIntake, setPendingIntake] = useState<IntakeRow[]>([]);
   const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+  const [selectedJob, setSelectedJob] = useState<JobDetailType | null>(null);
 
   async function refresh() {
     const [intakeRows, jobRows] = await Promise.all([listIntake("pending"), listJobs()]);
@@ -136,17 +26,45 @@ export default function App() {
   }
 
   useEffect(() => {
+    getConfig().then(setThresholds).catch(() => setThresholds(DEFAULT_THRESHOLDS));
     refresh();
     const id = setInterval(refresh, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (selectedJobId === null) {
+      setSelectedJob(null);
+      return;
+    }
+    getJob(selectedJobId).then(setSelectedJob);
+  }, [selectedJobId]);
+
+  const agentStatuses = deriveAgentStatuses(pendingIntake, jobs);
+
   return (
-    <main>
-      <h1>applyr ui</h1>
-      <IntakeForm onCreated={refresh} />
-      <PendingIntakeList rows={pendingIntake} />
-      <JobList jobs={jobs} />
+    <main className="mx-auto flex max-w-6xl flex-col gap-8 p-6">
+      <header className="flex flex-col gap-1">
+        <h1 className="font-display text-2xl font-medium text-foreground">applyr</h1>
+        <p className="text-sm text-muted-foreground">Your AI recruiting team, working in the open.</p>
+      </header>
+
+      <AgentRow statuses={agentStatuses} />
+
+      {selectedJob ? (
+        <JobDetail job={selectedJob} thresholds={thresholds} onBack={() => setSelectedJobId(null)} />
+      ) : (
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
+          <div className="flex flex-col gap-4">
+            <IntakeForm onCreated={refresh} />
+            <PendingIntakeList rows={pendingIntake} />
+          </div>
+          <div className="flex flex-col gap-3">
+            <h2 className="font-display text-lg font-medium text-foreground">Jobs ({jobs.length})</h2>
+            <JobList jobs={jobs} thresholds={thresholds} onSelect={setSelectedJobId} />
+          </div>
+        </section>
+      )}
     </main>
   );
 }
