@@ -43,6 +43,7 @@ infra choices were rejected, see "Explicitly rejected" below).
 | Frontend | React + TypeScript + Vite |
 | Styling | Tailwind CSS v4 (`@tailwindcss/vite`) + shadcn/ui + Radix UI + Lucide icons |
 | Animation | Framer Motion, 2D/CSS only — no Three.js / 3D |
+| Charts | Recharts (added Slice 5) — first chart library; the funnel/trend/breakdown charts on the Analytics page need real geometry (funnel segments, trend lines) that plain CSS bars can't do well. Frontend-only dependency, zero impact on the Python `applyr[ui]` extra. Chart colors are never picked by eye — validated per-app with the dataviz skill's CVD-safety script against the real `--background` surface before use (see `index.css`'s `--chart-1..6` tokens and their validation note). |
 | Client state | Plain `useState`/`useEffect` — no global store adopted (no Zustand). Revisit only if prop-drilling actually becomes painful; it hasn't across 3 slices. |
 | Routing | `react-router` v8 (Slice 3+) — real URLs per page, `<BrowserRouter>`/`<Routes>` |
 | Packaging | `pip install applyr[ui]` — optional extra. Core `applyr` CLI stays dependency-light (stdlib + colorama), do not add FastAPI/React deps to the base install. |
@@ -244,9 +245,33 @@ not something to fold into a slice. **Agreed next step: a dedicated RADAR + ADR
 session (would become ADR-012) before any implementation**, not bundled into current
 work. Until then, Office keeps its simple ambient background image (see below).
 
+**Slice 5 implemented (2026-08-23)** — `specs/visual-ui-slice-5-analytics/spec.md`,
+status IMPLEMENTED. Real `/analytics` page replacing the `ComingSoon` stub. New
+`GET /api/stats` + `GET /api/trends?period=week|month`, both thin wrappers around
+`_stats_payload`/`_trends_payload` — extracted out of `cmd_stats`/`cmd_trends` in
+`applyr/commands/analytics.py` as pure functions so the CLI and the API share one
+aggregation implementation (behavior-preserving refactor, all 41 pre-existing
+stats/trends tests still green). `funnel_pct` added to the JSON payload (both CLI
+`--json` and the API) so the frontend never re-derives conversion percentages
+client-side. Frontend: `features/analytics/` (FunnelChart, TrendChart with a
+week/month toggle that is the one interaction in this slice allowed a second fetch,
+BreakdownChart reused for channels/work-modes, StatCards for salary/score-calibration,
+pure `analytics-data.ts` data-shaping unit-tested with 6 Vitest cases). First Recharts
+usage in the project (see Stack table amendment above) — its categorical chart colors
+(`--chart-1..6` in `index.css`) were previously unvalidated aliases of other tokens;
+replaced with a teal-led reordering of the dataviz skill's default dark categorical
+palette, re-validated with the CVD-safety script against the real `--background`
+surface (all 6 checks PASS). 6 new backend tests (`tests/test_ui_api.py`
+`TestStatsEndpoint`/`TestTrendsEndpoint`), full Python suite green (777 tests),
+31/31 Vitest green, `tsc --noEmit` clean. Manually verified via curl against the
+user's real 246-offer database (both endpoints return correctly shaped data); could
+not visually confirm chart rendering in a browser — no browser-driving tool available
+in this session, disclosed rather than assumed working. Dev servers left running
+(backend :8000, frontend :5173) for the user to check `/analytics` directly.
+
 Next: office background image (user will generate a simple ambient illustration as a
 placeholder — no characters, no baked-in text/data — to slot into the `.office-bg`
 CSS hook already prepared in `index.css`; swappable later if "Applyr World" is
-approved); then Analytics (`GET /api/stats` wrapping `cmd_stats`)/Settings (read view
-now, editable later needs its own concurrency-focused spec) as they come up. Each
-slice still gets its own `/sdd` spec.
+approved); then Settings (read view now, editable later needs its own
+concurrency-focused spec) and Interviews as they come up. Each slice still gets its
+own `/sdd` spec.
