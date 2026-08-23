@@ -15,6 +15,8 @@ reverses one of them.
 | [008](008-md-first-cv-pipeline.md) | MD-first CV pipeline — markdown drafts, HTML+PDF at render | Accepted |
 | [009](009-weight-versioning-and-rebalance.md) | Weight versioning + rescore + rebalanced `DEFAULT_WEIGHTS` — supersedes 004 | Accepted |
 | [010](010-opt-in-pypi-update-check.md) | Opt-in, default-off PyPI version check in `doctor` — narrowly supersedes 001 | Accepted |
+| [011](011-visual-ui-optional-interface.md) | Visual UI as an optional, additive interface — narrows 005 | Accepted |
+| [012](012-applyr-world-pixijs-engine.md) | PixiJS as the rendering engine for Office's "Applyr World" scene — narrows 011's Stack table, engine decision only, implementation not yet scoped | Accepted |
 
 ## Conventions
 
