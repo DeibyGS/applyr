@@ -118,3 +118,14 @@
     @apply font-display;
     }
 }
+
+/*
+ * Office page background (Slice 3): one hook, solid fallback until a real
+ * illustration exists. Adding the image later means setting
+ * background-image here — never touch OfficePage.tsx's layout for it.
+ */
+.office-bg {
+  background-color: var(--background);
+  background-size: cover;
+  background-position: center;
+}

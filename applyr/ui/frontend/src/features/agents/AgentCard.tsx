@@ -15,21 +15,27 @@ function taskText(status: AgentStatus): string | null {
   return null;
 }
 
-export function AgentCard({ status }: { status: AgentStatus }) {
+type AgentCardProps = {
+  status: AgentStatus;
+  variant?: "compact" | "detailed";
+};
+
+export function AgentCard({ status, variant = "compact" }: AgentCardProps) {
   const config = AGENT_CONFIG[status.agentId];
   const notConnected = status.state === "not_connected";
   const task = taskText(status);
+  const detailed = variant === "detailed";
 
   return (
     <Card
-      className={`flex w-44 flex-col items-center gap-2 border-border bg-card p-4 text-center ${
-        notConnected ? "opacity-60" : ""
-      }`}
+      className={`flex flex-col items-center gap-2 border-border bg-card text-center ${
+        detailed ? "w-64 p-6" : "w-44 p-4"
+      } ${notConnected ? "opacity-60" : ""}`}
     >
       <img
         src={config.illustration}
         alt={config.name}
-        className={`h-32 w-auto object-contain ${notConnected ? "grayscale" : ""}`}
+        className={`w-auto object-contain ${detailed ? "h-48" : "h-32"} ${notConnected ? "grayscale" : ""}`}
       />
       <p className="font-display text-sm font-medium text-foreground">{config.name}</p>
 
@@ -44,7 +50,14 @@ export function AgentCard({ status }: { status: AgentStatus }) {
         </Badge>
       )}
 
-      <p className="min-h-8 text-xs text-muted-foreground">{task ?? config.role}</p>
+      {detailed ? (
+        <>
+          <p className="text-xs text-muted-foreground">{config.role}</p>
+          {task && <p className="text-xs text-foreground">{task}</p>}
+        </>
+      ) : (
+        <p className="min-h-8 text-xs text-muted-foreground">{task ?? config.role}</p>
+      )}
     </Card>
   );
 }
