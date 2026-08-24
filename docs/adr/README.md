@@ -17,6 +17,7 @@ reverses one of them.
 | [010](010-opt-in-pypi-update-check.md) | Opt-in, default-off PyPI version check in `doctor` — narrowly supersedes 001 | Accepted |
 | [011](011-visual-ui-optional-interface.md) | Visual UI as an optional, additive interface — narrows 005 | Accepted |
 | [012](012-applyr-world-pixijs-engine.md) | PixiJS as the rendering engine for Office's "Applyr World" scene — narrows 011's Stack table, engine decision only, implementation not yet scoped | Accepted |
+| [013](013-applyr-world-movement-and-push-transport.md) | Cross-zone offer movement + SSE push transport for "Applyr World" — partially supersedes 012's "no WebSocket, polling only" constraint | Accepted |
 
 ## Conventions
 

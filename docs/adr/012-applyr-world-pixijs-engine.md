@@ -1,6 +1,10 @@
 # ADR 012 — PixiJS as the rendering engine for "Applyr World" (Office page)
 
 **Status:** Accepted
+**Partially superseded by:** [013](013-applyr-world-movement-and-push-transport.md) —
+the "No WebSocket in v1, polling only" locked constraint below no longer holds; SSE push
+transport replaces it. Every other decision and constraint in this ADR (PixiJS as the
+engine, no scale-oriented infra, never-fake-state) still stands.
 **Narrows:** `docs/visual-ui/AGENTS.md`'s Stack table, "Animation: Framer Motion,
 2D/CSS only — no Three.js / 3D" row — narrowed specifically for the Office page's
 future animated pipeline scene ("Applyr World"). Every other page in the Visual UI
