@@ -149,6 +149,19 @@ not a default.
   `feat/cc-visual-ui` -> `main`, reviewed like any other PR.
 - **Never:** commit directly to `main` from this work, merge `feat/cc-visual-ui` into
   `main` without explicit approval, or open a sub-PR with base `main`.
+- **Scope rule (established 2026-08-24, after a user question about why two PRs in the
+  same session targeted `main`):** "never target `main`" above means *Visual UI feature
+  code* — anything that only exists because of this feature (frontend, backend
+  `ui.py`/`api.py`, `docs/visual-ui/*`, `specs/visual-ui*`, ADRs about this feature).
+  Repo-wide infrastructure and housekeeping — CI workflow config (`.github/workflows/`),
+  `.gitignore`, and similar files that apply to the whole repo regardless of this
+  feature's existence — go through their own small branch straight to `main`, exactly
+  like any other `applyr` core change, even during an active Visual UI session. Real
+  precedent: PR #86 (`.gitignore`/`NEW_FEATURES.md`) and PR #88 (CI `pull_request`
+  trigger fix + branch protection for `feat/cc-visual-ui` sub-PRs) both targeted `main`
+  directly and correctly — neither touched a single Visual UI file. When in doubt: if a
+  change would still make sense in a world where Visual UI didn't exist, it targets
+  `main`, not `feat/cc-visual-ui`.
 
 ## Where the technical spec lives
 
