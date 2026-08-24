@@ -1,7 +1,7 @@
-import { AgentRow } from "@/features/agents/AgentRow";
 import { deriveAgentStatuses } from "@/features/agents/agent-status";
 import { IntakeForm } from "@/features/intake/IntakeForm";
 import { PendingIntakeList } from "@/features/intake/PendingIntakeList";
+import { OfficeScene } from "@/features/office-scene/OfficeScene";
 import { useIntakeAndJobs } from "@/hooks/useIntakeAndJobs";
 
 export default function OfficePage() {
@@ -16,7 +16,7 @@ export default function OfficePage() {
         <p className="text-sm text-muted-foreground">Your AI recruiting team, working in the open.</p>
       </header>
 
-      <AgentRow statuses={agentStatuses} />
+      <OfficeScene statuses={agentStatuses} />
 
       <section className="flex flex-col gap-4 lg:max-w-md">
         <IntakeForm onCreated={refresh} />
