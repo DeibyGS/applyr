@@ -587,6 +587,9 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     contact_role: str | None = data.get("contact_role")
     job_url: str | None = data.get("job_url")
     rejection_reason: str | None = data.get("rejection_reason")
+    # Stripped to None on empty/whitespace so `IS NOT NULL` checks agree with
+    # `update`'s clearing convention for this field (see cmd_update below).
+    job_description: str | None = (data.get("job_description") or "").strip() or None
 
     # --- Date fields -------------------------------------------------------
     date_received: str = data.get("date_received") or _today()
@@ -672,7 +675,8 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
                 work_mode, location, salary_min, salary_max, salary_period,
                 seniority_level, role_category, tech_stack, language,
                 cover_letter, cover_letter_file,
-                contact_name, contact_role, job_url, rejection_reason, notes
+                contact_name, contact_role, job_url, rejection_reason, notes,
+                job_description
             ) VALUES (
                 ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
@@ -680,7 +684,8 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?,
                 ?, ?,
-                ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?,
+                ?
             )
             """,
             (
@@ -691,6 +696,7 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
                 seniority_level, role_category, tech_stack, language,
                 cover_letter, cover_letter_file,
                 contact_name, contact_role, job_url, rejection_reason, notes,
+                job_description,
             ),
         )
         offer_id: int = cursor.lastrowid
@@ -894,6 +900,7 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
     if as_json:
         data = dict(row)
         data["weights_used"] = json.loads(row["weights_used"]) if row["weights_used"] else None
+        data["cv_evidence_used"] = json.loads(row["cv_evidence_used"]) if row["cv_evidence_used"] else None
         data["topics"] = [{"topic": t["topic"], "score": t["score"], "detail": t["detail"],
                            "confidence": t["confidence"]} for t in topics]
         data["confidence"] = _derive_confidence([dict(t) for t in topics])
@@ -913,6 +920,13 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 
     _field("Company", row["company"])
     _field("Job URL", row["job_url"])
+    # Show presence, not the full text — a raw job posting can be several
+    # paragraphs and would blow out this fixed-width report. Full text is
+    # available via `show --json`.
+    if row["job_description"]:
+        _field("Job Description", f"[stored, {len(row['job_description'])} chars — see --json]")
+    if row["cv_evidence_used"]:
+        _field("Evidence Verified", f"{len(json.loads(row['cv_evidence_used']))} claim(s) — see --json")
     _field("Status", STATUS_LABELS.get(row["status"], row["status"]))
     _field("Canal", row["canal"])
     _field("Compatibility", f"{row['compatibility_pct']}%")
@@ -1015,8 +1029,9 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_update(offer_id: int, status: str, notes: str | None = None,
-               canal: str | None = None, cv: str | None = None) -> None:
-    """Update the status (and optionally notes/canal/cv) of an offer."""
+               canal: str | None = None, cv: str | None = None,
+               job_description: str | None = None) -> None:
+    """Update the status (and optionally notes/canal/cv/job_description) of an offer."""
     _validate_enum(status, VALID_STATUSES, "status", required=True)
     _validate_enum(canal, VALID_CHANNELS, "canal")
     config = load_config()
@@ -1050,6 +1065,13 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
         if cv is not None:
             fields.append("cv_used = ?")
             params.append(cv.strip() or None)
+
+        # Raw job posting, attached after the offer already exists (e.g. pasted
+        # from a second source). `--job-description ""` clears it, same
+        # empty-clears-to-NULL convention as `--cv` above.
+        if job_description is not None:
+            fields.append("job_description = ?")
+            params.append(job_description.strip() or None)
 
         # The `applied` column is the machine-readable form of "this went out",
         # and `response_rate` filters on it. Deriving it from the status here

@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -127,6 +127,19 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         # whoever reads this migration next.
         "PRAGMA foreign_keys = ON",
     ],
+    # Evidence-Based CV Engine (specs/evidence-based-cv-engine): `job_description`
+    # preserves the raw job posting text so the Matcher's structured interpretation
+    # is never the only surviving record of what the offer said.
+    # `cv_evidence_used` is an immutable per-CV audit snapshot written by
+    # `cv verify` (JSON array of verified claim texts) — not a live cache of the
+    # Evidence Graph, which is deliberately never persisted (see ADR-011).
+    # Existing rows get NULL for both, same reasoning as `language`/`weights_used`
+    # above: there is no honest way to invent a job posting or a verification
+    # that never ran.
+    (10, 11): [
+        "ALTER TABLE offers ADD COLUMN job_description TEXT",
+        "ALTER TABLE offers ADD COLUMN cv_evidence_used TEXT",
+    ],
 }
 
 SCHEMA_SQL = """\
@@ -171,7 +184,10 @@ CREATE TABLE IF NOT EXISTS offers (
     response_status   TEXT    DEFAULT 'no_response',
     notes             TEXT,
     created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
-    weights_used      TEXT
+    weights_used      TEXT,
+    -- Evidence-Based CV Engine (specs/evidence-based-cv-engine)
+    job_description   TEXT,
+    cv_evidence_used  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS offer_topics (

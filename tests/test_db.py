@@ -639,6 +639,57 @@ class TestMigrationV9ToV10:
 
 
 @pytest.mark.unit
+class TestMigrationV10ToV11:
+    """`job_description` and `cv_evidence_used` ship with no backfill, same
+    reasoning as `weights_used` in TestMigrationV8ToV9: there is no honest way
+    to invent a job posting or a verification run that never happened for
+    offers recorded before this migration existed."""
+
+    def test_existing_offer_rows_get_null_evidence_columns(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("INSERT INTO offers (title, company, compatibility_pct) VALUES ('Backend Dev', 'Acme', 70)")
+        conn.execute("UPDATE schema_version SET version = 10")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        try:
+            row = dict(conn.execute("SELECT * FROM offers WHERE title = 'Backend Dev'").fetchone())
+        finally:
+            conn.close()
+        assert row["job_description"] is None
+        assert row["cv_evidence_used"] is None
+
+    def test_migration_idempotent(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 10")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+        init_db(tmp_db)  # must not raise on the second pass
+
+        conn = get_conn(tmp_db)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        finally:
+            conn.close()
+        assert version == SCHEMA_VERSION
+
+    def test_fresh_install_has_evidence_columns(self, tmp_db):
+        init_db(tmp_db)
+        conn = get_conn(tmp_db)
+        try:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(offers)").fetchall()}
+        finally:
+            conn.close()
+        assert "job_description" in columns
+        assert "cv_evidence_used" in columns
+
+
+@pytest.mark.unit
 class TestSchemaWarningGoesToStderr:
     """A bare print() put a prose line above the payload of every `--json`
     command, so an agent parsing the output hit a JSONDecodeError on character
