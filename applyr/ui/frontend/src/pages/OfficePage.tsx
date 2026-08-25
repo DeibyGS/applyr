@@ -10,15 +10,9 @@ export default function OfficePage() {
   const agentStatuses = deriveAgentStatuses(pendingIntake, jobs);
 
   return (
-    <div className="office-bg flex flex-col gap-8 rounded-lg p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-medium text-foreground">applyr</h1>
-        <p className="text-sm text-muted-foreground">Your AI recruiting team, working in the open.</p>
-      </header>
-
+    <div className="office-bg grid grid-cols-1 gap-6 rounded-lg p-6">
       <OfficeScene statuses={agentStatuses} jobs={jobs} jobsLoaded={loaded} />
-
-      <section className="flex flex-col gap-4 lg:max-w-md">
+      <section className="col-span-1 lg:col-span-2 p-4 bg-white/80 rounded-xl backdrop-blur-md max-w-sm">
         <IntakeForm onCreated={refresh} />
         <PendingIntakeList rows={pendingIntake} />
       </section>
