@@ -40,7 +40,15 @@ from applyr.db import (
     init_db,
 )
 from applyr.intake import mark_intake_promoted
-from applyr.ui_events import notify_stage
+from applyr.ui_events import (
+    notify_stage,
+    notify_agent_started,
+    notify_agent_completed,
+    notify_agent_failed,
+    notify_agent_output,
+    notify_handoff_started,
+    notify_handoff_completed,
+)
 from applyr.scoring import calculate_score
 from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum
 from applyr.duplicates import find_company_offers, find_exact, find_similar
@@ -766,8 +774,6 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False, intake_id: int
     finally:
         conn.close()
 
-    notify_stage(offer_id, "matching")
-
     # --- Compute derived values shared by both output modes ---------------
     topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", ""),
                     "confidence": v.get("confidence")}
@@ -775,6 +781,45 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False, intake_id: int
     recommendation, icon = _get_recommendation(compatibility_pct, config)
     confidence = _derive_confidence(topics_list)
     why_match, biggest_weakness = _get_why_you_match(topics_list, TOPIC_LABELS) if topics_list else ([], None)
+
+    # Phase 1: Granular agent events for Visual UI
+    notify_agent_started(
+        "recruiter",
+        f"Analyzing offer: {title} @ {company}",
+        command="applyr add",
+        offer_id=offer_id,
+    )
+    notify_agent_completed(
+        "recruiter",
+        artifact={"type": "job_offer", "title": title, "company": company, "offerId": offer_id},
+        output_summary=f"Offer #{offer_id} parsed and scored ({compatibility_pct}%)",
+        offer_id=offer_id,
+    )
+    notify_handoff_started(
+        from_agent="recruiter",
+        to_agent="matching",
+        artifact={"type": "job_offer", "title": title, "company": company, "offerId": offer_id},
+        offer_id=offer_id,
+    )
+    notify_handoff_completed(
+        from_agent="recruiter",
+        to_agent="matching",
+        artifact={"type": "job_offer", "title": title, "company": company, "offerId": offer_id},
+        offer_id=offer_id,
+    )
+    notify_agent_started(
+        "matching",
+        f"Scoring compatibility for {company}",
+        command="applyr add (scoring)",
+        offer_id=offer_id,
+    )
+    notify_agent_completed(
+        "matching",
+        artifact={"type": "compatibility_score", "score": compatibility_pct, "breakdown": topics_list, "offerId": offer_id},
+        output_summary=f"Compatibility: {compatibility_pct}%",
+        offer_id=offer_id,
+    )
+    notify_stage(offer_id, "matching")
 
     if as_json:
         payload = {
@@ -1140,6 +1185,19 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
         conn.close()
 
     if status == "applied":
+        # Phase 1: Emit handoff events for application stage
+        notify_handoff_started(
+            from_agent="ats",
+            to_agent="application",
+            artifact={"type": "application_package", "pdfPath": f"cv-{offer_id}.pdf", "offerId": offer_id},
+            offer_id=offer_id,
+        )
+        notify_handoff_completed(
+            from_agent="ats",
+            to_agent="application",
+            artifact={"type": "application_package", "pdfPath": f"cv-{offer_id}.pdf", "offerId": offer_id},
+            offer_id=offer_id,
+        )
         notify_stage(offer_id, "application")
 
     print(f"Offer #{offer_id} updated.")

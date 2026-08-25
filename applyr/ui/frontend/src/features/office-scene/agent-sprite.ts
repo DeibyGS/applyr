@@ -1,30 +1,83 @@
-import { Container, Graphics, Sprite } from "pixi.js";
+import { Container, Graphics, Sprite, Text, ParticleContainer } from "pixi.js";
 import type { Texture } from "pixi.js";
 import { gsap } from "gsap";
 import type { AgentStatus } from "@/features/agents/types";
 import type { ZonePosition } from "./scene-layout";
+import { AgentVisualState, VISUAL_PROPS } from "./types";
+import type { WorkArtifact } from "./types";
+import { createWorkArtifactSprite, type WorkArtifactSpriteHandle } from "./work-artifact-sprite";
+import {
+  DURATION,
+  EASING,
+  PRESETS,
+  VISUAL,
+  Z_INDEX,
+} from "./animation-tokens";
+import { directionFor, tweenPosition, type PositionTweenHandle, type SpriteDirection } from "./movement-utils";
 
-const RADIUS = 20;
-export const COLOR_IDLE = 0x9ca3af;
-export const COLOR_WORKING = 0x2dd4bf;
+const RADIUS = VISUAL.agentRadius;
+
+// Color constants for each visual state (matching VISUAL_PROPS in types.ts)
+export const STATE_COLORS = {
+  idle: 0x9ca3af,
+  receiving: 0x3fa98b,
+  working: 0x2dd4bf,
+  handoff: 0xcb6e45,
+  walking: 0xcb6e45,
+  waiting: 0xd89b5a,
+  blocked: 0xc96b52,
+  completed: 0x4fa98a,
+  error: 0xc96b52,
+} as const satisfies Record<AgentVisualState, number>;
 
 /** Ground ring under the agent — isometric ellipse (2:1 squash), the status
  * indicator that survives whether or not real art is present. */
-const RING_WIDTH = 52;
-const RING_HEIGHT = 26;
+const RING_WIDTH = VISUAL.agentRingWidth;
+const RING_HEIGHT = VISUAL.agentRingHeight;
 
 /** Real-art characters render at this display height regardless of their
  * source resolution (art brief ships them at 128×128 @2x). */
-const CHARACTER_DISPLAY_HEIGHT = 56;
+const CHARACTER_DISPLAY_HEIGHT = VISUAL.characterDisplayHeight;
 
-/** Strictly below POLL_INTERVAL_MS (3000ms, useIntakeAndJobs.ts) so a
- * transition always finishes before the next poll could start another. */
-const TWEEN_DURATION_S = 1.2;
-
-/** Working-state pulse (SHOULD AC): a bounded, slow breathing loop on the
- * ring — killed the moment the agent goes idle again. */
+/** Animation durations from tokens (converted to seconds for GSAP) */
+const TWEEN_DURATION_S = DURATION.agentStateChange / 1000;
+const PULSE_DURATION_S = DURATION.pulse / 1000;
 const PULSE_ALPHA_MIN = 0.45;
-const PULSE_DURATION_S = 0.9;
+const GLOW_DURATION_S = DURATION.glow / 1000;
+const SHAKE_DURATION_S = DURATION.shake / 1000;
+const SHAKE_INTENSITY = 4;
+const BURST_DURATION_S = DURATION.burst / 1000;
+const BURST_MAX_SCALE = 1.8;
+const BOB_DURATION_S = DURATION.bob / 1000;
+const BOB_INTENSITY = 3;
+const WALK_BOB_DURATION_S = DURATION.walkBob / 1000;
+const WALK_BOB_INTENSITY = 2;
+const WALK_DURATION_S = DURATION.walk / 1000;
+
+/** Contact shadow constants */
+const CONTACT_SHADOW_RADIUS = VISUAL.contactShadowRadius;
+const CONTACT_SHADOW_HEIGHT = VISUAL.contactShadowHeight;
+const CONTACT_SHADOW_ALPHA = VISUAL.contactShadowAlpha;
+
+/** Particle burst for completed/error */
+const PARTICLE_COUNT = 8;
+const PARTICLE_DURATION_S = DURATION.particleBurst / 1000;
+
+/** Typing indicator */
+const TYPING_DOT_DURATION_S = DURATION.typingDot / 1000;
+
+/** Rim light intensity per state */
+const RIM_LIGHT: Record<AgentVisualState, { color: number; intensity: number }> = {
+  idle: { color: 0x000000, intensity: 0 },
+  receiving: { color: 0x3fa98b, intensity: 0.3 },
+  working: { color: 0x2dd4bf, intensity: 0.4 },
+  handoff: { color: 0xcb6e45, intensity: 0.5 },
+  walking: { color: 0xcb6e45, intensity: 0.3 },
+  waiting: { color: 0xd89b5a, intensity: 0.2 },
+  blocked: { color: 0xc96b52, intensity: 0.4 },
+  completed: { color: 0x4fa98a, intensity: 0.5 },
+  error: { color: 0xc96b52, intensity: 0.5 },
+};
 
 export interface AgentSpriteHandle {
   /** The stage-level object: a container holding [ring, character]. */
@@ -32,12 +85,33 @@ export interface AgentSpriteHandle {
   /** Swaps the character layer between real art and the placeholder circle,
    * in place — never touches position/zIndex/in-flight tweens. */
   setArt: (texture: Texture | null) => void;
+  /** Update with legacy AgentStatus (backward compatible) */
   update: (status: AgentStatus) => void;
+  /** Update with new visual state (Phase 2) */
+  setVisualState: (state: AgentVisualState, task?: string, command?: string) => void;
+  /** Attach a work artifact to the agent (shown in hand during handoff/walking) */
+  attachArtifact: (artifact: WorkArtifact) => void;
+  /** Detach the work artifact */
+  detachArtifact: () => void;
+  /** Get the currently attached artifact sprite handle */
+  getArtifactSprite: () => WorkArtifactSpriteHandle | null;
+  /** Start walking animation toward target position */
+  walkTo: (targetX: number, targetY: number) => Promise<void>;
+  /** Stop walking animation */
+  stopWalking: () => void;
+  /** Emit particles for completed/error feedback */
+  emitParticles: (type: "success" | "error") => void;
+  /** Show typing indicator (for working state with command) */
+  showTypingIndicator: (show: boolean) => void;
   destroy: () => void;
 }
 
 function colorForStatus(status: AgentStatus): number {
-  return status.state === "working" ? COLOR_WORKING : COLOR_IDLE;
+  return status.state === "working" ? STATE_COLORS.working : STATE_COLORS.idle;
+}
+
+function colorForVisualState(state: AgentVisualState): number {
+  return STATE_COLORS[state];
 }
 
 /**
@@ -53,14 +127,24 @@ export function createAgentSprite(zone: ZonePosition, initialStatus: AgentStatus
   view.y = zone.y;
   view.zIndex = zone.y;
 
+  // Contact shadow (rendered first, at bottom)
+  const contactShadow = new Graphics();
+  contactShadow.ellipse(0, CONTACT_SHADOW_HEIGHT, CONTACT_SHADOW_RADIUS, CONTACT_SHADOW_HEIGHT)
+    .fill({ color: 0x000000, alpha: CONTACT_SHADOW_ALPHA });
+  view.addChild(contactShadow);
+
+  // Main ring (ground indicator)
   const ring = new Graphics();
   const paintRing = (color: number) => {
     ring.clear();
     ring.ellipse(0, 0, RING_WIDTH, RING_HEIGHT).fill(color);
   };
 
-  // Placeholder body — byte-for-byte Phase 2's circle, kept for the no-art
-  // fallback and shown until/unless real art arrives.
+  // Rim light (dynamic lighting per state)
+  const rimLight = new Graphics();
+  view.addChild(rimLight);
+
+  // Placeholder body — fallback circle shown until real art arrives
   const fallbackBody = new Graphics();
   const paintFallback = (color: number) => {
     fallbackBody.clear();
@@ -68,13 +152,32 @@ export function createAgentSprite(zone: ZonePosition, initialStatus: AgentStatus
   };
   view.addChild(ring, fallbackBody);
 
+  // Character sprite (real art)
   let character: Sprite | null = null;
+
+  // Particle container for micro-feedback
+  const particles = new Container();
+  particles.zIndex = Z_INDEX.agent + 10;
+  view.addChild(particles);
+
   let lastColor = colorForStatus(initialStatus);
   paintRing(lastColor);
   paintFallback(lastColor);
 
+  // Animation tween references
   let alphaTween: gsap.core.Tween | null = null;
   let pulseTween: gsap.core.Tween | null = null;
+  let glowTween: gsap.core.Tween | null = null;
+  let shakeTween: gsap.core.Tween | null = null;
+  let burstTween: gsap.core.Tween | null = null;
+  let bobTween: gsap.core.Tween | null = null;
+  let walkBobTween: gsap.core.Tween | null = null;
+  let rimLightTween: gsap.core.Tween | null = null;
+  let typingTween: gsap.core.Timeline | null = null;
+  let typingDots: Text[] = [];
+
+  // Artifact display
+  let artifactSpriteHandle: WorkArtifactSpriteHandle | null = null;
 
   const stopPulse = () => {
     pulseTween?.kill();
@@ -84,12 +187,202 @@ export function createAgentSprite(zone: ZonePosition, initialStatus: AgentStatus
 
   const startPulse = () => {
     if (pulseTween) return;
+    const { duration, ease } = PRESETS.pulse;
     pulseTween = gsap.to(ring, {
       alpha: PULSE_ALPHA_MIN,
-      duration: PULSE_DURATION_S,
+      duration,
       yoyo: true,
       repeat: -1,
-      ease: "sine.inOut",
+      ease,
+    });
+  };
+
+  const stopGlow = () => {
+    glowTween?.kill();
+    glowTween = null;
+    ring.alpha = 1;
+  };
+
+  const startGlow = () => {
+    if (glowTween) return;
+    const { duration, ease } = PRESETS.glow;
+    glowTween = gsap.to(ring, {
+      alpha: 0.3,
+      duration,
+      yoyo: true,
+      repeat: -1,
+      ease,
+    });
+  };
+
+  const stopShake = () => {
+    shakeTween?.kill();
+    shakeTween = null;
+    view.x = zone.x;
+  };
+
+  const startShake = () => {
+    if (shakeTween) return;
+    const { duration, ease } = PRESETS.shake;
+    shakeTween = gsap.to(view, {
+      x: zone.x + SHAKE_INTENSITY,
+      duration,
+      yoyo: true,
+      repeat: -1,
+      ease,
+    });
+  };
+
+  const stopBob = () => {
+    bobTween?.kill();
+    bobTween = null;
+    if (character) character.y = 0;
+    if (fallbackBody) fallbackBody.y = 0;
+  };
+
+  const startBob = () => {
+    if (bobTween) return;
+    const target = character || fallbackBody;
+    const { duration, ease } = PRESETS.bob;
+    bobTween = gsap.to(target, {
+      y: -BOB_INTENSITY,
+      duration,
+      yoyo: true,
+      repeat: -1,
+      ease,
+    });
+  };
+
+  const stopWalkBob = () => {
+    walkBobTween?.kill();
+    walkBobTween = null;
+    if (character) character.y = 0;
+    if (fallbackBody) fallbackBody.y = 0;
+  };
+
+  const startWalkBob = () => {
+    if (walkBobTween) return;
+    const target = character || fallbackBody;
+    const { duration, ease } = PRESETS.walkBob;
+    walkBobTween = gsap.to(target, {
+      y: -WALK_BOB_INTENSITY,
+      duration,
+      yoyo: true,
+      repeat: -1,
+      ease,
+    });
+  };
+
+  const stopBurst = () => {
+    burstTween?.kill();
+    burstTween = null;
+  };
+
+  const startBurst = () => {
+    if (burstTween) return;
+    const { duration, ease } = PRESETS.burst;
+    burstTween = gsap.to(ring, {
+      scaleX: BURST_MAX_SCALE,
+      scaleY: BURST_MAX_SCALE,
+      alpha: 0,
+      duration,
+      ease,
+      onComplete: () => {
+        ring.scale.set(1);
+        ring.alpha = 1;
+        burstTween = null;
+      },
+    });
+  };
+
+  const stopRimLight = () => {
+    rimLightTween?.kill();
+    rimLightTween = null;
+    rimLight.clear();
+  };
+
+  const updateRimLight = (state: AgentVisualState, animate = true) => {
+    const { color, intensity } = RIM_LIGHT[state];
+    if (intensity === 0) {
+      stopRimLight();
+      return;
+    }
+
+    const drawRim = (scale: number) => {
+      rimLight.clear();
+      if (intensity > 0 && scale > 0) {
+        rimLight.ellipse(0, -RADIUS * 0.3, RADIUS * 0.9 * scale, RADIUS * 0.4 * scale)
+          .fill({ color, alpha: intensity * 0.6 * scale });
+      }
+    };
+
+    if (animate) {
+      stopRimLight();
+      drawRim(0);
+      const { duration, ease } = PRESETS.pulse;
+      rimLightTween = gsap.to({ scale: 0 }, {
+        scale: 1,
+        duration,
+        yoyo: true,
+        repeat: -1,
+        ease,
+        onUpdate: function() {
+          drawRim(this.targets()[0].scale);
+        },
+      });
+    } else {
+      drawRim(1);
+    }
+  };
+
+  const stopTyping = () => {
+    typingTween?.kill();
+    typingTween = null;
+    for (const dot of typingDots) {
+      view.removeChild(dot);
+      dot.destroy();
+    }
+    typingDots = [];
+  };
+
+  const startTyping = () => {
+    if (typingTween) return;
+    
+    // Create three dots
+    for (let i = 0; i < 3; i++) {
+      const dot = new Text({
+        text: "●",
+        style: {
+          fontSize: 10,
+          fill: 0x2dd4bf,
+          fontFamily: "ui-monospace, SFMono-Regular",
+        },
+      });
+      dot.anchor.set(0.5, 0);
+      dot.x = -15 + i * 10;
+      dot.y = -RADIUS - 20;
+      dot.alpha = 0;
+      view.addChild(dot);
+      typingDots.push(dot);
+    }
+
+    // Animate dots in sequence
+    const { duration, ease } = PRESETS.typingDot;
+    const timeline = gsap.timeline({ repeat: -1, yoyo: true });
+    typingTween = timeline;
+    
+    typingDots.forEach((dot, i) => {
+      typingTween!.to(dot, {
+        alpha: 1,
+        duration: duration / 3,
+        ease,
+      }, i * duration / 6);
+      
+      typingTween!.to(dot, {
+        alpha: 0.3,
+        duration: duration / 3,
+        ease,
+      }, i * duration / 6 + duration / 3);
     });
   };
 
@@ -116,103 +409,239 @@ export function createAgentSprite(zone: ZonePosition, initialStatus: AgentStatus
   };
 
   const update = (status: AgentStatus) => {
-    const nextColor = colorForStatus(status);
+    // Legacy update - map to visual states
+    const visualState = status.state === "working" ? "working" : "idle";
+    setVisualStateInternal(visualState);
+  };
+
+  const setVisualStateInternal = (state: AgentVisualState) => {
+    const nextColor = colorForVisualState(state);
+    const props = VISUAL_PROPS[state];
 
     if (nextColor !== lastColor) {
       lastColor = nextColor;
       paintRing(nextColor);
       if (!character) paintFallback(nextColor);
-      if (nextColor === COLOR_WORKING) startPulse();
-      else stopPulse();
+    }
 
-      // Only dim-then-fade on a fresh transition. If we're interrupting a
-      // tween already in flight, keep whatever alpha it had reached and
-      // fade on from there — resetting unconditionally would flash the
-      // sprite on every interruption instead of continuing smoothly.
-      const resumingMidTween = alphaTween !== null;
-      alphaTween?.kill();
-      if (!resumingMidTween) {
-        view.alpha = 0.35;
-      }
-      alphaTween = gsap.to(view, {
-        alpha: 1,
-        duration: TWEEN_DURATION_S,
+    // Stop all animations
+    stopPulse();
+    stopGlow();
+    stopShake();
+    stopBob();
+    stopWalkBob();
+    stopBurst();
+    stopRimLight();
+    stopTyping();
+
+    // Start appropriate animation for state
+    switch (state) {
+      case "working":
+        startPulse();
+        startBob();
+        updateRimLight(state);
+        break;
+      case "receiving":
+        startGlow();
+        updateRimLight(state);
+        break;
+      case "blocked":
+      case "error":
+        startShake();
+        updateRimLight(state);
+        break;
+      case "completed":
+        startBurst();
+        updateRimLight(state);
+        break;
+      case "walking":
+        startWalkBob();
+        updateRimLight(state);
+        break;
+      case "handoff":
+        updateRimLight(state);
+        break;
+      case "waiting":
+        const { duration, ease } = PRESETS.pulse;
+        pulseTween = gsap.to(ring, {
+          alpha: 0.6,
+          duration: DURATION.pulse / 1000 * 1.5,
+          yoyo: true,
+          repeat: -1,
+          ease,
+        });
+        updateRimLight(state);
+        break;
+      case "idle":
+      default:
+        updateRimLight(state, false);
+        break;
+    }
+
+    // Handle transition alpha fade
+    const resumingMidTween = alphaTween !== null;
+    alphaTween?.kill();
+    if (!resumingMidTween) {
+      view.alpha = 0.35;
+    }
+    const { duration, ease } = PRESETS.stateChange;
+    alphaTween = gsap.to(view, {
+      alpha: 1,
+      duration,
+      ease,
+      onComplete: () => {
+        alphaTween = null;
+      },
+    });
+  };
+
+  const setVisualState = (state: AgentVisualState, task?: string, command?: string) => {
+    setVisualStateInternal(state);
+    // Task and command could be used for bubble content (handled by OfficeScene)
+    // Store them if needed for bubble rendering
+  };
+
+  // Artifact handling
+  const attachArtifact = (artifact: WorkArtifact) => {
+    if (artifactSpriteHandle) {
+      artifactSpriteHandle.hide();
+      artifactSpriteHandle = null;
+    }
+
+    artifactSpriteHandle = createWorkArtifactSprite(artifact);
+    view.addChild(artifactSpriteHandle.view);
+    artifactSpriteHandle.showAtAgent(zone.x, zone.y);
+    artifactSpriteHandle.spawn();
+  };
+
+  const detachArtifact = () => {
+    if (artifactSpriteHandle) {
+      artifactSpriteHandle.hide();
+      artifactSpriteHandle = null;
+    }
+  };
+
+  const getArtifactSprite = () => artifactSpriteHandle;
+
+  // Walking animation
+  let walkTween: gsap.core.Tween | null = null;
+
+  const walkTo = (targetX: number, targetY: number): Promise<void> => {
+    return new Promise((resolve) => {
+      stopWalkBob();
+      startWalkBob();
+      
+      walkTween?.kill();
+      const { duration, ease } = PRESETS.walk;
+      walkTween = gsap.to(view, {
+        x: targetX,
+        y: targetY,
+        duration,
+        ease,
+        onUpdate: () => {
+          view.zIndex = view.y;
+        },
         onComplete: () => {
-          alphaTween = null;
+          view.zIndex = targetY;
+          stopWalkBob();
+          walkTween = null;
+          resolve();
         },
       });
+    });
+  };
+
+  const stopWalking = () => {
+    walkTween?.kill();
+    walkTween = null;
+    stopWalkBob();
+  };
+
+  // Particle emission for micro-feedback
+  const emitParticles = (type: "success" | "error") => {
+    const color = type === "success" ? 0x4fa98a : 0xc96b52;
+    const icon = type === "success" ? "✓" : "✕";
+    
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const angle = (i / PARTICLE_COUNT) * Math.PI * 2;
+      const distance = 40 + Math.random() * 20;
+      const targetX = Math.cos(angle) * distance;
+      const targetY = Math.sin(angle) * distance - 20;
+      
+      const particle = new Text({
+        text: icon,
+        style: {
+          fontSize: 14,
+          fill: color,
+          fontFamily: "ui-monospace, SFMono-Regular",
+          fontWeight: "bold",
+        },
+      });
+      particle.anchor.set(0.5);
+      particle.x = 0;
+      particle.y = -RADIUS;
+      particle.alpha = 1;
+      particle.scale.set(0.5);
+      particles.addChild(particle);
+
+      const { duration, ease } = PRESETS.particleBurst;
+      gsap.to(particle, {
+        x: targetX,
+        y: targetY,
+        alpha: 0,
+        scale: 1.5,
+        duration,
+        ease,
+        onComplete: () => {
+          particles.removeChild(particle);
+          particle.destroy();
+        },
+      });
+    }
+  };
+
+  const showTypingIndicator = (show: boolean) => {
+    if (show) {
+      startTyping();
+    } else {
+      stopTyping();
     }
   };
 
   const destroy = () => {
     alphaTween?.kill();
     stopPulse();
+    stopGlow();
+    stopShake();
+    stopBob();
+    stopWalkBob();
+    stopBurst();
+    stopRimLight();
+    stopTyping();
+    stopWalking();
+    if (artifactSpriteHandle) {
+      artifactSpriteHandle.destroy();
+      artifactSpriteHandle = null;
+    }
+    particles.destroy({ children: true });
     view.destroy({ children: true });
   };
 
-  return { view, setArt, update, destroy };
+  return { 
+    view, 
+    setArt, 
+    update, 
+    setVisualState, 
+    attachArtifact, 
+    detachArtifact, 
+    getArtifactSprite, 
+    walkTo, 
+    stopWalking,
+    emitParticles,
+    showTypingIndicator,
+    destroy 
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Applyr World Phase 2 (ADR-013): position tweening for per-offer sprites.
-// The 5 zone sprites above never move — this is a separate capability
-// pipeline-sprites.ts uses for the sprites that represent an offer walking
-// between zones.
-// ---------------------------------------------------------------------------
-
-/** Facing for the future real art (walk-cycle direction). With today's
- * fixed single-row ZONE_ORDER (scene-layout.ts), movement is always one
- * diagonal step forward — "right" is the only direction this layout ever
- * produces in practice; "up"/"down"/"left" only fire once a future,
- * non-linear layout exists. See specs/visual-ui-applyr-world-phase2's Edge
- * cases. */
-export type SpriteDirection = "up" | "down" | "left" | "right";
-
-/** Bounded and fixed, same reasoning as TWEEN_DURATION_S: a move must always
- * visibly complete, never feel instantaneous or open-ended. */
-const MOVE_DURATION_S = 1.0;
-
-export function directionFor(dx: number, dy: number): SpriteDirection {
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return dx >= 0 ? "right" : "left";
-  }
-  return dy >= 0 ? "down" : "up";
-}
-
-export interface PositionTweenHandle {
-  direction: SpriteDirection;
-  /** Resolves once the tween completes normally. Never resolves if kill()
-   * is called first — callers that kill() must not also await this. */
-  done: Promise<void>;
-  kill: () => void;
-}
-
-/**
- * Tweens `graphics` from its current position to (targetX, targetY).
- * zIndex tracks the interpolated y every frame (onUpdate) so the offer layers
- * correctly against scenery it walks past, and lands on the target zone's y
- * (isometric depth-sort, per scene-layout.ts).
- */
-export function tweenPosition(graphics: Graphics, targetX: number, targetY: number): PositionTweenHandle {
-  const direction = directionFor(targetX - graphics.x, targetY - graphics.y);
-
-  let resolveDone: () => void;
-  const done = new Promise<void>((resolve) => {
-    resolveDone = resolve;
-  });
-
-  const tween = gsap.to(graphics, {
-    x: targetX,
-    y: targetY,
-    duration: MOVE_DURATION_S,
-    onUpdate: () => {
-      graphics.zIndex = graphics.y;
-    },
-    onComplete: () => {
-      graphics.zIndex = targetY;
-      resolveDone();
-    },
-  });
-
-  return { direction, done, kill: () => tween.kill() };
-}
+// Re-export movement utilities for pipeline-sprites.ts
+export { directionFor, tweenPosition, type PositionTweenHandle, type SpriteDirection } from "./movement-utils";

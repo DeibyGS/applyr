@@ -50,9 +50,16 @@ vi.mock("pixi.js", () => {
 const gsapToMock = vi.fn((_target: unknown, _vars: Record<string, unknown>) => ({ kill: vi.fn() }));
 vi.mock("gsap", () => ({ gsap: { to: gsapToMock } }));
 
-const { createAgentSprite, directionFor, tweenPosition, COLOR_IDLE, COLOR_WORKING } = await import(
+const { createAgentSprite, STATE_COLORS } = await import(
   "./agent-sprite"
 );
+
+const { directionFor, tweenPosition } = await import(
+  "./movement-utils"
+);
+
+const COLOR_IDLE = STATE_COLORS.idle;
+const COLOR_WORKING = STATE_COLORS.working;
 
 /** tweenPosition only needs a position-mutable display object; test doubles
  * (view containers or bare Graphics mocks) satisfy it structurally. */

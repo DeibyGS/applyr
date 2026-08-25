@@ -37,11 +37,11 @@ TOML_TEMPLATE = """\
 
 [general]
 threshold = 65          # Minimum compatibility % to recommend applying (legacy, use threshold_apply/maybe)
-threshold_apply = 80    # Score >= this → APPLY
-threshold_maybe = 60    # Score >= this → MAYBE (below → LOW MATCH)
+threshold_apply = 80    # Score >= this -> APPLY
+threshold_maybe = 60    # Score >= this -> MAYBE (below -> LOW MATCH)
 followup_days = 10      # Days before follow-up reminder
 check_updates = false   # Opt-in: 'doctor' checks PyPI for a newer applyr version
-                        # (cached 24h, silent on failure). Off by default — applyr
+                        # (cached 24h, silent on failure). Off by default -- applyr
                         # is local-first (see ADR-001, ADR-010) and makes zero
                         # network calls unless you explicitly turn this on.
 
@@ -55,21 +55,34 @@ english = 5
 cultural_fit = 5
 
 [cv]
-# cv_master  — the profile applyr reads to fill generated CVs. Fill it before
+# cv_master  -- the profile applyr reads to fill generated CVs. Fill it before
 #              running 'cv generate'; a stub file produces an empty CV.
-# output_dir — where generated CVs are written.
+# output_dir -- where generated CVs are written.
 # Both default outside the applyr config directory so they show up in a file
-# browser without unhiding dotfiles — cv_master is hand-edited often, and
+# browser without unhiding dotfiles -- cv_master is hand-edited often, and
 # output_dir holds deliverables you attach elsewhere.
 # Both accept any path, e.g. a private repo you already version. If you point
-# them at a repo, make sure it is gitignored — CVs contain personal data.
-# language   — the language generated CVs are written in when an offer does not
+# them at a repo, make sure it is gitignored -- CVs contain personal data.
+# language   -- the language generated CVs are written in when an offer does not
 #              declare its own. Set it to the market you apply in most; an offer
 #              in another language overrides it via "language" in 'applyr add'.
 #              Supported: en, es.
 cv_master = "__CV_HOME__/cv-master.md"
 output_dir = "__CV_HOME__/cv"
 language = "en"
+
+[pipeline]
+# Visual UI pipeline definition (Phase 1: spatial pipeline visualization)
+# Override any stage to customize position, inputs, outputs, or next_stages.
+# Stages not listed here use the built-in defaults (recruiter, matching, cv, ats, application).
+# Example:
+# stages = [
+#   { id = "recruiter",   name = "Recruiter",   position = { x = 155, y = 80 },  inputs = ["job_offer"],                    outputs = ["job_offer"],           next_stages = ["matching"] },
+#   { id = "matching",    name = "Matching",    position = { x = 300, y = 80 },  inputs = ["job_offer"],                    outputs = ["compatibility_score"],   next_stages = ["cv"] },
+#   { id = "cv",          name = "CV Agent",    position = { x = 445, y = 80 },  inputs = ["compatibility_score", "job_offer"], outputs = ["cv", "cover_letter"], next_stages = ["ats"] },
+#   { id = "ats",         name = "ATS Review",  position = { x = 215, y = 140 }, inputs = ["cv"],                           outputs = ["ats_review"],          next_stages = ["application"] },
+#   { id = "application", name = "Application", position = { x = 385, y = 140 }, inputs = ["cv", "cover_letter", "ats_review"], outputs = ["application_package"], next_stages = [] },
+# ]
 """
 
 
@@ -128,6 +141,9 @@ def _build_defaults() -> dict:
             "cv_master": str(CV_HOME / "cv-master.md"),
             "output_dir": str(CV_HOME / "cv"),
             "language": "en",
+        },
+        "pipeline": {
+            "stages": [],  # Empty = use built-in defaults
         },
     }
 
