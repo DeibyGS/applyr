@@ -1,5 +1,8 @@
 """Tests for applyr/ui/api.py — the Visual UI backend's HTTP routes."""
 
+import asyncio
+import json
+
 import pytest
 
 pytest.importorskip("fastapi", reason="requires the optional applyr[ui] extra")
@@ -195,6 +198,23 @@ class TestJobsEndpoints:
         assert jobs[0]["compatibility_pct"] == 75
         assert "topics" not in jobs[0]
 
+    def test_list_jobs_exposes_pipeline_stage_for_the_office_scene(self, client, tmp_db):
+        # ADR-013: OfficeScene needs this to place in-flight offers at their
+        # real zone on load, without waiting for a live SSE event.
+        self._seed_offer(tmp_db)
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE offers SET pipeline_stage = 'cv' WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        resp = client.get("/api/jobs")
+        assert resp.json()[0]["pipeline_stage"] == "cv"
+
+    def test_list_jobs_pipeline_stage_is_null_when_untracked(self, client, tmp_db):
+        self._seed_offer(tmp_db)
+        resp = client.get("/api/jobs")
+        assert resp.json()[0]["pipeline_stage"] is None
+
     def test_job_detail_404(self, client):
         resp = client.get("/api/jobs/999")
         assert resp.status_code == 404
@@ -299,3 +319,112 @@ class TestCors:
     def test_allows_the_vite_dev_origin(self, client):
         resp = client.get("/api/health", headers={"Origin": "http://localhost:5173"})
         assert resp.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+@pytest.mark.unit
+class TestPipelineStageEvents:
+    """ADR-013: POST /api/internal/pipeline-stage is the CLI's fire-and-forget
+    notification target; GET /api/events is the SSE stream the frontend
+    subscribes to. The CLI already writes `pipeline_stage` to the database
+    itself (see tests/test_ui_events.py) — this endpoint only fans the event
+    out to connected clients, so these tests cover the fan-out, not
+    persistence.
+
+    The fan-out/streaming tests below drive the route functions directly
+    with asyncio rather than through TestClient's HTTP transport: an SSE
+    response never terminates on its own, and TestClient's stream() plus a
+    second thread issuing the POST deadlocked in practice (both share one
+    event loop) — driving the async generator's __anext__() by hand is
+    deterministic and avoids that entirely."""
+
+    def test_rejects_a_stage_outside_the_enum(self, client):
+        resp = client.post("/api/internal/pipeline-stage", json={"offer_id": 1, "stage": "recruiter"})
+        assert resp.status_code == 422
+
+    def test_accepts_every_valid_stage(self, client):
+        for stage in ("matching", "cv", "ats", "application"):
+            resp = client.post("/api/internal/pipeline-stage", json={"offer_id": 1, "stage": stage})
+            assert resp.status_code == 204
+
+    def test_posting_with_no_connected_clients_does_not_error(self, client):
+        # The common case: the CLI notifies, nobody has the Office page open.
+        resp = client.post("/api/internal/pipeline-stage", json={"offer_id": 1, "stage": "cv"})
+        assert resp.status_code == 204
+
+    def test_fans_out_to_a_subscribed_queue(self):
+        from applyr.ui.api import PipelineStageEvent, _event_subscribers, post_pipeline_stage
+
+        async def run():
+            queue: asyncio.Queue = asyncio.Queue()
+            _event_subscribers.add(queue)
+            try:
+                await post_pipeline_stage(PipelineStageEvent(offer_id=42, stage="ats"))
+                event = await asyncio.wait_for(queue.get(), timeout=1)
+                assert event["offer_id"] == 42
+                assert event["stage"] == "ats"
+                assert isinstance(event["pipeline_stage_at"], str) and event["pipeline_stage_at"]
+            finally:
+                _event_subscribers.discard(queue)
+
+        asyncio.run(run())
+
+    def test_fans_out_to_every_subscribed_queue(self):
+        from applyr.ui.api import PipelineStageEvent, _event_subscribers, post_pipeline_stage
+
+        async def run():
+            queue_a: asyncio.Queue = asyncio.Queue()
+            queue_b: asyncio.Queue = asyncio.Queue()
+            _event_subscribers.update({queue_a, queue_b})
+            try:
+                await post_pipeline_stage(PipelineStageEvent(offer_id=7, stage="matching"))
+                event_a = await asyncio.wait_for(queue_a.get(), timeout=1)
+                event_b = await asyncio.wait_for(queue_b.get(), timeout=1)
+                assert event_a == event_b
+                assert event_a["offer_id"] == 7
+                assert event_a["stage"] == "matching"
+            finally:
+                _event_subscribers.difference_update({queue_a, queue_b})
+
+        asyncio.run(run())
+
+    def test_stream_yields_sse_formatted_data_for_a_posted_event(self):
+        from applyr.ui.api import PipelineStageEvent, post_pipeline_stage, stream_events
+
+        async def run():
+            response = await stream_events()
+            agen = response.body_iterator
+            pending = asyncio.ensure_future(agen.__anext__())
+            await asyncio.sleep(0.05)  # let the generator subscribe before posting
+            await post_pipeline_stage(PipelineStageEvent(offer_id=7, stage="matching"))
+            chunk = await asyncio.wait_for(pending, timeout=1)
+            assert chunk.startswith("data: ") and chunk.endswith("\n\n")
+            event = json.loads(chunk[len("data: "):-len("\n\n")])
+            assert event["offer_id"] == 7
+            assert event["stage"] == "matching"
+            assert isinstance(event["pipeline_stage_at"], str) and event["pipeline_stage_at"]
+            await agen.aclose()
+
+        asyncio.run(run())
+
+    def test_disconnecting_removes_the_queue_from_subscribers(self):
+        from applyr.ui.api import _event_subscribers, stream_events
+
+        async def run():
+            before = len(_event_subscribers)
+            response = await stream_events()
+            agen = response.body_iterator
+            pending = asyncio.ensure_future(agen.__anext__())
+            await asyncio.sleep(0.05)
+            assert len(_event_subscribers) == before + 1
+            # Cancelling the in-flight __anext__() is what a real client
+            # disconnect looks like from the generator's side — it's
+            # suspended on `await queue.get()`, and cancellation propagates
+            # in right there, running the `finally` block. Calling aclose()
+            # directly instead raises "already running", since the task
+            # above still owns the generator's execution.
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+            assert len(_event_subscribers) == before
+
+        asyncio.run(run())

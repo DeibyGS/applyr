@@ -7,31 +7,46 @@ job (ADR-003). This module is the read/intake surface only.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from applyr.commands.analytics import _stats_payload, _trends_payload
 from applyr.commands.workflow import _check_cv_master
 from applyr.config import load_config
-from applyr.db import get_conn
+from applyr.db import VALID_PIPELINE_STAGES, get_conn
 from applyr.intake import create_intake, get_intake, list_intake
 
 router = APIRouter()
+
+# Applyr World Phase 2 (ADR-013): every currently-connected GET /api/events
+# client has its own queue here. POST /api/internal/pipeline-stage fans an
+# event out to all of them. Process-local by design — this is a single-user,
+# single-process local tool (ADR-011); no cross-process broker needed.
+_event_subscribers: set[asyncio.Queue] = set()
 
 # Core offer columns for the list view — matches the spec's "core fields"
 # scope for GET /api/jobs. The full row (all columns) is only returned by
 # GET /api/jobs/{id}, alongside the topic breakdown.
 _JOB_LIST_COLUMNS = (
     "id, title, company, status, compatibility_pct, work_mode, location, "
-    "seniority_level, role_category, created_at, date_applied"
+    "seniority_level, role_category, created_at, date_applied, pipeline_stage"
 )
 
 
 class IntakeCreate(BaseModel):
     raw_text: str
     source_note: str | None = None
+
+
+class PipelineStageEvent(BaseModel):
+    offer_id: int
+    stage: str
 
 
 @router.get("/api/health")
@@ -163,3 +178,47 @@ def get_trends(period: str = Query(default="week")) -> list[dict]:
         return _trends_payload(conn, period)
     finally:
         conn.close()
+
+
+@router.post("/api/internal/pipeline-stage", status_code=204)
+async def post_pipeline_stage(body: PipelineStageEvent) -> None:
+    """Internal-only — called by the CLI's `notify_stage()` (ADR-013), never
+    by the frontend directly. Not part of the CLI's `--json` compatibility
+    surface (docs/adr/007-structured-json-errors.md): free to change without
+    the guarantees that give. The CLI already wrote `pipeline_stage` to the
+    database itself before calling this; this endpoint only fans the event
+    out to connected `GET /api/events` clients, it never persists anything.
+    `pipeline_stage_at` is stamped here, at receipt, rather than passed by
+    the CLI — it's an informational broadcast timestamp for the frontend,
+    not required to match the DB row's stored value to the second."""
+    if body.stage not in VALID_PIPELINE_STAGES:
+        raise HTTPException(status_code=422, detail=f"invalid stage: {body.stage}")
+    payload = {
+        "offer_id": body.offer_id,
+        "stage": body.stage,
+        "pipeline_stage_at": datetime.now(timezone.utc).isoformat(),
+    }
+    for queue in list(_event_subscribers):
+        queue.put_nowait(payload)
+
+
+@router.get("/api/events")
+async def stream_events() -> StreamingResponse:
+    """Server-Sent Events stream of real pipeline-stage transitions
+    (ADR-013). Receive-only from the frontend's perspective — the reason SSE
+    was chosen over WebSocket. On load or reconnect the frontend is expected
+    to fetch current state via GET /api/jobs itself; this stream only ever
+    carries transitions that happen while a client is connected, never a
+    backlog (spec's "no retroactive replay" rule)."""
+
+    async def event_generator():
+        queue: asyncio.Queue = asyncio.Queue()
+        _event_subscribers.add(queue)
+        try:
+            while True:
+                event = await queue.get()
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            _event_subscribers.discard(queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
