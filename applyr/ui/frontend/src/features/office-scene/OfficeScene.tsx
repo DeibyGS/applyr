@@ -8,6 +8,7 @@ import { getZonePositions } from "./scene-layout";
 import { createAgentSprite, type AgentSpriteHandle } from "./agent-sprite";
 import { createPipelineSpriteManager, type PipelineSpriteManager } from "./pipeline-sprites";
 import { startSceneTextureLoading } from "./textures";
+import { createZoneScenery, type ZoneSceneryHandle } from "./scene-scenery";
 
 const SCENE_WIDTH = 720;
 const SCENE_HEIGHT = 260;
@@ -50,6 +51,7 @@ function toPipelineOffers(jobs: JobSummary[]) {
 export function OfficeScene({ statuses, jobs, jobsLoaded }: OfficeSceneProps) {
   const spritesRef = useRef<Map<AgentId, AgentSpriteHandle>>(new Map());
   const pipelineRef = useRef<PipelineSpriteManager | null>(null);
+  const sceneryRef = useRef<ZoneSceneryHandle | null>(null);
   const latestStatusesRef = useRef(statuses);
   const latestJobsRef = useRef(jobs);
   const jobsLoadedRef = useRef(jobsLoaded);
@@ -78,6 +80,12 @@ export function OfficeScene({ statuses, jobs, jobsLoaded }: OfficeSceneProps) {
 
   const handleReady = useCallback((stage: Container) => {
     stage.sortableChildren = true;
+
+    // Room first, then occupants — zIndex (sort-by-y) decides stacking, not
+    // insertion order.
+    sceneryRef.current = createZoneScenery();
+    stage.addChild(sceneryRef.current.view);
+
     for (const zone of getZonePositions()) {
       const status = latestStatusesRef.current.find((s) => s.agentId === zone.agentId);
       if (!status) continue;
@@ -87,11 +95,16 @@ export function OfficeScene({ statuses, jobs, jobsLoaded }: OfficeSceneProps) {
     }
 
     // Art arrives asynchronously and per-entity (may be absent entirely) —
-    // each texture swaps into its existing sprite in place. Guarded against
-    // post-unmount arrivals: a late-resolving load must not touch destroyed
-    // sprites.
-    startSceneTextureLoading((agentId, texture) => {
-      if (!disposedRef.current) spritesRef.current.get(agentId)?.setArt(texture);
+    // each texture swaps into its existing sprite/desk in place. Guarded
+    // against post-unmount arrivals: a late-resolving load must not touch
+    // destroyed objects.
+    startSceneTextureLoading({
+      onAgentArt: (agentId, texture) => {
+        if (!disposedRef.current) spritesRef.current.get(agentId)?.setArt(texture);
+      },
+      onDeskArt: (agentId, texture) => {
+        if (!disposedRef.current) sceneryRef.current?.setDesk(agentId, texture);
+      },
     });
 
     pipelineRef.current = createPipelineSpriteManager(stage);
@@ -117,6 +130,8 @@ export function OfficeScene({ statuses, jobs, jobsLoaded }: OfficeSceneProps) {
       disposedRef.current = true;
       for (const sprite of sprites.values()) sprite.destroy();
       sprites.clear();
+      sceneryRef.current?.destroy();
+      sceneryRef.current = null;
       pipelineRef.current?.destroy();
       pipelineRef.current = null;
     };
