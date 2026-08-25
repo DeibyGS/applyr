@@ -11,6 +11,7 @@ from applyr.cv import (
     _ATS_CSS,
     _count_pdf_pages,
     _make_slug,
+    _offer_id_from_cv_frontmatter,
     _page_limit_for,
     _strip_html_tags,
 )
@@ -336,7 +337,38 @@ class TestCountPdfPages:
         assert _count_pdf_pages(pdf) is None
 
 
-class TestPageLimitFor:
+class TestOfferIdFromCvFrontmatter:
+    """ADR-013's pipeline-stage marking depends entirely on this extraction
+    being correct — a wrong or missed offer_id silently mis-marks (or never
+    marks) the wrong offer's zone in the Office scene. Code-review findings
+    pinned here: the two legacy-HTML marker formats, and frontmatter-scoping
+    so body content can't be mistaken for the real marker."""
+
+    def test_md_frontmatter_offer_id(self):
+        assert _offer_id_from_cv_frontmatter("---\noffer_id: 42\n---\nbody") == 42
+
+    def test_legacy_html_comment_offer_id_with_no_frontmatter_block(self):
+        # `<!-- offer_id: N -->` — no `---` delimiters at all.
+        assert _offer_id_from_cv_frontmatter(
+            "<!-- offer_id: 7 -->\n<html><body>CV</body></html>"
+        ) == 7
+
+    def test_legacy_applyr_offer_id_marker(self):
+        # The second, distinct legacy format — `applyr:offer-id=N`.
+        assert _offer_id_from_cv_frontmatter(
+            "<!-- applyr:offer-id=99 -->\n<html><body>CV</body></html>"
+        ) == 99
+
+    def test_no_marker_returns_none(self):
+        assert _offer_id_from_cv_frontmatter("# CV\n\nJust a resume, no marker.") is None
+
+    def test_body_text_outside_frontmatter_is_not_matched(self):
+        # Real frontmatter says offer_id 1; the body separately mentions
+        # "offer_id: 999" (e.g. explaining what the field means) — the real
+        # frontmatter value must win, not whichever occurs first in a naive
+        # whole-document search.
+        md = "---\noffer_id: 1\n---\nThis CV was generated for offer_id: 999, just kidding — see above."
+        assert _offer_id_from_cv_frontmatter(md) == 1
     """1 page by default, 2 for senior/lead/director — matching the rule
     `cv review` already states in its rubric."""
 

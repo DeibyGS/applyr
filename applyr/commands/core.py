@@ -40,6 +40,7 @@ from applyr.db import (
     init_db,
 )
 from applyr.intake import mark_intake_promoted
+from applyr.ui_events import notify_stage
 from applyr.scoring import calculate_score
 from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum
 from applyr.duplicates import find_company_offers, find_exact, find_similar
@@ -701,6 +702,14 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False, intake_id: int
         )
         offer_id: int = cursor.lastrowid
 
+        # Applyr World Phase 2 (ADR-013): a newly-scored offer enters the
+        # `matching` zone — `recruiter` is intake-derived (ui_intake), not a
+        # pipeline_stage value, so `add` is the first stage this column sees.
+        conn.execute(
+            "UPDATE offers SET pipeline_stage = 'matching', pipeline_stage_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (offer_id,),
+        )
+
         # --- Validate topic keys -------------------------------------------
         valid_topics = set(config.get("topics", {}).keys()) or set(TOPIC_LABELS.keys())
         for key in topics:
@@ -756,6 +765,8 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False, intake_id: int
         conn.commit()
     finally:
         conn.close()
+
+    notify_stage(offer_id, "matching")
 
     # --- Compute derived values shared by both output modes ---------------
     topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", ""),
@@ -1113,11 +1124,23 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
             fields.append("response_status = ?")
             params.append(status)
 
+        # Applyr World Phase 2 (ADR-013): `update <id> applied` confirms the
+        # offer's arrival in the `application` zone — `cv pdf` already walked
+        # it there (see cv.py), this just refreshes the timestamp rather than
+        # introducing a distinct stage value.
+        if status == "applied":
+            fields.append("pipeline_stage = ?")
+            params.append("application")
+            fields.append("pipeline_stage_at = CURRENT_TIMESTAMP")
+
         params.append(offer_id)
         conn.execute(f"UPDATE offers SET {', '.join(fields)} WHERE id = ?", params)
         conn.commit()
     finally:
         conn.close()
+
+    if status == "applied":
+        notify_stage(offer_id, "application")
 
     print(f"Offer #{offer_id} updated.")
     print(f"  Title  : {row['title']}")

@@ -9,6 +9,59 @@ from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
+from applyr.ui_events import notify_stage
+
+
+def _offer_id_from_cv_frontmatter(text: str) -> int | None:
+    """Extract the offer_id a CV draft belongs to.
+
+    Three input shapes, tried in order:
+    1. `.md` drafts: `offer_id: N` inside a leading `---`-delimited YAML
+       frontmatter block. Scoped to that block, not the whole document — an
+       unscoped search risks matching the literal substring "offer_id: N"
+       if it ever appears in the CV body/content instead of the metadata
+       header (code-review finding).
+    2. Legacy HTML with no YAML block at all: the same `offer_id:\\s*(\\d+)`
+       pattern, searched across the whole text — there's no frontmatter
+       region to scope to, so the risk (1) guards against doesn't apply the
+       same way, and this format (e.g. `<!-- offer_id: N -->`) has no
+       narrower delimiter of its own.
+    3. `applyr:offer-id=N` (a second, distinct legacy HTML comment marker,
+       the one `_extract_offer_context_from_md` already recognized for
+       resolving offer *context* — unified here so pipeline-stage marking
+       recognizes it too; code-review finding: cv_review/cv_pdf silently
+       skipped this format).
+    """
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        frontmatter = text[:end + 3] if end != -1 else text
+    else:
+        frontmatter = text
+
+    match = re.search(r"offer_id:\s*(\d+)", frontmatter)
+    if match:
+        return int(match.group(1))
+
+    match = re.search(r"applyr:offer-id=(\d+)", text)
+    return int(match.group(1)) if match else None
+
+
+def _mark_pipeline_stage(offer_id: int, stage: str) -> None:
+    """Write the real stage transition (same connection pattern as the rest
+    of this module) and notify the UI backend, best-effort. See
+    docs/adr/013-applyr-world-movement-and-push-transport.md."""
+    from applyr.db import get_conn
+
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE offers SET pipeline_stage = ?, pipeline_stage_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (stage, offer_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    notify_stage(offer_id, stage)
 
 
 def _die_chrome(message: str, result) -> None:
@@ -234,23 +287,28 @@ def _count_pdf_pages(pdf_path: Path) -> int | None:
     return count or None
 
 
-def _page_limit_for(cv_path: Path) -> int:
+def _page_limit_for(cv_path: Path, offer_id: int | None = None) -> int:
     """1 page, or 2 for senior/lead/director — the limit `cv review` already states.
 
     Falls back to 1 (the stricter rule) whenever the offer's seniority can't
     be resolved: legacy .html input, missing frontmatter, or a deleted offer.
+
+    `offer_id`, when given, skips this function's own frontmatter read — a
+    caller that already extracted it (cmd_cv_pdf, ADR-013) passes it through
+    instead of this function re-reading and re-regexing the same file.
     """
     if cv_path.suffix != ".md":
         return 1
-    match = re.search(r"offer_id:\s*(\d+)", cv_path.read_text(encoding="utf-8"))
-    if not match:
+    if offer_id is None:
+        offer_id = _offer_id_from_cv_frontmatter(cv_path.read_text(encoding="utf-8"))
+    if offer_id is None:
         return 1
 
     from applyr.db import get_conn
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT seniority_level FROM offers WHERE id = ?", (int(match.group(1)),)
+            "SELECT seniority_level FROM offers WHERE id = ?", (offer_id,)
         ).fetchone()
     finally:
         conn.close()
@@ -326,12 +384,23 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
             _die_chrome("Chrome exited with an error.", result)
         if pdf_path.exists():
             print(f"PDF generated: {pdf_path}")
+            # Read once and share the extracted offer_id below — _page_limit_for
+            # would otherwise re-read and re-regex this same file for the same
+            # value. Not gated on cv_path.suffix: the offer_id marker is a
+            # plain-text regex match, not markdown-specific syntax, and this
+            # function's own docstring supports HTML as real ("legacy")
+            # input — passing a non-None offer_id into _page_limit_for for an
+            # .html file is harmless, it still returns 1 immediately there
+            # (adversarial finding, tests/test_pipeline_stage_html_legacy_adversarial.py).
+            pdf_offer_id = _offer_id_from_cv_frontmatter(cv_path.read_text(encoding="utf-8"))
             page_count = _count_pdf_pages(pdf_path)
             if page_count is not None:
-                limit = _page_limit_for(cv_path)
+                limit = _page_limit_for(cv_path, offer_id=pdf_offer_id)
                 if page_count > limit:
                     warn(f"Warning: PDF is {page_count} page(s) — ATS rule allows "
                          f"{limit} for this profile. Trim content before sending.")
+            if pdf_offer_id is not None:
+                _mark_pipeline_stage(pdf_offer_id, "application")
         else:
             _die_chrome("PDF was not generated.", result)
     except subprocess.TimeoutExpired:
@@ -538,6 +607,8 @@ Include both acronyms and full terms.]
         conn.commit()
     finally:
         conn.close()
+
+    _mark_pipeline_stage(offer_id, "cv")
 
     print(f"CV draft generated: {md_path}")
     print(f"  Offer    : #{offer_id} — {row['title']} @ {row['company'] or '?'}")
@@ -781,23 +852,13 @@ def _parse_markdown_for_review(md: str) -> str:
 def _extract_offer_context_from_md(md: str) -> str:
     """Resolve the offer context for a CV, preferring the database.
 
-    For markdown files, reads the offer_id from YAML frontmatter.
-    For legacy HTML files, reads from HTML comments.
+    Recognizes both offer_id markers `_offer_id_from_cv_frontmatter` does
+    (YAML frontmatter for `.md` drafts, `applyr:offer-id=N` HTML comment for
+    legacy HTML) — one lookup instead of two separate regex attempts.
     """
-    # Try YAML frontmatter (markdown files)
-    frontmatter_match = re.search(r'^---\n(.*?)\n---', md, re.DOTALL)
-    if frontmatter_match:
-        frontmatter = frontmatter_match.group(1)
-        offer_id_match = re.search(r'offer_id:\s*(\d+)', frontmatter)
-        if offer_id_match:
-            context = _offer_context_from_db(int(offer_id_match.group(1)))
-            if context:
-                return context
-
-    # Try HTML comment marker (legacy HTML files)
-    marker = re.search(r'applyr:offer-id=(\d+)', md)
-    if marker:
-        context = _offer_context_from_db(int(marker.group(1)))
+    offer_id = _offer_id_from_cv_frontmatter(md)
+    if offer_id is not None:
+        context = _offer_context_from_db(offer_id)
         if context:
             return context
 
@@ -824,6 +885,16 @@ def cmd_cv_review(cv_file: str, as_json: bool = False) -> None:
         cv_text = _strip_html_tags(content)
 
     offer_context = _extract_offer_context_from_md(content)
+
+    # Not gated on cv_path.suffix — the offer_id marker is a plain-text
+    # regex match (`_offer_id_from_cv_frontmatter`), not markdown-specific
+    # syntax, and this function's own docstring supports HTML as a real
+    # ("legacy") input, not a deprecated one. Gating this on ".md" silently
+    # dropped the MUST clause below for every HTML review (adversarial
+    # finding, tests/test_pipeline_stage_html_legacy_adversarial.py).
+    review_offer_id = _offer_id_from_cv_frontmatter(content)
+    if review_offer_id is not None:
+        _mark_pipeline_stage(review_offer_id, "ats")
 
     prompt = f"""\
 You are a senior technical recruiter with 10+ years of experience reviewing CVs for tech roles. You are thorough, fair, and direct.

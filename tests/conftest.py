@@ -1,6 +1,10 @@
 """Shared fixtures for applyr tests."""
 
+import http.server
+import socket
 import sys
+import threading
+import time
 import pytest
 from pathlib import Path
 
@@ -58,6 +62,51 @@ def run_cli(tmp_applyr, monkeypatch):
         main()
 
     return _run
+
+
+def _free_port() -> int:
+    """Ask the OS for a port, then release it immediately — good enough for
+    a 'nothing is listening here' target in a connection-refused test."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
+def free_port() -> int:
+    return _free_port()
+
+
+class _HangingHandler(http.server.BaseHTTPRequestHandler):
+    """Accepts the connection, then never responds — simulates a stuck UI
+    backend. 1s comfortably clears notify_stage's 0.2s client-side timeout
+    (proving the client doesn't wait for the server) without making every
+    test that uses this fixture pay for a longer sleep: HTTPServer.shutdown()
+    can't interrupt an in-flight handler, so teardown blocks for however
+    long this sleep runs."""
+
+    def do_POST(self):  # noqa: N802 (stdlib method name)
+        time.sleep(1)
+
+    def log_message(self, *args):  # silence stdlib's default stderr logging
+        pass
+
+
+@pytest.fixture
+def hanging_server():
+    """A local HTTP server that accepts connections but never replies —
+    used by both tests/test_ui_events.py (notify_stage's own timeout
+    contract) and tests/test_pipeline_stage_instrumentation.py (the 5 CLI
+    commands built on top of it) to prove neither ever blocks on a stuck UI
+    backend (ADR-013)."""
+    server = http.server.HTTPServer(("127.0.0.1", 0), _HangingHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_address[1]
+    finally:
+        server.shutdown()
+        thread.join()
 
 
 @pytest.fixture(autouse=True)
