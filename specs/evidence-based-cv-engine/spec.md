@@ -1,6 +1,6 @@
 ## Spec: Evidence-Based CV Engine
 
-### Status: APPROVED
+### Status: IMPLEMENTED
 ### Version: 1.0
 
 ### Recovered context
@@ -317,11 +317,18 @@ Grouped by chained-PR component (see Task breakdown). AC IDs are
    site stopped pre-lowering `cv_master_text` (evidence.py does its own
    case-insensitive matching and needs original casing for claim text).
    `simplify-lean` found no changes needed; 126/126 cv-related tests pass.
-4. **PR4 — `cv verify` command** (`cv.py` `cmd_cv_verify`, `cli.py`,
+4. [x] **PR4 — `cv verify` command** (`cv.py` `cmd_cv_verify`, `cli.py`,
    `test_cv_verify.py`) [L, consider splitting extraction vs. reporting if it
    approaches the 500-line budget]
    New command, claim extraction, PASS/BLOCKED gate, `cv_evidence_used`
-   snapshot write.
+   snapshot write. Implemented: word-boundary-aware technology matching,
+   `\d+%`/`\d+x`/`\$N` metric regex, `###`-heading employer/title extraction
+   with a documented word-overlap heuristic (loose by design — punctuation
+   in a generated CV heading never matches cv-master.md's bold-title
+   punctuation verbatim). Date-range verification deferred per AC-4.4
+   (`[SHOULD]`, not implemented in this PR). 11 new tests, 320/320 passing
+   across the full cv/cli-related suite. `simplify-lean` found no changes
+   needed.
 5. **ADR-011** documenting the architectural decision, written alongside PR1
    (architectural context should land before the implementation chain, not
    after).

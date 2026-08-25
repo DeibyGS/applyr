@@ -3,10 +3,11 @@
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from applyr.config import APPLYR_DIR, load_config
-from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS
+from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, PROTECTED_FACT_ALIASES
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
 from applyr.evidence import is_evidenced, parse_evidence
@@ -859,6 +860,181 @@ Be specific. Reference exact lines from the CV. Do not be vague."""
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(prompt)
+
+
+# ---------------------------------------------------------------------------
+# cmd_cv_verify (docs/adr/011-evidence-based-cv-engine.md)
+# ---------------------------------------------------------------------------
+# Metrics: percentages, multipliers, dollar amounts — the kind of concrete
+# number a filling agent is tempted to invent because a CV "expects" one.
+_METRIC_RE = re.compile(r'\$\d[\d,]*|\d+%|\d+x\b', re.IGNORECASE)
+# The CV skeleton's per-entry headings ("### [Job Title] - [Company], ...",
+# "### [Project Name]") — see cmd_cv_generate's template below.
+_ENTRY_HEADING_RE = re.compile(r'^###\s+(.+)$', re.MULTILINE)
+# Excluded from the employer/title word-overlap check: too common to mean
+# anything on their own (corporate suffixes, work-mode labels, articles).
+_HEADING_STOPWORDS = frozenset({
+    "inc", "llc", "corp", "corporation", "ltd", "co", "company",
+    "remote", "hybrid", "onsite", "the", "and", "of", "for",
+})
+
+
+def _extract_offer_id_from_md(md: str) -> int | None:
+    """Resolve the offer id linked to a CV — YAML frontmatter (markdown
+    files) first, then the legacy HTML comment marker (.html files)."""
+    frontmatter_match = re.search(r'^---\n(.*?)\n---', md, re.DOTALL)
+    if frontmatter_match:
+        offer_id_match = re.search(r'offer_id:\s*(\d+)', frontmatter_match.group(1))
+        if offer_id_match:
+            return int(offer_id_match.group(1))
+    marker = re.search(r'applyr:offer-id=(\d+)', md)
+    if marker:
+        return int(marker.group(1))
+    return None
+
+
+def _build_tech_vocabulary(claims: list) -> set[str]:
+    """Technology terms worth checking a CV for: PROTECTED_FACT_ALIASES'
+    canonical names and aliases, plus every skill claim already in the
+    Evidence Graph — so tech genuinely in cv-master.md but outside the seed
+    alias dict is still recognized as a checkable claim."""
+    vocabulary: set[str] = set()
+    for canonical, aliases in PROTECTED_FACT_ALIASES.items():
+        vocabulary.add(canonical)
+        vocabulary.update(aliases)
+    vocabulary.update(claim.text for claim in claims if claim.section == "skill")
+    return vocabulary
+
+
+def _extract_tech_claims(cv_text: str, vocabulary: set[str]) -> list[str]:
+    """Vocabulary terms that actually appear in the CV, word-boundary aware
+    (a plain substring check would let short abbreviations like "TS" or "JS"
+    match inside unrelated words)."""
+    return [term for term in vocabulary if re.search(rf'\b{re.escape(term)}\b', cv_text, re.IGNORECASE)]
+
+
+def _check_employer_claim(heading: str, claims: list) -> bool:
+    """Whether a CV's ### entry heading (e.g. "Backend Developer - Acme
+    Corp, Remote") shares a significant word with some evidence entry's
+    context (e.g. "Backend Developer — Acme Corp").
+
+    Word overlap, not exact substring: a generated CV's heading punctuation
+    never matches cv-master.md's bold-title punctuation verbatim. This is a
+    known, documented limitation (specs/evidence-based-cv-engine § Out of
+    scope: no full-sentence claim verification), not a full identity check.
+    """
+    heading_words = {
+        w.strip(",.") for w in heading.lower().split()
+        if len(w.strip(",.")) > 3 and w.strip(",.") not in _HEADING_STOPWORDS
+    }
+    if not heading_words:
+        return True  # nothing significant to check — don't false-flag
+    for claim in claims:
+        if not claim.entry_context:
+            continue
+        context_words = {w.strip(",.") for w in claim.entry_context.lower().split() if len(w.strip(",.")) > 3}
+        if heading_words & context_words:
+            return True
+    return False
+
+
+def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
+    """Deterministic truth gate for a generated CV.
+
+    Extracts protected-fact claims (technologies, metrics, employer/project/
+    title names) from the CV and checks each against the Evidence Graph
+    parsed fresh from cv-master.md — no LLM calls (ADR-003), no
+    agent-executed prompt. Unlike `cv review`/`cv review-blind`, the result
+    here is directly authoritative on exit: 0 for PASS, 1 for BLOCKED (every
+    unsupported claim listed). On PASS, the verified claim texts are
+    snapshotted to offers.cv_evidence_used for later audit (see cmd_show) —
+    an immutable record of what backed this CV, not a live cache.
+    """
+    import json
+
+    from applyr.db import get_conn
+
+    cv_path = Path(cv_file).resolve()
+    content = read_text_or_die(cv_path)
+
+    if cv_path.suffix == ".md":
+        cv_text = _parse_markdown_for_review(content)
+    else:
+        cv_text = _strip_html_tags(content)
+
+    offer_id = _extract_offer_id_from_md(content)
+    if offer_id is None:
+        die("Error: no offer id found in this CV — pass a file generated by 'applyr cv generate'.",
+            code="no_offer_id")
+
+    conn = get_conn()
+    try:
+        offer = conn.execute("SELECT id FROM offers WHERE id = ?", (offer_id,)).fetchone()
+    finally:
+        conn.close()
+    if not offer:
+        die(f"Error: offer #{offer_id} not found.", code="not_found", details={"offer_id": offer_id})
+
+    cv_master = get_cv_master_path()
+    if not cv_master.exists():
+        die("Error: cv-master.md not found. Run 'applyr init' first.", code="cv_master_missing")
+    claims = parse_evidence(cv_master.read_text(encoding="utf-8"))
+
+    vocabulary = _build_tech_vocabulary(claims)
+    no_comments = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+
+    results = []
+    for term in _extract_tech_claims(cv_text, vocabulary):
+        results.append({"category": "technology", "claim": term, "supported": is_evidenced(term, claims)})
+    for metric in _METRIC_RE.findall(cv_text):
+        results.append({"category": "metric", "claim": metric, "supported": is_evidenced(metric, claims)})
+    for heading in _ENTRY_HEADING_RE.findall(no_comments):
+        heading = heading.strip()
+        results.append({
+            "category": "employer_or_title",
+            "claim": heading,
+            "supported": _check_employer_claim(heading, claims),
+        })
+
+    unsupported = [r for r in results if not r["supported"]]
+    passed = not unsupported
+
+    if passed:
+        conn = get_conn()
+        try:
+            conn.execute(
+                "UPDATE offers SET cv_evidence_used = ? WHERE id = ?",
+                (json.dumps([r["claim"] for r in results]), offer_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    if as_json:
+        payload = {
+            "passed": passed,
+            "offer_id": offer_id,
+            "claims": results,
+            "unsupported": unsupported,
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(f"\n{'='*60}")
+        print(f"  CV Verify — {cv_path.name}  (offer #{offer_id})")
+        print(f"{'='*60}")
+        print(f"\n  Claims checked : {len(results)}")
+        print(f"  Supported      : {len(results) - len(unsupported)}")
+        print(f"  Unsupported    : {len(unsupported)}")
+        if unsupported:
+            print("\n  UNSUPPORTED CLAIMS:")
+            for r in unsupported:
+                print(f"    [{r['category']}] {r['claim']}")
+            print("\n  >> BLOCKED — remove or ground these claims in cv-master.md before sending this CV.")
+        else:
+            print("\n  >> PASS — every checked claim is grounded in cv-master.md.")
+
+    if not passed:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
