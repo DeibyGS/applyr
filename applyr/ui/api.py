@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
@@ -30,6 +31,9 @@ router = APIRouter()
 # single-process local tool (ADR-011); no cross-process broker needed.
 _event_subscribers: set[asyncio.Queue] = set()
 
+# Enriched event subscribers (Phase 1: granular agent events)
+_enriched_event_subscribers: set[asyncio.Queue] = set()
+
 # Core offer columns for the list view — matches the spec's "core fields"
 # scope for GET /api/jobs. The full row (all columns) is only returned by
 # GET /api/jobs/{id}, alongside the topic breakdown.
@@ -49,6 +53,28 @@ class PipelineStageEvent(BaseModel):
     stage: str
 
 
+class AgentEvent(BaseModel):
+    type: str
+    agent_id: str
+    timestamp: str
+    correlation_id: str
+    offer_id: int | None = None
+    payload: dict | None = None
+
+
+class PipelineStageConfig(BaseModel):
+    id: str
+    name: str
+    position: dict
+    inputs: list[str]
+    outputs: list[str]
+    next_stages: list[str]
+
+
+class PipelineConfigResponse(BaseModel):
+    pipeline: dict
+
+
 @router.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -64,6 +90,17 @@ def get_config() -> dict:
     return {
         "threshold_apply": general["threshold_apply"],
         "threshold_maybe": general["threshold_maybe"],
+    }
+
+
+@router.get("/api/pipeline-config")
+def get_pipeline_config() -> dict:
+    """Read-only view of the pipeline definition for the Visual UI.
+    Returns the merged config (user overrides + built-in defaults)."""
+    config = load_config()
+    pipeline_config = config.get("pipeline", {})
+    return {
+        "pipeline": pipeline_config,
     }
 
 
@@ -202,6 +239,42 @@ async def post_pipeline_stage(body: PipelineStageEvent) -> None:
         queue.put_nowait(payload)
 
 
+@router.post("/api/internal/agent-event", status_code=204)
+async def post_agent_event(body: AgentEvent) -> None:
+    """Internal-only — called by the CLI's `notify_event()` for granular
+    agent lifecycle events. Fans out to all connected enriched event clients.
+    Never persists anything — pure broadcast."""
+    # Validate event type
+    valid_types = {
+        "agent.started",
+        "agent.command",
+        "agent.output",
+        "agent.completed",
+        "agent.failed",
+        "agent.waiting",
+        "agent.blocked",
+        "agent.receiving",
+        "handoff.started",
+        "handoff.walking",
+        "handoff.completed",
+        "pipeline.stage",
+    }
+    if body.type not in valid_types:
+        raise HTTPException(status_code=422, detail=f"invalid event type: {body.type}")
+
+    # Validate agent_id
+    valid_agents = {"recruiter", "matching", "cv", "ats", "application"}
+    if body.agent_id not in valid_agents:
+        raise HTTPException(status_code=422, detail=f"invalid agent_id: {body.agent_id}")
+
+    # Stamp receipt time if not provided
+    event = body.model_dump()
+    event["received_at"] = datetime.now(timezone.utc).isoformat()
+
+    for queue in list(_enriched_event_subscribers):
+        queue.put_nowait(event)
+
+
 @router.get("/api/events")
 async def stream_events() -> StreamingResponse:
     """Server-Sent Events stream of real pipeline-stage transitions
@@ -220,5 +293,25 @@ async def stream_events() -> StreamingResponse:
                 yield f"data: {json.dumps(event)}\n\n"
         finally:
             _event_subscribers.discard(queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/api/events/enriched")
+async def stream_enriched_events() -> StreamingResponse:
+    """Server-Sent Events stream of granular agent lifecycle events (Phase 1).
+    Carries agent.started, agent.command, agent.output, agent.completed,
+    agent.failed, agent.waiting, agent.blocked, handoff.*, and pipeline.stage.
+    Same no-retroactive-replay rule as /api/events."""
+
+    async def event_generator():
+        queue: asyncio.Queue = asyncio.Queue()
+        _enriched_event_subscribers.add(queue)
+        try:
+            while True:
+                event = await queue.get()
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            _enriched_event_subscribers.discard(queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -9,7 +9,15 @@ from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
-from applyr.ui_events import notify_stage
+from applyr.ui_events import (
+    notify_stage,
+    notify_agent_started,
+    notify_agent_completed,
+    notify_agent_failed,
+    notify_agent_output,
+    notify_handoff_started,
+    notify_handoff_completed,
+)
 
 
 def _offer_id_from_cv_frontmatter(text: str) -> int | None:
@@ -62,6 +70,47 @@ def _mark_pipeline_stage(offer_id: int, stage: str) -> None:
     finally:
         conn.close()
     notify_stage(offer_id, stage)
+
+    # Phase 1: Emit handoff events for pipeline stage transitions
+    if stage == "cv":
+        notify_handoff_started(
+            from_agent="matching",
+            to_agent="cv",
+            artifact={"type": "compatibility_score", "score": 0, "breakdown": [], "offerId": offer_id},
+            offer_id=offer_id,
+        )
+        notify_handoff_completed(
+            from_agent="matching",
+            to_agent="cv",
+            artifact={"type": "compatibility_score", "score": 0, "breakdown": [], "offerId": offer_id},
+            offer_id=offer_id,
+        )
+    elif stage == "ats":
+        notify_handoff_started(
+            from_agent="cv",
+            to_agent="ats",
+            artifact={"type": "cv", "sections": [], "offerId": offer_id, "language": "en"},
+            offer_id=offer_id,
+        )
+        notify_handoff_completed(
+            from_agent="cv",
+            to_agent="ats",
+            artifact={"type": "cv", "sections": [], "offerId": offer_id, "language": "en"},
+            offer_id=offer_id,
+        )
+    elif stage == "application":
+        notify_handoff_started(
+            from_agent="ats",
+            to_agent="application",
+            artifact={"type": "ats_review", "score": 0, "issues": [], "offerId": offer_id},
+            offer_id=offer_id,
+        )
+        notify_handoff_completed(
+            from_agent="ats",
+            to_agent="application",
+            artifact={"type": "ats_review", "score": 0, "issues": [], "offerId": offer_id},
+            offer_id=offer_id,
+        )
 
 
 def _die_chrome(message: str, result) -> None:
@@ -378,21 +427,29 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
         f"file://{html_path}",
     ]
 
+    # Extract offer_id from CV file before processing
+    pdf_offer_id = _offer_id_from_cv_frontmatter(cv_path.read_text(encoding="utf-8"))
+
     try:
+        # Phase 1: Agent started event
+        notify_agent_started(
+            "application",
+            f"Generating PDF for CV {cv_path.name}",
+            command=f"applyr cv pdf {cv_file}",
+            offer_id=pdf_offer_id,
+        )
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=CHROME_TIMEOUT_SECONDS)
         if result.returncode != 0:
+            notify_agent_failed(
+                "application",
+                error=f"Chrome exited with code {result.returncode}: {result.stderr[:200]}",
+                recoverable=False,
+                offer_id=pdf_offer_id,
+            )
             _die_chrome("Chrome exited with an error.", result)
         if pdf_path.exists():
             print(f"PDF generated: {pdf_path}")
-            # Read once and share the extracted offer_id below — _page_limit_for
-            # would otherwise re-read and re-regex this same file for the same
-            # value. Not gated on cv_path.suffix: the offer_id marker is a
-            # plain-text regex match, not markdown-specific syntax, and this
-            # function's own docstring supports HTML as real ("legacy")
-            # input — passing a non-None offer_id into _page_limit_for for an
-            # .html file is harmless, it still returns 1 immediately there
-            # (adversarial finding, tests/test_pipeline_stage_html_legacy_adversarial.py).
-            pdf_offer_id = _offer_id_from_cv_frontmatter(cv_path.read_text(encoding="utf-8"))
             page_count = _count_pdf_pages(pdf_path)
             if page_count is not None:
                 limit = _page_limit_for(cv_path, offer_id=pdf_offer_id)
@@ -401,12 +458,31 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
                          f"{limit} for this profile. Trim content before sending.")
             if pdf_offer_id is not None:
                 _mark_pipeline_stage(pdf_offer_id, "application")
+                # Phase 1: Agent completed event
+                notify_agent_completed(
+                    "application",
+                    artifact={"type": "application_package", "pdfPath": str(pdf_path), "offerId": pdf_offer_id},
+                    output_summary=f"PDF generated: {pdf_path.name} ({page_count} page(s))",
+                    offer_id=pdf_offer_id,
+                )
         else:
             _die_chrome("PDF was not generated.", result)
     except subprocess.TimeoutExpired:
+        notify_agent_failed(
+            "application",
+            error=f"Chrome timed out after {CHROME_TIMEOUT_SECONDS} seconds",
+            recoverable=True,
+            offer_id=pdf_offer_id,
+        )
         die(f"Error: Chrome timed out after {CHROME_TIMEOUT_SECONDS} seconds.",
             code="chrome_failed", details={"timeout_seconds": CHROME_TIMEOUT_SECONDS})
     except FileNotFoundError:
+        notify_agent_failed(
+            "application",
+            error=f"Chrome not found at: {chrome_path}",
+            recoverable=False,
+            offer_id=pdf_offer_id,
+        )
         die(f"Error: Chrome not found at: {chrome_path}",
             code="chrome_not_found", details={"path": chrome_path})
     finally:
@@ -593,6 +669,14 @@ Include both acronyms and full terms.]
             text="  It would be overwritten with an empty skeleton.\n"
                  "  Pass --force to replace it, or rename the existing file first.")
 
+    # Phase 1: Agent started event
+    notify_agent_started(
+        "cv",
+        f"Generating tailored CV for {row['title']} @ {row['company'] or '?'}",
+        command=f"applyr cv generate {offer_id}",
+        offer_id=offer_id,
+    )
+
     # Explicit UTF-8: the skeleton now carries accented headings ("Formación"),
     # so relying on the platform's default encoding would corrupt or fail to
     # write a CV in every language applyr supports but English.
@@ -607,6 +691,14 @@ Include both acronyms and full terms.]
         conn.commit()
     finally:
         conn.close()
+
+    # Phase 1: Agent completed event
+    notify_agent_completed(
+        "cv",
+        artifact={"type": "cv", "sections": ["summary", "experience", "projects", "education", "skills"], "offerId": offer_id, "language": language},
+        output_summary=f"CV draft generated: {md_path.name}",
+        offer_id=offer_id,
+    )
 
     _mark_pipeline_stage(offer_id, "cv")
 
@@ -894,7 +986,20 @@ def cmd_cv_review(cv_file: str, as_json: bool = False) -> None:
     # finding, tests/test_pipeline_stage_html_legacy_adversarial.py).
     review_offer_id = _offer_id_from_cv_frontmatter(content)
     if review_offer_id is not None:
+        # Phase 1: Agent events for ATS review
+        notify_agent_started(
+            "ats",
+            f"Reviewing CV for offer #{review_offer_id}",
+            command=f"applyr cv review {cv_file}",
+            offer_id=review_offer_id,
+        )
         _mark_pipeline_stage(review_offer_id, "ats")
+        notify_agent_completed(
+            "ats",
+            artifact={"type": "ats_review", "score": 0, "issues": [], "offerId": review_offer_id},
+            output_summary=f"ATS review prompt generated for offer #{review_offer_id}",
+            offer_id=review_offer_id,
+        )
 
     prompt = f"""\
 You are a senior technical recruiter with 10+ years of experience reviewing CVs for tech roles. You are thorough, fair, and direct.
@@ -973,6 +1078,14 @@ def cmd_cv_review_blind(offer_id: int, as_json: bool = False) -> None:
     # Parse cv-master.md for review
     cv_text = _parse_markdown_for_review(cv_master_text)
 
+    # Phase 1: Agent started event for blind review
+    notify_agent_started(
+        "recruiter",
+        f"Blind review of cv-master.md for offer #{offer_id}",
+        command=f"applyr cv review-blind {offer_id}",
+        offer_id=offer_id,
+    )
+
     # 3. Build offer context (WITHOUT compatibility_pct — blind)
     offer_lines = [
         f"Target Position : {offer['title']}",
@@ -1041,6 +1154,14 @@ Be specific. Reference exact sections from the profile. Do not be vague."""
         print(f"  STRONG_MATCH  if score >= {threshold_apply}")
         print(f"  CLOSE_MATCH   if score >= {threshold_maybe} and < {threshold_apply}")
         print(f"  NO_MATCH      if score < {threshold_maybe}")
+
+    # Phase 1: Agent completed event for blind review
+    notify_agent_completed(
+        "recruiter",
+        artifact={"type": "ats_review", "score": 0, "issues": [], "offerId": offer_id},
+        output_summary=f"Blind review prompt generated for offer #{offer_id}",
+        offer_id=offer_id,
+    )
 
 
 def cmd_cv_ats_check(cv_file: str, as_json: bool = False) -> None:
