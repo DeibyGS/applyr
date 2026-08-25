@@ -97,3 +97,22 @@ DEFAULT_WEIGHTS = {
 # JSON error snippet context (chars before/after parse error)
 # ---------------------------------------------------------------------------
 JSON_ERROR_CONTEXT = 20
+
+# ---------------------------------------------------------------------------
+# Evidence-Based CV Engine (docs/adr/011-evidence-based-cv-engine.md)
+# ---------------------------------------------------------------------------
+# Curated, deliberately not exhaustive: a term ↔ its equivalent forms, so
+# evidence.is_evidenced() can tell "AWS" and "Amazon Web Services" are the same
+# claim without fuzzy/semantic matching (ADR-011 rejected that explicitly — a
+# fuzzy matcher risks the verifier itself hallucinating support). Extend this
+# dict as real gaps show up; each key's own name counts as one of its forms
+# implicitly, so only list the *other* spellings here.
+PROTECTED_FACT_ALIASES: dict[str, list[str]] = {
+    "AWS": ["Amazon Web Services"],
+    "GCP": ["Google Cloud Platform"],
+    "PostgreSQL": ["Postgres"],
+    "JavaScript": ["JS"],
+    "TypeScript": ["TS"],
+    "Kubernetes": ["K8s"],
+    "CI/CD": ["Continuous Integration", "Continuous Deployment", "Continuous Delivery"],
+}
