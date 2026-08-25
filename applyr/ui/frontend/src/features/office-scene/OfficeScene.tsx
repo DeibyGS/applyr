@@ -7,6 +7,7 @@ import { PixiStage } from "./PixiStage";
 import { getZonePositions } from "./scene-layout";
 import { createAgentSprite, type AgentSpriteHandle } from "./agent-sprite";
 import { createPipelineSpriteManager, type PipelineSpriteManager } from "./pipeline-sprites";
+import { startSceneTextureLoading } from "./textures";
 
 const SCENE_WIDTH = 720;
 const SCENE_HEIGHT = 260;
@@ -53,6 +54,7 @@ export function OfficeScene({ statuses, jobs, jobsLoaded }: OfficeSceneProps) {
   const latestJobsRef = useRef(jobs);
   const jobsLoadedRef = useRef(jobsLoaded);
   const pipelineSeededRef = useRef(false);
+  const disposedRef = useRef(false);
 
   useEffect(() => {
     latestStatusesRef.current = statuses;
@@ -80,9 +82,17 @@ export function OfficeScene({ statuses, jobs, jobsLoaded }: OfficeSceneProps) {
       const status = latestStatusesRef.current.find((s) => s.agentId === zone.agentId);
       if (!status) continue;
       const sprite = createAgentSprite(zone, status);
-      stage.addChild(sprite.graphics);
+      stage.addChild(sprite.view);
       spritesRef.current.set(zone.agentId, sprite);
     }
+
+    // Art arrives asynchronously and per-entity (may be absent entirely) —
+    // each texture swaps into its existing sprite in place. Guarded against
+    // post-unmount arrivals: a late-resolving load must not touch destroyed
+    // sprites.
+    startSceneTextureLoading((agentId, texture) => {
+      if (!disposedRef.current) spritesRef.current.get(agentId)?.setArt(texture);
+    });
 
     pipelineRef.current = createPipelineSpriteManager(stage);
     seedPipelineIfReady();
@@ -101,8 +111,10 @@ export function OfficeScene({ statuses, jobs, jobsLoaded }: OfficeSceneProps) {
   }, []);
 
   useEffect(() => {
+    disposedRef.current = false;
     const sprites = spritesRef.current;
     return () => {
+      disposedRef.current = true;
       for (const sprite of sprites.values()) sprite.destroy();
       sprites.clear();
       pipelineRef.current?.destroy();
