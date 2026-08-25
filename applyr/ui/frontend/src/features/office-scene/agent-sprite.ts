@@ -6,7 +6,6 @@ import type { ZonePosition } from "./scene-layout";
 const RADIUS = 20;
 const COLOR_IDLE = 0x9ca3af;
 const COLOR_WORKING = 0x2dd4bf;
-const COLOR_NOT_CONNECTED = 0x4b5563;
 
 /** Strictly below POLL_INTERVAL_MS (3000ms, useIntakeAndJobs.ts) so a
  * transition always finishes before the next poll could start another. */
@@ -19,15 +18,14 @@ export interface AgentSpriteHandle {
 }
 
 function colorForStatus(status: AgentStatus): number {
-  if (status.state === "not_connected") return COLOR_NOT_CONNECTED;
   return status.state === "working" ? COLOR_WORKING : COLOR_IDLE;
 }
 
 /**
  * One zone's placeholder sprite: a filled isometric-positioned circle whose
- * color reflects agent state. cv/ats/application always render
- * COLOR_NOT_CONNECTED and are never tweened — they have no real backing
- * state, so animating them would fabricate activity (AGENTS.md invariant).
+ * color reflects agent state. Every zone (including cv/ats/application,
+ * since ADR-013 gave them real backing data via offers.pipeline_stage) is
+ * treated uniformly here — none are hardcoded to a fixed color anymore.
  */
 export function createAgentSprite(zone: ZonePosition, initialStatus: AgentStatus): AgentSpriteHandle {
   const graphics = new Graphics();
@@ -46,8 +44,6 @@ export function createAgentSprite(zone: ZonePosition, initialStatus: AgentStatus
   let tween: gsap.core.Tween | null = null;
 
   const update = (status: AgentStatus) => {
-    if (status.state === "not_connected") return;
-
     const nextColor = colorForStatus(status);
     if (nextColor === lastColor) return;
     lastColor = nextColor;

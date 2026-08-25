@@ -37,8 +37,11 @@ function idle(): AgentStatus {
 function working(): AgentStatus {
   return { agentId: "recruiter", state: "working", pendingCount: 2 };
 }
-function notConnected(): AgentStatus {
-  return { agentId: "cv", state: "not_connected" };
+function cvIdle(): AgentStatus {
+  return { agentId: "cv", state: "idle" };
+}
+function cvWorking(): AgentStatus {
+  return { agentId: "cv", state: "working", count: 1 };
 }
 
 beforeEach(() => {
@@ -115,11 +118,10 @@ describe("createAgentSprite", () => {
     expect(sprite.graphics.alpha).toBe(0.35); // no tween in flight — dims again as a fresh transition
   });
 
-  it("never tweens a not_connected zone, regardless of repeated updates", () => {
-    const sprite = createAgentSprite(zone, notConnected());
-    sprite.update(notConnected());
-    sprite.update(notConnected());
-    expect(gsapToMock).not.toHaveBeenCalled();
+  it("treats cv/ats/application zones the same as recruiter/matching — ADR-013 gave them real backing data too", () => {
+    const sprite = createAgentSprite(zone, cvIdle());
+    sprite.update(cvWorking());
+    expect(gsapToMock).toHaveBeenCalledTimes(1);
   });
 
   it("destroy() kills any active tween and destroys the graphics object", () => {
