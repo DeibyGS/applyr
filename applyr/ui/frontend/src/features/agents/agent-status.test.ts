@@ -77,13 +77,27 @@ describe("deriveAgentStatuses", () => {
     });
   });
 
-  it("cv, ats, and application are always not_connected regardless of data", () => {
-    const jobs = [job(), job({ id: 2 })];
+  it("cv, ats, and application are idle when no offer is in that pipeline stage", () => {
+    const jobs = [job(), job({ id: 2 })]; // both pipeline_stage: null
     const intake = [intakeRow()];
     const result = deriveAgentStatuses(intake, jobs);
     const [, , cv, ats, application] = result;
-    expect(cv).toEqual({ agentId: "cv", state: "not_connected" });
-    expect(ats).toEqual({ agentId: "ats", state: "not_connected" });
-    expect(application).toEqual({ agentId: "application", state: "not_connected" });
+    expect(cv).toEqual({ agentId: "cv", state: "idle" });
+    expect(ats).toEqual({ agentId: "ats", state: "idle" });
+    expect(application).toEqual({ agentId: "application", state: "idle" });
+  });
+
+  it("cv, ats, and application report working with the real count of offers in that stage", () => {
+    const jobs = [
+      job({ id: 1, pipeline_stage: "cv" }),
+      job({ id: 2, pipeline_stage: "cv" }),
+      job({ id: 3, pipeline_stage: "ats" }),
+      job({ id: 4, pipeline_stage: "application" }),
+      job({ id: 5, pipeline_stage: null }),
+    ];
+    const [, , cv, ats, application] = deriveAgentStatuses([], jobs);
+    expect(cv).toEqual({ agentId: "cv", state: "working", count: 2 });
+    expect(ats).toEqual({ agentId: "ats", state: "working", count: 1 });
+    expect(application).toEqual({ agentId: "application", state: "working", count: 1 });
   });
 });
