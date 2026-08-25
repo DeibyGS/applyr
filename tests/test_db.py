@@ -3,7 +3,7 @@
 import pytest
 import sqlite3
 
-from applyr.db import init_db, get_conn, SCHEMA_VERSION, VALID_STATUSES, VALID_CHANNELS, VALID_SEVERITIES
+from applyr.db import init_db, get_conn, SCHEMA_VERSION, VALID_STATUSES, VALID_CHANNELS, VALID_SEVERITIES, VALID_PIPELINE_STAGES
 import applyr.db as db_module
 
 
@@ -792,6 +792,90 @@ class TestMigrationV10ToV11:
             conn.close()
         assert offer["company"] == "Acme"
         assert len(topics) == 1
+
+
+class TestMigrationV11ToV12:
+    """Applyr World Phase 2 (ADR-013): adds pipeline_stage/pipeline_stage_at
+    to offers so the Office scene can animate a real offer walking between
+    zones. NULL means "no stage tracked" — no backfill for existing rows."""
+
+    def test_adds_pipeline_stage_columns(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 11")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(offers)").fetchall()}
+        assert "pipeline_stage" in cols
+        assert "pipeline_stage_at" in cols
+        row = conn.execute("SELECT version FROM schema_version").fetchone()
+        assert row["version"] == SCHEMA_VERSION
+        conn.close()
+
+    def test_migration_idempotent(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE schema_version SET version = 11")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+        init_db(tmp_db)  # must not raise on the second pass
+
+        conn = get_conn(tmp_db)
+        try:
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        finally:
+            conn.close()
+        assert version == SCHEMA_VERSION
+
+    def test_fresh_install_has_pipeline_stage_columns(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(offers)").fetchall()}
+        finally:
+            conn.close()
+        assert "pipeline_stage" in cols
+        assert "pipeline_stage_at" in cols
+
+    def test_existing_rows_are_not_backfilled(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("INSERT INTO offers (title, company, compatibility_pct) VALUES ('Dev', 'Acme', 70)")
+        conn.execute("UPDATE schema_version SET version = 11")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+
+        conn = get_conn(tmp_db)
+        try:
+            offer = conn.execute("SELECT pipeline_stage, pipeline_stage_at FROM offers WHERE id = 1").fetchone()
+        finally:
+            conn.close()
+        assert offer["pipeline_stage"] is None
+        assert offer["pipeline_stage_at"] is None
+
+    def test_rejects_a_value_outside_the_enum(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("INSERT INTO offers (title, company, compatibility_pct) VALUES ('Dev', 'Acme', 70)")
+        conn.commit()
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("UPDATE offers SET pipeline_stage = 'recruiter' WHERE id = 1")
+        finally:
+            conn.close()
+
+    def test_accepts_every_valid_stage(self, tmp_db):
+        conn = get_conn(tmp_db)
+        conn.execute("INSERT INTO offers (title, company, compatibility_pct) VALUES ('Dev', 'Acme', 70)")
+        conn.commit()
+        try:
+            for stage in VALID_PIPELINE_STAGES:
+                conn.execute("UPDATE offers SET pipeline_stage = ? WHERE id = 1", (stage,))
+        finally:
+            conn.close()
 
 
 class TestMigrationFailureIsAStructuredCliError:

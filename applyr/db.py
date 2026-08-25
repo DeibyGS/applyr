@@ -6,7 +6,21 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
+
+# Applyr World Phase 2 (ADR-013). Defined here, ahead of MIGRATIONS/SCHEMA_SQL
+# below, so both can derive their CHECK clause from this single tuple instead
+# of each hardcoding the same 4 values — unlike every other enum column in
+# this schema (VALID_STATUSES, VALID_CHANNELS, etc.), which are validated
+# only in Python with no DB-level CHECK at all, pipeline_stage gets one
+# because it's written directly by SQL in commands/core.py without going
+# through a Python-side validator first (see cmd_add's inline UPDATE) — a
+# CHECK is the only thing guarding against a typo'd literal there. One
+# source of truth for the constraint still matters even so.
+VALID_PIPELINE_STAGES = ("matching", "cv", "ats", "application")
+_PIPELINE_STAGE_CHECK_SQL = "CHECK (pipeline_stage IS NULL OR pipeline_stage IN ({}))".format(
+    ", ".join(f"'{stage}'" for stage in VALID_PIPELINE_STAGES)
+)
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -144,9 +158,20 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         )""",
         "CREATE INDEX IF NOT EXISTS idx_ui_intake_status ON ui_intake(status)",
     ],
+    # Applyr World Phase 2 (ADR-013): per-offer pipeline-stage tracking so the
+    # Office scene can animate a real offer walking between zones. NULL means
+    # "no stage tracked" — every pre-existing row stays NULL, never backfilled
+    # (same reasoning as `language` in (3, 4): there is no honest way to
+    # invent a stage history nobody recorded). `recruiter` is deliberately not
+    # a valid value here — that zone still derives its state from `ui_intake`
+    # exactly as Phase 1 already does, per the ADR's event→zone mapping.
+    (11, 12): [
+        f"ALTER TABLE offers ADD COLUMN pipeline_stage TEXT {_PIPELINE_STAGE_CHECK_SQL}",
+        "ALTER TABLE offers ADD COLUMN pipeline_stage_at TEXT",
+    ],
 }
 
-SCHEMA_SQL = """\
+SCHEMA_SQL = f"""\
 CREATE TABLE IF NOT EXISTS offers (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     title             TEXT    NOT NULL,
@@ -188,7 +213,11 @@ CREATE TABLE IF NOT EXISTS offers (
     response_status   TEXT    DEFAULT 'no_response',
     notes             TEXT,
     created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
-    weights_used      TEXT
+    weights_used      TEXT,
+    -- Applyr World Phase 2 (ADR-013): NULL until a CLI command emits a real
+    -- stage transition; never backfilled.
+    pipeline_stage    TEXT    {_PIPELINE_STAGE_CHECK_SQL},
+    pipeline_stage_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS offer_topics (
@@ -233,6 +262,8 @@ CREATE INDEX IF NOT EXISTS idx_ui_intake_status ON ui_intake(status);
 
 VALID_STATUSES = ("pending", "applied", "waiting", "in_process", "rejected", "discarded", "offer")
 VALID_INTAKE_STATUSES = ("pending", "promoted")
+# VALID_PIPELINE_STAGES is defined near the top of this file, ahead of
+# MIGRATIONS/SCHEMA_SQL, which derive their CHECK clause from it.
 VALID_CHANNELS = ("linkedin_easy", "linkedin_direct", "email", "portal", "referral", "other")
 VALID_WORK_MODES = ("remote", "hybrid", "onsite")
 VALID_SENIORITY = ("trainee", "entry_level", "junior", "mid", "senior", "lead", "director")
