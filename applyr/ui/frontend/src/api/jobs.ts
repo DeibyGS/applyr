@@ -1,4 +1,5 @@
 import { request } from "./client";
+import type { PipelineStageEvent } from "./events";
 
 export type JobSummary = {
   id: number;
@@ -12,6 +13,9 @@ export type JobSummary = {
   role_category: string | null;
   created_at: string;
   date_applied: string | null;
+  /** ADR-013 — null means no real transition has been recorded for this
+   * offer yet (pre-Phase-2 offer, or added directly as `applied`). */
+  pipeline_stage: PipelineStageEvent["stage"] | null;
 };
 
 export type Topic = {

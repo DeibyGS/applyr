@@ -78,3 +78,63 @@ export function createAgentSprite(zone: ZonePosition, initialStatus: AgentStatus
 
   return { graphics, update, destroy };
 }
+
+// ---------------------------------------------------------------------------
+// Applyr World Phase 2 (ADR-013): position tweening for per-offer sprites.
+// The 5 zone sprites above never move — this is a separate capability
+// pipeline-sprites.ts uses for the sprites that represent an offer walking
+// between zones.
+// ---------------------------------------------------------------------------
+
+/** Facing for the future real art (walk-cycle direction). With today's
+ * fixed single-row ZONE_ORDER (scene-layout.ts), movement is always one
+ * diagonal step forward — "right" is the only direction this layout ever
+ * produces in practice; "up"/"down"/"left" only fire once a future,
+ * non-linear layout exists. See specs/visual-ui-applyr-world-phase2's Edge
+ * cases. */
+export type SpriteDirection = "up" | "down" | "left" | "right";
+
+/** Bounded and fixed, same reasoning as TWEEN_DURATION_S: a move must always
+ * visibly complete, never feel instantaneous or open-ended. */
+const MOVE_DURATION_S = 1.0;
+
+export function directionFor(dx: number, dy: number): SpriteDirection {
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? "right" : "left";
+  }
+  return dy >= 0 ? "down" : "up";
+}
+
+export interface PositionTweenHandle {
+  direction: SpriteDirection;
+  /** Resolves once the tween completes normally. Never resolves if kill()
+   * is called first — callers that kill() must not also await this. */
+  done: Promise<void>;
+  kill: () => void;
+}
+
+/**
+ * Tweens `graphics` from its current position to (targetX, targetY),
+ * updating zIndex on completion so isometric depth-sort (sort-by-Y, per
+ * scene-layout.ts) stays correct after the move.
+ */
+export function tweenPosition(graphics: Graphics, targetX: number, targetY: number): PositionTweenHandle {
+  const direction = directionFor(targetX - graphics.x, targetY - graphics.y);
+
+  let resolveDone: () => void;
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve;
+  });
+
+  const tween = gsap.to(graphics, {
+    x: targetX,
+    y: targetY,
+    duration: MOVE_DURATION_S,
+    onComplete: () => {
+      graphics.zIndex = targetY;
+      resolveDone();
+    },
+  });
+
+  return { direction, done, kill: () => tween.kill() };
+}

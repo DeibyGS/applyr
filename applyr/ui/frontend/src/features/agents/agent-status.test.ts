@@ -29,6 +29,7 @@ function job(overrides: Partial<JobSummary> = {}): JobSummary {
     role_category: null,
     created_at: "2026-08-23 10:00:00",
     date_applied: null,
+    pipeline_stage: null,
     ...overrides,
   };
 }
