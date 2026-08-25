@@ -5,7 +5,7 @@ import { OfficeScene } from "@/features/office-scene/OfficeScene";
 import { useIntakeAndJobs } from "@/hooks/useIntakeAndJobs";
 
 export default function OfficePage() {
-  const { pendingIntake, jobs, refresh } = useIntakeAndJobs();
+  const { pendingIntake, jobs, loaded, refresh } = useIntakeAndJobs();
 
   const agentStatuses = deriveAgentStatuses(pendingIntake, jobs);
 
@@ -16,7 +16,7 @@ export default function OfficePage() {
         <p className="text-sm text-muted-foreground">Your AI recruiting team, working in the open.</p>
       </header>
 
-      <OfficeScene statuses={agentStatuses} />
+      <OfficeScene statuses={agentStatuses} jobs={jobs} jobsLoaded={loaded} />
 
       <section className="flex flex-col gap-4 lg:max-w-md">
         <IntakeForm onCreated={refresh} />

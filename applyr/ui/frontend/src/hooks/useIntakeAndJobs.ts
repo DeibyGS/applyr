@@ -12,11 +12,17 @@ const POLL_INTERVAL_MS = 3000;
 export function useIntakeAndJobs() {
   const [pendingIntake, setPendingIntake] = useState<IntakeRow[]>([]);
   const [jobs, setJobs] = useState<JobSummary[]>([]);
+  // Distinct from `jobs.length > 0` — a fresh install with zero offers must
+  // still report "loaded" after its first real fetch, or a consumer using
+  // this to gate a one-time action (OfficeScene's pipeline-sprite seeding,
+  // ADR-013) would wait forever (code-review finding).
+  const [loaded, setLoaded] = useState(false);
 
   async function refresh() {
     const [intakeRows, jobRows] = await Promise.all([listIntake("pending"), listJobs()]);
     setPendingIntake(intakeRows);
     setJobs(jobRows);
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -25,5 +31,5 @@ export function useIntakeAndJobs() {
     return () => clearInterval(id);
   }, []);
 
-  return { pendingIntake, jobs, refresh };
+  return { pendingIntake, jobs, loaded, refresh };
 }

@@ -1,31 +1,78 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Container } from "pixi.js";
 import type { AgentStatus, AgentId } from "@/features/agents/types";
+import type { JobSummary } from "@/api/jobs";
+import { subscribeToPipelineEvents } from "@/api/events";
 import { PixiStage } from "./PixiStage";
 import { getZonePositions } from "./scene-layout";
 import { createAgentSprite, type AgentSpriteHandle } from "./agent-sprite";
+import { createPipelineSpriteManager, type PipelineSpriteManager } from "./pipeline-sprites";
 
 const SCENE_WIDTH = 720;
 const SCENE_HEIGHT = 260;
 
 interface OfficeSceneProps {
   statuses: AgentStatus[];
+  jobs: JobSummary[];
+  /** True once the first real GET /api/jobs response has landed — distinct
+   * from `jobs.length > 0`, which is also true (and stays 0 forever) for a
+   * fresh install with zero offers. See seedPipelineIfReady below. */
+  jobsLoaded: boolean;
+}
+
+function toPipelineOffers(jobs: JobSummary[]) {
+  return jobs
+    .filter((job) => job.pipeline_stage !== null)
+    .map((job) => ({ offerId: job.id, stage: job.pipeline_stage! }));
 }
 
 /**
  * Thin composition: wires deriveAgentStatuses' output into 5 Pixi sprites,
- * one per zone. Sprites live outside React's tree (plain Pixi objects), so
- * they're created once in onReady and updated imperatively afterwards —
- * `handleReady` must stay referentially stable or PixiStage would tear down
- * and recreate the whole canvas on every poll.
+ * one per zone, plus one per-offer sprite per in-flight job (ADR-013).
+ * Sprites live outside React's tree (plain Pixi objects), so they're created
+ * once in onReady and updated imperatively afterwards — `handleReady` must
+ * stay referentially stable or PixiStage would tear down and recreate the
+ * whole canvas on every poll.
+ *
+ * `jobs` only ever seeds the pipeline sprites once — every transition after
+ * that comes exclusively from the live SSE stream, never from a later
+ * `jobs` poll (spec's "no retroactive replay" rule). Seeding is gated on
+ * BOTH the canvas being ready AND `jobsLoaded`, whichever arrives last:
+ * Pixi's async WebGL init (PixiStage.tsx) and the first `GET /api/jobs`
+ * fetch race independently with no ordering guarantee. Seeding from
+ * `handleReady` unconditionally used to lose that race silently — if Pixi
+ * finished first, it seeded from whatever `jobs` happened to be at that
+ * instant (usually still `[]`), and no offer already in-flight before page
+ * load ever got a sprite until a live SSE transition for that exact offer
+ * happened to arrive (code-review finding).
  */
-export function OfficeScene({ statuses }: OfficeSceneProps) {
+export function OfficeScene({ statuses, jobs, jobsLoaded }: OfficeSceneProps) {
   const spritesRef = useRef<Map<AgentId, AgentSpriteHandle>>(new Map());
+  const pipelineRef = useRef<PipelineSpriteManager | null>(null);
   const latestStatusesRef = useRef(statuses);
+  const latestJobsRef = useRef(jobs);
+  const jobsLoadedRef = useRef(jobsLoaded);
+  const pipelineSeededRef = useRef(false);
 
   useEffect(() => {
     latestStatusesRef.current = statuses;
   }, [statuses]);
+
+  const seedPipelineIfReady = useCallback(() => {
+    if (pipelineSeededRef.current || !pipelineRef.current || !jobsLoadedRef.current) return;
+    pipelineRef.current.setInitial(toPipelineOffers(latestJobsRef.current));
+    pipelineSeededRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    latestJobsRef.current = jobs;
+    seedPipelineIfReady();
+  }, [jobs, seedPipelineIfReady]);
+
+  useEffect(() => {
+    jobsLoadedRef.current = jobsLoaded;
+    seedPipelineIfReady();
+  }, [jobsLoaded, seedPipelineIfReady]);
 
   const handleReady = useCallback((stage: Container) => {
     stage.sortableChildren = true;
@@ -36,7 +83,10 @@ export function OfficeScene({ statuses }: OfficeSceneProps) {
       stage.addChild(sprite.graphics);
       spritesRef.current.set(zone.agentId, sprite);
     }
-  }, []);
+
+    pipelineRef.current = createPipelineSpriteManager(stage);
+    seedPipelineIfReady();
+  }, [seedPipelineIfReady]);
 
   useEffect(() => {
     for (const status of statuses) {
@@ -45,10 +95,18 @@ export function OfficeScene({ statuses }: OfficeSceneProps) {
   }, [statuses]);
 
   useEffect(() => {
+    return subscribeToPipelineEvents((event) => {
+      pipelineRef.current?.applyEvent(event);
+    });
+  }, []);
+
+  useEffect(() => {
     const sprites = spritesRef.current;
     return () => {
       for (const sprite of sprites.values()) sprite.destroy();
       sprites.clear();
+      pipelineRef.current?.destroy();
+      pipelineRef.current = null;
     };
   }, []);
 

@@ -27,7 +27,7 @@ vi.mock("pixi.js", () => {
 const gsapToMock = vi.fn((_target: unknown, _vars: Record<string, unknown>) => ({ kill: vi.fn() }));
 vi.mock("gsap", () => ({ gsap: { to: gsapToMock } }));
 
-const { createAgentSprite } = await import("./agent-sprite");
+const { createAgentSprite, directionFor, tweenPosition } = await import("./agent-sprite");
 
 const zone: ZonePosition = { agentId: "recruiter", x: 100, y: 50 };
 
@@ -132,5 +132,77 @@ describe("createAgentSprite", () => {
 
     expect(activeTween.kill).toHaveBeenCalledTimes(1);
     expect(destroyMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("directionFor", () => {
+  // Today's fixed single-row ZONE_ORDER only ever produces the "right" case
+  // in practice (see scene-layout.ts) — the other 3 are exercised here only,
+  // as a capability the sprite component supports for a future non-linear
+  // layout (specs/visual-ui-applyr-world-phase2's Edge cases).
+  it("right when dx dominates and is positive", () => {
+    expect(directionFor(80, 40)).toBe("right");
+  });
+
+  it("left when dx dominates and is negative", () => {
+    expect(directionFor(-80, 10)).toBe("left");
+  });
+
+  it("down when dy dominates and is positive", () => {
+    expect(directionFor(10, 80)).toBe("down");
+  });
+
+  it("up when dy dominates and is negative", () => {
+    expect(directionFor(5, -80)).toBe("up");
+  });
+
+  it("resolves an exact tie horizontally", () => {
+    expect(directionFor(50, 50)).toBe("right");
+  });
+});
+
+describe("tweenPosition", () => {
+  it("computes direction from the sprite's current position to the target", () => {
+    const sprite = createAgentSprite(zone, idle()); // starts at (100, 50)
+    const handle = tweenPosition(sprite.graphics, 180, 90); // dx=80, dy=40
+    expect(handle.direction).toBe("right");
+  });
+
+  it("tweens x/y over a fixed duration", () => {
+    const sprite = createAgentSprite(zone, idle());
+    gsapToMock.mockClear();
+
+    tweenPosition(sprite.graphics, 180, 90);
+
+    expect(gsapToMock).toHaveBeenCalledWith(
+      sprite.graphics,
+      expect.objectContaining({ x: 180, y: 90, duration: expect.any(Number) })
+    );
+  });
+
+  it("updates zIndex to the target y and resolves done() on completion", async () => {
+    let onComplete: (() => void) | undefined;
+    gsapToMock.mockImplementationOnce((_target, vars) => {
+      onComplete = vars.onComplete as (() => void) | undefined;
+      return { kill: vi.fn() };
+    });
+
+    const sprite = createAgentSprite(zone, idle());
+    const handle = tweenPosition(sprite.graphics, 180, 90);
+    onComplete?.();
+    await handle.done;
+
+    expect(sprite.graphics.zIndex).toBe(90);
+  });
+
+  it("kill() delegates to the underlying gsap tween", () => {
+    const tween = { kill: vi.fn() };
+    gsapToMock.mockReturnValueOnce(tween);
+
+    const sprite = createAgentSprite(zone, idle());
+    const handle = tweenPosition(sprite.graphics, 180, 90);
+    handle.kill();
+
+    expect(tween.kill).toHaveBeenCalledTimes(1);
   });
 });
