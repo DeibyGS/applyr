@@ -296,3 +296,109 @@ class TestIsEvidenced:
         metric_claim = [EvidenceClaim(id="EXP-001-C01", section="experience",
                                        text="Reduced test results turnaround time by 40%", entry_context=None)]
         assert is_evidenced("TypeScript", metric_claim) is False
+
+    def test_short_alias_does_not_match_inside_unrelated_word(self):
+        # Regression: a plain `in` substring check let "TS" (alias of
+        # TypeScript) match inside "costs" — confirmed live via /code-review.
+        claims = [EvidenceClaim(id="X", section="experience",
+                                 text="Reduced infrastructure costs significantly", entry_context=None)]
+        assert is_evidenced("TS", claims) is False
+
+    def test_metric_does_not_match_inside_a_longer_number(self):
+        # Regression: "99%" substring-matched inside "199%".
+        claims = [EvidenceClaim(id="X", section="experience", text="Grew revenue by 199%", entry_context=None)]
+        assert is_evidenced("99%", claims) is False
+
+    def test_symbol_suffixed_term_still_matches_at_a_real_boundary(self):
+        # The alphanumeric-boundary fix must not accidentally stop matching
+        # terms that legitimately end in a non-word character.
+        claims = [EvidenceClaim(id="X", section="skill", text="C++", entry_context=None)]
+        assert is_evidenced("C++", claims) is True
+
+
+@pytest.mark.unit
+class TestIsEvidencedCompoundTerms:
+    """Regression: confirmed 3 of 5 live-tested offers had a multi-word
+    offer term ("agentes IA", "agentes de IA") under-credited because the
+    candidate's own wording states the same fact with different filler
+    words around it ("...entornos de desarrollo con agentes...")."""
+
+    def test_spanish_compound_term_matches_when_words_co_occur_in_one_claim(self):
+        # Different filler words around the same two significant words,
+        # both present in the SAME claim — this is what the compound
+        # fallback exists for.
+        claims = [EvidenceClaim(id="X", section="experience",
+                                 text="Desarrollo de agentes basados en modelos de IA",
+                                 entry_context=None)]
+        assert is_evidenced("agentes IA", claims) is True
+        assert is_evidenced("agentes de IA", claims) is True
+
+    def test_significant_words_scattered_across_different_claims_do_not_count(self):
+        # Regression (confirmed via /code-review): "agentes" evidenced by
+        # one claim and "IA" by a totally unrelated one must NOT credit
+        # "agentes de IA" — the words have to co-occur in one real claim,
+        # not just each be true somewhere in the graph independently.
+        claims = [
+            EvidenceClaim(id="X", section="experience",
+                          text="Coordinacion de agentes de ventas en call center", entry_context=None),
+            EvidenceClaim(id="Y", section="certification",
+                          text="Curso de IA para principiantes", entry_context=None),
+        ]
+        assert is_evidenced("agentes de IA", claims) is False
+
+    def test_every_significant_word_must_be_evidenced_not_just_one(self):
+        # "Machine" alone being evidenced must not be enough to credit
+        # "Machine Learning" — every non-connector word is required.
+        claims = [EvidenceClaim(id="X", section="skill", text="Machine repair certification", entry_context=None)]
+        assert is_evidenced("Machine Learning", claims) is False
+
+    def test_significant_words_true_independently_but_never_together_do_not_count(self):
+        # Regression (confirmed via /code-review): "Machine" evidenced by
+        # one unrelated claim and "Learning" by a different unrelated claim
+        # must not credit "Machine Learning" — same co-occurrence
+        # requirement as the Spanish case above, in English.
+        claims = [
+            EvidenceClaim(id="X", section="experience",
+                          text="Virtual Machine administration", entry_context=None),
+            EvidenceClaim(id="Y", section="certification",
+                          text="E-Learning platform, Coursera certificate", entry_context=None),
+        ]
+        assert is_evidenced("Machine Learning", claims) is False
+
+    def test_short_significant_word_is_not_dropped_by_length_cutoff(self):
+        # Regression (confirmed via /code-review): a >= 3 length cutoff
+        # dropped "IA"/"AI"/"ML" entirely, so a compound term's only
+        # remaining "significant" word could be a generic leftover with no
+        # actual AI-context confirmation. >= 2 keeps these short but real
+        # distinguishing words in the check.
+        claims = [EvidenceClaim(id="X", section="skill", text="Python, AI agents with LangChain",
+                                 entry_context=None)]
+        assert is_evidenced("AI agents", claims) is True
+        no_ai_claims = [EvidenceClaim(id="X", section="skill", text="Python agents with LangChain",
+                                       entry_context=None)]
+        assert is_evidenced("AI agents", no_ai_claims) is False
+
+    def test_translation_gap_still_correctly_fails(self):
+        # "GenAI" and "Agentic AI" are different words from "IA Generativa"/
+        # "agentes" entirely — not the same words in different order — so
+        # the compound fallback must not paper over an actual translation
+        # or terminology gap.
+        claims = [EvidenceClaim(id="X", section="skill", text="IA Generativa, agentes", entry_context=None)]
+        assert is_evidenced("GenAI", claims) is False
+        assert is_evidenced("Agentic AI", claims) is False
+
+    def test_different_specific_product_still_correctly_fails(self):
+        # A fabricated "GitHub Copilot" claim must not pass just because the
+        # candidate has SOME AI pair-programming tool evidenced.
+        claims = [EvidenceClaim(id="X", section="skill", text="Claude Code, OpenCode", entry_context=None)]
+        assert is_evidenced("GitHub Copilot", claims) is False
+
+    def test_connector_words_in_the_query_do_not_need_their_own_evidence(self):
+        # The query term "Fast and Reliable" contains a connector word
+        # ("and") that never appears in the claim at all — only "Fast" and
+        # "Reliable" (the significant words) need to be independently
+        # evidenced, matching how "de"/"IA" are skipped in "agentes de IA".
+        claims = [EvidenceClaim(id="X", section="experience",
+                                 text="Delivered Fast, Reliable systems for internal tooling",
+                                 entry_context=None)]
+        assert is_evidenced("Fast and Reliable", claims) is True

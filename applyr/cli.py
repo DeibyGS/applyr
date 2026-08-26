@@ -31,7 +31,7 @@ from applyr.commands import (
     cmd_trends,
     cmd_update,
 )
-from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_review_blind, cmd_cv_ats_check, cmd_cv_keywords, cmd_cv_bullet_optimize, cmd_cv_cover_letter
+from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_review_blind, cmd_cv_verify, cmd_cv_ats_check, cmd_cv_keywords, cmd_cv_bullet_optimize, cmd_cv_cover_letter
 from applyr.analytics import compare_cvs, response_rate
 from applyr.db import init_db, VALID_STATUSES
 from applyr.errors import die, error, set_json_mode
@@ -388,6 +388,7 @@ def main():
             print("                                            Generate CV for offer")
             print("  applyr cv review <html-file>              Recruiter review prompt")
             print("  applyr cv review-blind <id>               Blind recruiter evaluation")
+            print("  applyr cv verify <file>                   Deterministic claim-grounding gate")
             print("  applyr cv pdf <html-file> [--output f.pdf] HTML to PDF via Chrome")
             print("  applyr cv ats-check <html-file>           Check ATS compatibility")
             print("  applyr cv keywords <id>                   Match keywords vs CV")
@@ -420,6 +421,11 @@ def main():
                 _usage(usage)
             offer_id = _safe_int(args[2])
             cmd_cv_review_blind(offer_id, as_json=as_json)
+        elif subcmd == "verify":
+            if len(args) < 3:
+                _usage("Usage: applyr cv verify <file>\n"
+                       "  Deterministic gate: exits 0 (PASS) or 1 (BLOCKED) — no agent execution needed")
+            cmd_cv_verify(args[2], as_json=as_json)
         elif subcmd == "pdf":
             if len(args) < 3:
                 _usage("Usage: applyr cv pdf <html-file> [--output file.pdf]")
@@ -471,8 +477,8 @@ def main():
                 print(f"\n  {' '.join(result['recommendations'])}")
         else:
             die(f"Unknown cv subcommand: '{subcmd}'", code="invalid_value",
-                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "pdf", "ats-check", "keywords", "bullet-optimize", "cover-letter", "stats", "compare"]})
-            print("  Available: generate, review, review-blind, pdf, ats-check, keywords, bullet-optimize, cover-letter, stats, compare")
+                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "verify", "pdf", "ats-check", "keywords", "bullet-optimize", "cover-letter", "stats", "compare"]})
+            print("  Available: generate, review, review-blind, verify, pdf, ats-check, keywords, bullet-optimize, cover-letter, stats, compare")
 
     elif cmd in ("response-rate", "rr"):
         result = response_rate(as_json=as_json)

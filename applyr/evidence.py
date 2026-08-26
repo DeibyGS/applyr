@@ -274,6 +274,17 @@ def _all_forms(term: str) -> list[str]:
     return [canonical, *PROTECTED_FACT_ALIASES.get(canonical, [])]
 
 
+# Connector words ignored when decomposing a multi-word term for
+# is_evidenced()'s compound-term fallback — grammatical filler, not a
+# distinguishing word an offer's phrasing and the master's own wording would
+# need to share verbatim. Bilingual (see evidence.py's Spanish _SECTION_MAP
+# aliases: cv-master.md's language is unconstrained).
+_COMPOUND_TERM_STOPWORDS = frozenset({
+    "de", "del", "la", "el", "los", "las", "y", "o", "con", "en", "a",
+    "the", "and", "of", "or", "with", "in", "for", "an",
+})
+
+
 def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
     """Whether `term` (or an alias of it) appears in any claim's text/entry.
 
@@ -286,9 +297,31 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
     "TS" would substring-match inside "costs", and `\\b` itself fails to
     require a boundary after a term ending in a non-word character (e.g.
     "42%" or "C++" followed by a space) since two non-word characters don't
-    form a `\\b` transition. The lookaround below only requires the character
-    immediately before/after the match to be non-alphanumeric, which
-    correctly bounds both plain words and symbol-suffixed terms.
+    form a `\\b` transition — confirmed live via /code-review. The lookaround
+    below only requires the character immediately before/after the match to
+    be non-alphanumeric, which correctly bounds both plain words and
+    symbol-suffixed terms.
+
+    Multi-word terms also get a compound-term fallback: an offer's phrasing
+    ("agentes de IA") doesn't have to appear verbatim in cv-master.md if the
+    candidate's own wording states the same fact differently in ONE claim
+    ("Desarrollo de agentes basados en modelos de IA"). Two guards keep this
+    from turning into a semantic/fuzzy match: (1) every significant word
+    (short connector words like "de"/"the" don't count) must independently
+    pass the exact same boundary check above, and (2) — confirmed as a real
+    gap via /code-review, not hypothetical — ALL of those words must co-occur
+    in the SAME claim's text, not just be independently true somewhere across
+    the whole graph. Without (2), "Machine" evidenced by one unrelated claim
+    and "Learning" by a different unrelated claim would wrongly credit
+    "Machine Learning" as evidenced. The significant-word length cutoff is
+    >= 2, not >= 3 (also found via /code-review): a >= 3 cutoff drops short
+    but real distinguishing words like "IA"/"AI"/"ML", which — combined with
+    guard (2) not existing yet at the time — let a compound term get credited
+    off a single leftover generic word with no AI-context confirmation at
+    all. A translation gap ("GenAI" vs "IA Generativa") or a different
+    specific product (a fabricated "GitHub Copilot" when the profile only
+    shows "Claude Code") still correctly fails: those aren't the same words
+    in a different order, they're different words entirely.
     """
     for form in _all_forms(term):
         pattern = re.compile(rf'(?<![A-Za-z0-9]){re.escape(form)}(?![A-Za-z0-9])', re.IGNORECASE)
@@ -296,4 +329,21 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
             haystack = f"{claim.text} {claim.entry_context or ''}"
             if pattern.search(haystack):
                 return True
+
+    raw_words = term.split()
+    if len(raw_words) >= 2:
+        significant_words = [
+            w for w in raw_words
+            if len(w) >= 2 and w.lower() not in _COMPOUND_TERM_STOPWORDS
+        ]
+        if significant_words:
+            word_patterns = [
+                re.compile(rf'(?<![A-Za-z0-9]){re.escape(w)}(?![A-Za-z0-9])', re.IGNORECASE)
+                for w in significant_words
+            ]
+            for claim in claims:
+                haystack = f"{claim.text} {claim.entry_context or ''}"
+                if all(p.search(haystack) for p in word_patterns):
+                    return True
+
     return False
