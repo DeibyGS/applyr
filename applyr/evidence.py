@@ -274,6 +274,17 @@ def _all_forms(term: str) -> list[str]:
     return [canonical, *PROTECTED_FACT_ALIASES.get(canonical, [])]
 
 
+# Connector words ignored when decomposing a multi-word term for
+# is_evidenced()'s compound-term fallback — grammatical filler, not a
+# distinguishing word an offer's phrasing and the master's own wording would
+# need to share verbatim. Bilingual (see evidence.py's Spanish _SECTION_MAP
+# aliases: cv-master.md's language is unconstrained).
+_COMPOUND_TERM_STOPWORDS = frozenset({
+    "de", "del", "la", "el", "los", "las", "y", "o", "con", "en", "a",
+    "the", "and", "of", "or", "with", "in", "for", "an",
+})
+
+
 def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
     """Whether `term` (or an alias of it) appears in any claim's text/entry.
 
@@ -290,6 +301,20 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
     below only requires the character immediately before/after the match to
     be non-alphanumeric, which correctly bounds both plain words and
     symbol-suffixed terms.
+
+    Multi-word terms also get a compound-term fallback: an offer's phrasing
+    ("agentes de IA") doesn't have to appear verbatim in cv-master.md if the
+    candidate's own wording states the same fact differently ("...entornos
+    de desarrollo con agentes...") — confirmed live across 3 of 5 real test
+    offers that this was under-crediting the candidate's single strongest,
+    most-evidenced skill. Still not fuzzy: every significant word (short
+    connector words like "de"/"the" don't count) must be independently
+    evidenced via the exact same boundary check above — this decomposes a
+    compound term into its parts, it does not loosen what counts as a match
+    for any single word. A translation gap ("GenAI" vs "IA Generativa") or a
+    different specific product (a fabricated "GitHub Copilot" when the
+    profile only shows "Claude Code") still correctly fails: those aren't
+    the same words in a different order, they're different words entirely.
     """
     for form in _all_forms(term):
         pattern = re.compile(rf'(?<![A-Za-z0-9]){re.escape(form)}(?![A-Za-z0-9])', re.IGNORECASE)
@@ -297,4 +322,14 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
             haystack = f"{claim.text} {claim.entry_context or ''}"
             if pattern.search(haystack):
                 return True
+
+    raw_words = term.split()
+    if len(raw_words) >= 2:
+        significant_words = [
+            w for w in raw_words
+            if len(w) >= 3 and w.lower() not in _COMPOUND_TERM_STOPWORDS
+        ]
+        if significant_words and all(is_evidenced(w, claims) for w in significant_words):
+            return True
+
     return False

@@ -314,3 +314,49 @@ class TestIsEvidenced:
         # terms that legitimately end in a non-word character.
         claims = [EvidenceClaim(id="X", section="skill", text="C++", entry_context=None)]
         assert is_evidenced("C++", claims) is True
+
+
+@pytest.mark.unit
+class TestIsEvidencedCompoundTerms:
+    """Regression: confirmed 3 of 5 live-tested offers had a multi-word
+    offer term ("agentes IA", "agentes de IA") under-credited because the
+    candidate's own wording states the same fact with different filler
+    words around it ("...entornos de desarrollo con agentes...")."""
+
+    def test_spanish_compound_term_matches_via_its_significant_word(self):
+        claims = [EvidenceClaim(id="X", section="experience",
+                                 text="Monitor en tiempo real para entornos de desarrollo con agentes",
+                                 entry_context=None)]
+        assert is_evidenced("agentes IA", claims) is True
+        assert is_evidenced("agentes de IA", claims) is True
+
+    def test_every_significant_word_must_be_evidenced_not_just_one(self):
+        # "Machine" alone being evidenced must not be enough to credit
+        # "Machine Learning" — every non-connector word is required.
+        claims = [EvidenceClaim(id="X", section="skill", text="Machine repair certification", entry_context=None)]
+        assert is_evidenced("Machine Learning", claims) is False
+
+    def test_translation_gap_still_correctly_fails(self):
+        # "GenAI" and "Agentic AI" are different words from "IA Generativa"/
+        # "agentes" entirely — not the same words in different order — so
+        # the compound fallback must not paper over an actual translation
+        # or terminology gap.
+        claims = [EvidenceClaim(id="X", section="skill", text="IA Generativa, agentes", entry_context=None)]
+        assert is_evidenced("GenAI", claims) is False
+        assert is_evidenced("Agentic AI", claims) is False
+
+    def test_different_specific_product_still_correctly_fails(self):
+        # A fabricated "GitHub Copilot" claim must not pass just because the
+        # candidate has SOME AI pair-programming tool evidenced.
+        claims = [EvidenceClaim(id="X", section="skill", text="Claude Code, OpenCode", entry_context=None)]
+        assert is_evidenced("GitHub Copilot", claims) is False
+
+    def test_connector_words_in_the_query_do_not_need_their_own_evidence(self):
+        # The query term "Fast and Reliable" contains a connector word
+        # ("and") that never appears in the claim at all — only "Fast" and
+        # "Reliable" (the significant words) need to be independently
+        # evidenced, matching how "de"/"IA" are skipped in "agentes de IA".
+        claims = [EvidenceClaim(id="X", section="experience",
+                                 text="Delivered Fast, Reliable systems for internal tooling",
+                                 entry_context=None)]
+        assert is_evidenced("Fast and Reliable", claims) is True
