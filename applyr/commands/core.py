@@ -588,8 +588,14 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     job_url: str | None = data.get("job_url")
     rejection_reason: str | None = data.get("rejection_reason")
     # Stripped to None on empty/whitespace so `IS NOT NULL` checks agree with
-    # `update`'s clearing convention for this field (see cmd_update below).
-    job_description: str | None = (data.get("job_description") or "").strip() or None
+    # `update`'s clearing convention for this field (see cmd_update below). Type-
+    # guarded (unlike title/company above) because job_description is the one
+    # optional field long enough that an agent might pass a list of paragraphs
+    # instead of a joined string.
+    _job_description_raw = data.get("job_description")
+    job_description: str | None = (
+        _job_description_raw.strip() or None if isinstance(_job_description_raw, str) else None
+    )
 
     # --- Date fields -------------------------------------------------------
     date_received: str = data.get("date_received") or _today()
