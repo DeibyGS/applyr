@@ -110,6 +110,67 @@ class TestCvVerifyPass:
 
 
 @pytest.mark.unit
+class TestCvVerifyCatchesRealHallucinations:
+    """Regression tests for two gaps found testing cv verify live against a
+    real cv-master.md: a term with no PROTECTED_FACT_ALIASES entry and not
+    in the candidate's own skills was never even checked (vocabulary gap),
+    and a fabricated employer/title could word-overlap-pass on a single
+    generic role noun shared with an unrelated real entry (stopword gap)."""
+
+    def test_offer_only_term_not_in_alias_dict_is_still_checked(self, tmp_db, tmp_applyr, offer_for_verify, cv_master_grounded):
+        # "MLOps" is in neither PROTECTED_FACT_ALIASES nor the candidate's
+        # skills — before the fix, _build_tech_vocabulary never considered
+        # it a checkable term at all, so a hallucinated claim went
+        # undetected. The offer's own tech_stack must extend the vocabulary.
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE offers SET tech_stack = 'Python, MLOps' WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        body = PASSING_BODY.replace(
+            "Backend developer skilled in Python and FastAPI.",
+            "Backend developer skilled in Python and MLOps.",
+        )
+        cv_path = tmp_applyr / "cv-acme.md"
+        cv_path.write_text(_cv_md(1, body))
+
+        with pytest.raises(SystemExit):
+            cmd_cv_verify(str(cv_path), as_json=True)
+
+    def test_fabricated_title_sharing_only_a_role_noun_is_still_blocked(self, tmp_db, tmp_applyr, offer_for_verify, monkeypatch):
+        # Reproduces the exact live failure: the candidate's real profile has
+        # an unrelated EDUCATION entry containing "Engineer" ("Máster en AI
+        # Engineer"), and a fabricated WORK EXPERIENCE title also containing
+        # "Engineer" — before the stopword fix, that single shared generic
+        # word was enough to word-overlap-pass a completely fabricated
+        # employer ("Globex Financial Corp") that shares nothing else real.
+        import applyr.cv as cv_mod
+        monkeypatch.setattr(cv_mod, "APPLYR_DIR", tmp_applyr)
+        cv_master = tmp_applyr / "cv-master.md"
+        cv_master.write_text(
+            "## WORK EXPERIENCE\n\n"
+            "**Backend Developer — Acme Corp** — Remote — 01/2022-01/2025\n"
+            "- Built REST APIs with Python\n\n"
+            "## EDUCATION\n\n"
+            "**Master en AI Engineer**\n"
+            "The Power · Madrid · 08/2026 – en curso\n"
+        )
+
+        body = (
+            "# John Doe\n\n"
+            "### Senior ML Engineer - Globex Financial Corp, Remote\n"
+            "01/2022 - 01/2025\n\n"
+            "- Built things\n"
+        )
+        cv_path = tmp_applyr / "cv-acme.md"
+        cv_path.write_text(_cv_md(1, body))
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_cv_verify(str(cv_path), as_json=True)
+        assert exc.value.code == 1
+
+
+@pytest.mark.unit
 class TestCvVerifyBlocked:
 
     def test_unevidenced_technology_blocks_with_exit_1(self, tmp_db, tmp_applyr, offer_for_verify, cv_master_grounded):

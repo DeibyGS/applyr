@@ -872,10 +872,26 @@ _METRIC_RE = re.compile(r'\$\d[\d,]*|\d+%|\d+x\b', re.IGNORECASE)
 # "### [Project Name]") — see cmd_cv_generate's template below.
 _ENTRY_HEADING_RE = re.compile(r'^###\s+(.+)$', re.MULTILINE)
 # Excluded from the employer/title word-overlap check: too common to mean
-# anything on their own (corporate suffixes, work-mode labels, articles).
+# anything on their own (corporate suffixes, work-mode labels, articles,
+# generic role nouns). Without the role-noun group, a fabricated title like
+# "Senior ML Engineer — Globex Corp" would word-overlap-match ANY unrelated
+# real entry that also happens to contain "Engineer" (e.g. a "Máster en AI
+# Engineer" education entry) — confirmed live against a real cv-master.md,
+# not a hypothetical: a single generic word was enough to pass a genuinely
+# fabricated employer/title through unflagged.
 _HEADING_STOPWORDS = frozenset({
     "inc", "llc", "corp", "corporation", "ltd", "co", "company",
     "remote", "hybrid", "onsite", "the", "and", "of", "for",
+    "engineer", "engineering", "developer", "development", "manager",
+    "analyst", "specialist", "consultant", "architect", "lead", "senior",
+    "junior", "director", "coordinator", "administrator", "technician",
+    # Spanish equivalents — cv-master.md's language is unconstrained (see
+    # evidence.py's _SECTION_MAP), so a Spanish CV needs the same filter.
+    "remoto", "hibrido", "híbrido", "presencial", "empresa",
+    "ingeniero", "ingeniera", "desarrollador", "desarrolladora",
+    "gerente", "analista", "especialista", "consultor", "consultora",
+    "arquitecto", "arquitecta", "coordinador", "coordinadora",
+    "administrador", "administradora", "tecnico", "técnico",
 })
 
 
@@ -893,16 +909,26 @@ def _extract_offer_id_from_md(md: str) -> int | None:
     return None
 
 
-def _build_tech_vocabulary(claims: list) -> set[str]:
+def _build_tech_vocabulary(claims: list, offer_tech_stack: str | None = None) -> set[str]:
     """Technology terms worth checking a CV for: PROTECTED_FACT_ALIASES'
-    canonical names and aliases, plus every skill claim already in the
-    Evidence Graph — so tech genuinely in cv-master.md but outside the seed
-    alias dict is still recognized as a checkable claim."""
+    canonical names and aliases, every skill claim already in the Evidence
+    Graph, AND the target offer's own tech_stack terms.
+
+    The offer's tech_stack matters because it's exactly the set a filling
+    agent is most tempted to claim (the job asked for it) and most likely to
+    invent if the candidate doesn't actually have it — confirmed live: a
+    hallucinated "MLOps" claim went undetected because it wasn't in the
+    curated alias dict and wasn't (correctly) in the candidate's own skills,
+    so it was never even considered a checkable term at all. Including the
+    offer's stack closes that blind spot for the terms that matter most.
+    """
     vocabulary: set[str] = set()
     for canonical, aliases in PROTECTED_FACT_ALIASES.items():
         vocabulary.add(canonical)
         vocabulary.update(aliases)
     vocabulary.update(claim.text for claim in claims if claim.section == "skill")
+    if offer_tech_stack:
+        vocabulary.update(s.strip() for s in offer_tech_stack.split(",") if s.strip())
     return vocabulary
 
 
@@ -969,7 +995,7 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
 
     conn = get_conn()
     try:
-        offer = conn.execute("SELECT id FROM offers WHERE id = ?", (offer_id,)).fetchone()
+        offer = conn.execute("SELECT id, tech_stack FROM offers WHERE id = ?", (offer_id,)).fetchone()
     finally:
         conn.close()
     if not offer:
@@ -980,7 +1006,7 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
         die("Error: cv-master.md not found. Run 'applyr init' first.", code="cv_master_missing")
     claims = parse_evidence(cv_master.read_text(encoding="utf-8"))
 
-    vocabulary = _build_tech_vocabulary(claims)
+    vocabulary = _build_tech_vocabulary(claims, offer["tech_stack"])
     no_comments = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
 
     results = []
