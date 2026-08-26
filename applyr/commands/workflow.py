@@ -58,6 +58,7 @@ DEFAULT_REDACT_FIELDS = (
     "company", "job_url", "contact_name", "contact_role", "location",
     "salary_min", "salary_max", "notes", "follow_up_notes",
     "rejection_reason", "summary", "cv_used", "cover_letter_file",
+    "job_description",
 )
 
 _NUMERIC_COLUMN_TYPES = {"INTEGER", "REAL", "NUMERIC"}

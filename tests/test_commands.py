@@ -98,6 +98,95 @@ class TestUpdateCvUsed:
         assert _row(tmp_applyr, 1)["cv_used"] == "cv-acme.html"
 
 
+class TestAddJobDescription:
+    """The raw job posting must survive `add` verbatim — it's the source
+    record the Matcher's structured interpretation (tech_stack, topics) is
+    derived from, not a duplicate of it."""
+
+    def test_stores_job_description(self, tmp_db, tmp_applyr):
+        _add(company="Acme", job_description="Backend role. Requires Python and AWS.")
+        assert _row(tmp_applyr, 1)["job_description"] == "Backend role. Requires Python and AWS."
+
+    def test_omitted_field_stays_null(self, tmp_db, tmp_applyr):
+        _add(company="Acme")
+        assert _row(tmp_applyr, 1)["job_description"] is None
+
+    def test_empty_string_stored_as_null(self, tmp_db, tmp_applyr):
+        # Must agree with cmd_update's clearing convention (empty -> NULL),
+        # or `WHERE job_description IS NOT NULL` would count add-path empty
+        # strings as "has a description" while update-path clears don't.
+        _add(company="Acme", job_description="")
+        assert _row(tmp_applyr, 1)["job_description"] is None
+
+
+class TestUpdateJobDescription:
+    """Mirrors TestUpdateCvUsed: `--job-description ""` is the only way to
+    clear a stored posting, and must land as NULL, not an empty string."""
+
+    def test_sets_job_description(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied", job_description="Backend role. Requires Python.")
+        assert _row(tmp_applyr, 1)["job_description"] == "Backend role. Requires Python."
+
+    def test_empty_value_clears_to_null(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied", job_description="Backend role.")
+        cmd_update(1, "applied", job_description="")
+        assert _row(tmp_applyr, 1)["job_description"] is None
+
+    def test_whitespace_only_value_clears_to_null(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied", job_description="Backend role.")
+        cmd_update(1, "applied", job_description="   ")
+        assert _row(tmp_applyr, 1)["job_description"] is None
+
+    def test_omitting_the_flag_leaves_it_untouched(self, tmp_db, tmp_applyr):
+        from applyr.commands.core import cmd_update
+
+        _add(company="Acme")
+        cmd_update(1, "applied", job_description="Backend role.")
+        cmd_update(1, "waiting")
+        assert _row(tmp_applyr, 1)["job_description"] == "Backend role."
+
+
+class TestShowJsonIncludesEvidenceFields:
+    """`job_description` rides along in `dict(row)` automatically; only
+    `cv_evidence_used` needs explicit JSON decoding, same as `weights_used`."""
+
+    def test_job_description_present_when_set(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.core import cmd_show
+
+        _add(company="Acme", job_description="Backend role. Requires Python.")
+        capsys.readouterr()
+        cmd_show(1, as_json=True)
+        data = json.loads(capsys.readouterr().out)
+        assert data["job_description"] == "Backend role. Requires Python."
+        assert data["cv_evidence_used"] is None
+
+    def test_cv_evidence_used_decoded_from_json_text(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.core import cmd_show
+
+        _add(company="Acme")
+        conn = sqlite3.connect(tmp_applyr / "jobs.db")
+        conn.execute(
+            "UPDATE offers SET cv_evidence_used = ? WHERE id = 1",
+            (json.dumps(["Built REST APIs with FastAPI", "Reduced latency by 42%"]),),
+        )
+        conn.commit()
+        conn.close()
+
+        capsys.readouterr()
+        cmd_show(1, as_json=True)
+        data = json.loads(capsys.readouterr().out)
+        assert data["cv_evidence_used"] == ["Built REST APIs with FastAPI", "Reduced latency by 42%"]
+
+
 class TestLiveSkillGaps:
     """skill_gaps is derived from offer_topics, not the (now-dropped) table."""
 
@@ -569,6 +658,7 @@ class TestExportRedaction:
             salary_min=30000,
             salary_max=40000,
             notes="Great culture fit",
+            job_description="Acme Corp is hiring in Berlin. Contact jane@acme.example.",
         )
 
     def test_plain_export_is_unchanged(self, tmp_db, tmp_applyr, monkeypatch):
@@ -598,6 +688,9 @@ class TestExportRedaction:
         assert record["notes"] == "[REDACTED]"
         assert record["salary_min"] is None
         assert record["salary_max"] is None
+        # The raw posting routinely carries company/location/contact info in
+        # prose — must redact same as the structured fields above.
+        assert record["job_description"] == "[REDACTED]"
         # Untouched: not in the default redact set.
         assert record["title"] == "Backend Dev"
 

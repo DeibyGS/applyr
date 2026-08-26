@@ -255,14 +255,17 @@ def main():
     elif cmd == "update":
         if len(args) < 3:
             _usage("Usage: applyr update <id> <status> [--notes '...'] [--canal '...'] [--cv file.html]\n"
+                   "  [--job-description '...']\n"
                    '  --cv "": clear the CV linked to this offer\n'
+                   '  --job-description "": clear the stored job posting text\n'
                    f"  Statuses: {', '.join(VALID_STATUSES)}")
         offer_id = _safe_int(args[1])
         status = args[2]
         notes = _get_flag(args, "--notes")
         canal = _get_flag(args, "--canal")
         cv = _get_flag(args, "--cv")
-        cmd_update(offer_id, status, notes, canal, cv)
+        job_description = _get_flag(args, "--job-description")
+        cmd_update(offer_id, status, notes, canal, cv, job_description)
 
     elif cmd == "delete":
         usage = ("Usage: applyr delete <id> [--force]\n"
