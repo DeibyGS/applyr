@@ -6,7 +6,28 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 13
+
+# CHECK is the only thing guarding against a typo'd literal there. One
+# source of truth for the constraint still matters even so.
+#
+# Ownership note: VALID_PIPELINE_STAGES, _PIPELINE_STAGE_CHECK_SQL, and the
+# (10, 11)/(11, 12) migrations below are owned by the feat/cc-visual-ui
+# branch (Applyr World Phase 2, ADR-013) — copied here verbatim, read-only,
+# so this branch's own v10->v13 migration path stays complete regardless of
+# which of the two sibling branches merges to main first. Both branches
+# forked from main at schema v10 and each needed the next free version
+# numbers; this branch claims v13 rather than colliding on v11/v12 with
+# visual-ui's already-executed migration (the real ~/.applyr/jobs.db was
+# already migrated to v12 by that branch in a prior session). Whichever
+# branch merges second is expected to hit a textual conflict here and
+# reconcile it then — do not edit visual-ui's copy of these to "fix" drift;
+# resolve at merge time against whatever visual-ui's db.py says at that
+# point.
+VALID_PIPELINE_STAGES = ("matching", "cv", "ats", "application")
+_PIPELINE_STAGE_CHECK_SQL = "CHECK (pipeline_stage IS NULL OR pipeline_stage IN ({}))".format(
+    ", ".join(f"'{stage}'" for stage in VALID_PIPELINE_STAGES)
+)
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
 # Add entries here when schema changes in future versions.
@@ -127,6 +148,27 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         # whoever reads this migration next.
         "PRAGMA foreign_keys = ON",
     ],
+    # Owned by feat/cc-visual-ui (Applyr World Phase 1) — copied verbatim, see
+    # the ownership note above SCHEMA_VERSION. ui_intake tracks pasted offers
+    # on the Office dashboard before an agent has scored/promoted them.
+    (10, 11): [
+        """CREATE TABLE IF NOT EXISTS ui_intake (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            raw_text    TEXT    NOT NULL CHECK (length(trim(raw_text)) > 0),
+            source_note TEXT,
+            status      TEXT    DEFAULT 'pending',
+            offer_id    INTEGER REFERENCES offers(id) ON DELETE SET NULL,
+            created_at  TEXT    DEFAULT CURRENT_TIMESTAMP,
+            promoted_at TEXT
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ui_intake_status ON ui_intake(status)",
+    ],
+    # Owned by feat/cc-visual-ui (Applyr World Phase 2, ADR-013) — copied
+    # verbatim, see the ownership note above SCHEMA_VERSION.
+    (11, 12): [
+        f"ALTER TABLE offers ADD COLUMN pipeline_stage TEXT {_PIPELINE_STAGE_CHECK_SQL}",
+        "ALTER TABLE offers ADD COLUMN pipeline_stage_at TEXT",
+    ],
     # Evidence-Based CV Engine (specs/evidence-based-cv-engine): `job_description`
     # preserves the raw job posting text so the Matcher's structured interpretation
     # is never the only surviving record of what the offer said.
@@ -136,13 +178,13 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
     # Existing rows get NULL for both, same reasoning as `language`/`weights_used`
     # above: there is no honest way to invent a job posting or a verification
     # that never ran.
-    (10, 11): [
+    (12, 13): [
         "ALTER TABLE offers ADD COLUMN job_description TEXT",
         "ALTER TABLE offers ADD COLUMN cv_evidence_used TEXT",
     ],
 }
 
-SCHEMA_SQL = """\
+SCHEMA_SQL = f"""\
 CREATE TABLE IF NOT EXISTS offers (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     title             TEXT    NOT NULL,
@@ -185,6 +227,11 @@ CREATE TABLE IF NOT EXISTS offers (
     notes             TEXT,
     created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
     weights_used      TEXT,
+    -- Owned by feat/cc-visual-ui (Applyr World Phase 2, ADR-013) — see the
+    -- ownership note above SCHEMA_VERSION. NULL until a CLI command emits a
+    -- real stage transition; never backfilled.
+    pipeline_stage    TEXT    {_PIPELINE_STAGE_CHECK_SQL},
+    pipeline_stage_at TEXT,
     -- Evidence-Based CV Engine (specs/evidence-based-cv-engine)
     job_description   TEXT,
     cv_evidence_used  TEXT
@@ -216,6 +263,21 @@ CREATE TABLE IF NOT EXISTS learning_gaps (
 CREATE INDEX IF NOT EXISTS idx_learning_gaps_offer_id ON learning_gaps(offer_id);
 CREATE INDEX IF NOT EXISTS idx_learning_gaps_topic ON learning_gaps(topic);
 CREATE INDEX IF NOT EXISTS idx_learning_gaps_severity ON learning_gaps(severity);
+
+-- Owned by feat/cc-visual-ui (Applyr World Phase 1) — see the ownership
+-- note above SCHEMA_VERSION. Pasted offers on the Office dashboard before
+-- an agent has scored/promoted them via `applyr add --intake-id`.
+CREATE TABLE IF NOT EXISTS ui_intake (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    raw_text    TEXT    NOT NULL CHECK (length(trim(raw_text)) > 0),
+    source_note TEXT,
+    status      TEXT    DEFAULT 'pending',
+    offer_id    INTEGER REFERENCES offers(id) ON DELETE SET NULL,
+    created_at  TEXT    DEFAULT CURRENT_TIMESTAMP,
+    promoted_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ui_intake_status ON ui_intake(status);
 """
 
 VALID_STATUSES = ("pending", "applied", "waiting", "in_process", "rejected", "discarded", "offer")

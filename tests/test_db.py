@@ -639,16 +639,22 @@ class TestMigrationV9ToV10:
 
 
 @pytest.mark.unit
-class TestMigrationV10ToV11:
+class TestMigrationV12ToV13:
     """`job_description` and `cv_evidence_used` ship with no backfill, same
     reasoning as `weights_used` in TestMigrationV8ToV9: there is no honest way
     to invent a job posting or a verification run that never happened for
-    offers recorded before this migration existed."""
+    offers recorded before this migration existed.
+
+    Starts from v12, not v10: (10, 11) and (11, 12) are owned by the sibling
+    feat/cc-visual-ui branch (copied verbatim into MIGRATIONS so this
+    branch's own v10->v13 path stays complete — see the ownership note above
+    SCHEMA_VERSION in db.py) and are that branch's own tests to cover, not
+    this one's."""
 
     def test_existing_offer_rows_get_null_evidence_columns(self, tmp_db):
         conn = get_conn(tmp_db)
         conn.execute("INSERT INTO offers (title, company, compatibility_pct) VALUES ('Backend Dev', 'Acme', 70)")
-        conn.execute("UPDATE schema_version SET version = 10")
+        conn.execute("UPDATE schema_version SET version = 12")
         conn.commit()
         conn.close()
 
@@ -664,7 +670,7 @@ class TestMigrationV10ToV11:
 
     def test_migration_idempotent(self, tmp_db):
         conn = get_conn(tmp_db)
-        conn.execute("UPDATE schema_version SET version = 10")
+        conn.execute("UPDATE schema_version SET version = 12")
         conn.commit()
         conn.close()
 
