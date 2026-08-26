@@ -304,17 +304,24 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
 
     Multi-word terms also get a compound-term fallback: an offer's phrasing
     ("agentes de IA") doesn't have to appear verbatim in cv-master.md if the
-    candidate's own wording states the same fact differently ("...entornos
-    de desarrollo con agentes...") — confirmed live across 3 of 5 real test
-    offers that this was under-crediting the candidate's single strongest,
-    most-evidenced skill. Still not fuzzy: every significant word (short
-    connector words like "de"/"the" don't count) must be independently
-    evidenced via the exact same boundary check above — this decomposes a
-    compound term into its parts, it does not loosen what counts as a match
-    for any single word. A translation gap ("GenAI" vs "IA Generativa") or a
-    different specific product (a fabricated "GitHub Copilot" when the
-    profile only shows "Claude Code") still correctly fails: those aren't
-    the same words in a different order, they're different words entirely.
+    candidate's own wording states the same fact differently in ONE claim
+    ("Desarrollo de agentes basados en modelos de IA"). Two guards keep this
+    from turning into a semantic/fuzzy match: (1) every significant word
+    (short connector words like "de"/"the" don't count) must independently
+    pass the exact same boundary check above, and (2) — confirmed as a real
+    gap via /code-review, not hypothetical — ALL of those words must co-occur
+    in the SAME claim's text, not just be independently true somewhere across
+    the whole graph. Without (2), "Machine" evidenced by one unrelated claim
+    and "Learning" by a different unrelated claim would wrongly credit
+    "Machine Learning" as evidenced. The significant-word length cutoff is
+    >= 2, not >= 3 (also found via /code-review): a >= 3 cutoff drops short
+    but real distinguishing words like "IA"/"AI"/"ML", which — combined with
+    guard (2) not existing yet at the time — let a compound term get credited
+    off a single leftover generic word with no AI-context confirmation at
+    all. A translation gap ("GenAI" vs "IA Generativa") or a different
+    specific product (a fabricated "GitHub Copilot" when the profile only
+    shows "Claude Code") still correctly fails: those aren't the same words
+    in a different order, they're different words entirely.
     """
     for form in _all_forms(term):
         pattern = re.compile(rf'(?<![A-Za-z0-9]){re.escape(form)}(?![A-Za-z0-9])', re.IGNORECASE)
@@ -327,9 +334,16 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
     if len(raw_words) >= 2:
         significant_words = [
             w for w in raw_words
-            if len(w) >= 3 and w.lower() not in _COMPOUND_TERM_STOPWORDS
+            if len(w) >= 2 and w.lower() not in _COMPOUND_TERM_STOPWORDS
         ]
-        if significant_words and all(is_evidenced(w, claims) for w in significant_words):
-            return True
+        if significant_words:
+            word_patterns = [
+                re.compile(rf'(?<![A-Za-z0-9]){re.escape(w)}(?![A-Za-z0-9])', re.IGNORECASE)
+                for w in significant_words
+            ]
+            for claim in claims:
+                haystack = f"{claim.text} {claim.entry_context or ''}"
+                if all(p.search(haystack) for p in word_patterns):
+                    return True
 
     return False

@@ -311,6 +311,30 @@ class TestCvVerifyBlocked:
         categories = {c["category"] for c in payload["unsupported"]}
         assert "employer_or_title" in categories
 
+    def test_fabricated_employer_heading_is_caught_in_legacy_html_cv(
+        self, tmp_db, tmp_applyr, offer_for_verify, cv_master_grounded, capsys
+    ):
+        # Regression (confirmed via /code-review): _ENTRY_HEADING_RE only
+        # matched markdown "### " headings, so a legacy .html CV (ADR-008:
+        # .html stays read-compatible) silently skipped the
+        # employer_or_title check entirely — a fabricated <h3> heading was
+        # never even extracted, let alone flagged.
+        html = (
+            "<!-- applyr:offer-id=1 -->\n"
+            "<html><body>\n"
+            "<h3>Principal Engineer - Globex Industries, Onsite</h3>\n"
+            "<p>Built REST APIs with Python and FastAPI</p>\n"
+            "</body></html>\n"
+        )
+        cv_path = tmp_applyr / "cv-acme.html"
+        cv_path.write_text(html)
+
+        with pytest.raises(SystemExit):
+            cmd_cv_verify(str(cv_path), as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        categories = {c["category"] for c in payload["unsupported"]}
+        assert "employer_or_title" in categories
+
 
 @pytest.mark.unit
 class TestCvVerifyErrors:

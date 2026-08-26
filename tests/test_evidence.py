@@ -323,18 +323,60 @@ class TestIsEvidencedCompoundTerms:
     candidate's own wording states the same fact with different filler
     words around it ("...entornos de desarrollo con agentes...")."""
 
-    def test_spanish_compound_term_matches_via_its_significant_word(self):
+    def test_spanish_compound_term_matches_when_words_co_occur_in_one_claim(self):
+        # Different filler words around the same two significant words,
+        # both present in the SAME claim — this is what the compound
+        # fallback exists for.
         claims = [EvidenceClaim(id="X", section="experience",
-                                 text="Monitor en tiempo real para entornos de desarrollo con agentes",
+                                 text="Desarrollo de agentes basados en modelos de IA",
                                  entry_context=None)]
         assert is_evidenced("agentes IA", claims) is True
         assert is_evidenced("agentes de IA", claims) is True
+
+    def test_significant_words_scattered_across_different_claims_do_not_count(self):
+        # Regression (confirmed via /code-review): "agentes" evidenced by
+        # one claim and "IA" by a totally unrelated one must NOT credit
+        # "agentes de IA" — the words have to co-occur in one real claim,
+        # not just each be true somewhere in the graph independently.
+        claims = [
+            EvidenceClaim(id="X", section="experience",
+                          text="Coordinacion de agentes de ventas en call center", entry_context=None),
+            EvidenceClaim(id="Y", section="certification",
+                          text="Curso de IA para principiantes", entry_context=None),
+        ]
+        assert is_evidenced("agentes de IA", claims) is False
 
     def test_every_significant_word_must_be_evidenced_not_just_one(self):
         # "Machine" alone being evidenced must not be enough to credit
         # "Machine Learning" — every non-connector word is required.
         claims = [EvidenceClaim(id="X", section="skill", text="Machine repair certification", entry_context=None)]
         assert is_evidenced("Machine Learning", claims) is False
+
+    def test_significant_words_true_independently_but_never_together_do_not_count(self):
+        # Regression (confirmed via /code-review): "Machine" evidenced by
+        # one unrelated claim and "Learning" by a different unrelated claim
+        # must not credit "Machine Learning" — same co-occurrence
+        # requirement as the Spanish case above, in English.
+        claims = [
+            EvidenceClaim(id="X", section="experience",
+                          text="Virtual Machine administration", entry_context=None),
+            EvidenceClaim(id="Y", section="certification",
+                          text="E-Learning platform, Coursera certificate", entry_context=None),
+        ]
+        assert is_evidenced("Machine Learning", claims) is False
+
+    def test_short_significant_word_is_not_dropped_by_length_cutoff(self):
+        # Regression (confirmed via /code-review): a >= 3 length cutoff
+        # dropped "IA"/"AI"/"ML" entirely, so a compound term's only
+        # remaining "significant" word could be a generic leftover with no
+        # actual AI-context confirmation. >= 2 keeps these short but real
+        # distinguishing words in the check.
+        claims = [EvidenceClaim(id="X", section="skill", text="Python, AI agents with LangChain",
+                                 entry_context=None)]
+        assert is_evidenced("AI agents", claims) is True
+        no_ai_claims = [EvidenceClaim(id="X", section="skill", text="Python agents with LangChain",
+                                       entry_context=None)]
+        assert is_evidenced("AI agents", no_ai_claims) is False
 
     def test_translation_gap_still_correctly_fails(self):
         # "GenAI" and "Agentic AI" are different words from "IA Generativa"/

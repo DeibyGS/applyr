@@ -875,6 +875,12 @@ _METRIC_RE = re.compile(r'\$\d[\d,]*(?:\.\d+)?|\d+(?:\.\d+)?%|\d+(?:\.\d+)?x\b',
 # The CV skeleton's per-entry headings ("### [Job Title] - [Company], ...",
 # "### [Project Name]") — see cmd_cv_generate's template below.
 _ENTRY_HEADING_RE = re.compile(r'^###\s+(.+)$', re.MULTILINE)
+# Legacy .html CVs (ADR-008: .md is the primary format, .html stays
+# read-compatible) render the same entries as "<h3>...</h3>" — confirmed
+# via /code-review that applying the markdown-only regex above to raw .html
+# content always returns zero headings, silently skipping the
+# employer_or_title check entirely for that file type.
+_ENTRY_HEADING_HTML_RE = re.compile(r'<h3[^>]*>(.*?)</h3>', re.DOTALL | re.IGNORECASE)
 # Excluded from the employer/title word-overlap check: too common to mean
 # anything on their own (corporate suffixes, work-mode labels, articles,
 # generic role nouns). Without the role-noun group, a fabricated title like
@@ -885,7 +891,8 @@ _ENTRY_HEADING_RE = re.compile(r'^###\s+(.+)$', re.MULTILINE)
 # fabricated employer/title through unflagged.
 _HEADING_STOPWORDS = frozenset({
     "inc", "llc", "corp", "corporation", "ltd", "co", "company",
-    "remote", "hybrid", "onsite", "the", "and", "of", "for",
+    "remote", "hybrid", "onsite", "the", "and", "of", "for", "to", "in",
+    "at", "on", "is", "an", "as", "by", "or", "it", "be",
     "engineer", "engineering", "developer", "development", "manager",
     "analyst", "specialist", "consultant", "architect", "lead", "senior",
     "junior", "director", "coordinator", "administrator", "technician",
@@ -897,6 +904,7 @@ _HEADING_STOPWORDS = frozenset({
     "gerente", "analista", "especialista", "consultor", "consultora",
     "arquitecto", "arquitecta", "coordinador", "coordinadora",
     "administrador", "administradora", "tecnico", "técnico",
+    "de", "la", "el", "en", "un", "una", "y", "o", "a",
 })
 
 
@@ -951,6 +959,20 @@ def _extract_tech_claims(cv_text: str, vocabulary: set[str]) -> list[str]:
     ]
 
 
+def _extract_significant_words(text: str) -> set[str]:
+    """Extract significant words for employer/title matching.
+
+    Returns words >= 2 characters that are not in _HEADING_STOPWORDS
+    (which excludes filler, role nouns, seniority levels, etc.).
+    Used by _check_employer_claim to find meaningful overlap between
+    heading and evidence context.
+    """
+    return {
+        w.strip(",.") for w in text.lower().split()
+        if len(w.strip(",.")) >= 2 and w.strip(",.") not in _HEADING_STOPWORDS
+    }
+
+
 def _check_employer_claim(heading: str, claims: list) -> bool:
     """Whether a CV's ### entry heading (e.g. "Backend Developer - Acme
     Corp, Remote") shares a significant word with some evidence entry's
@@ -961,28 +983,30 @@ def _check_employer_claim(heading: str, claims: list) -> bool:
     known, documented limitation (specs/evidence-based-cv-engine § Out of
     scope: no full-sentence claim verification), not a full identity check.
 
-    Length cutoff is >= 3, not > 3: short real company names (IBM, SAP, HP,
+    Length cutoff is >= 2, not > 3: short real company names (IBM, SAP, HP,
     GE) are exactly 2-3 characters, and a `> 3` cutoff filtered them out of
     heading_words entirely — combined with the old "nothing significant ->
     True" fallback below, a fabricated "CTO - IBM, Remote" passed
     unconditionally, since every one of its words was either a filtered
     C-level abbreviation (now in _HEADING_STOPWORDS), a stopword, or too
-    short — confirmed live via /code-review. The fallback itself also
-    flipped from True to False: a heading with nothing significant to
-    compare should not be assumed evidenced by default (the safer failure
-    direction for a truth gate), and every entry_context observed in
-    practice so far still yields at least one real distinguishing word.
+    short — confirmed live via /code-review. An earlier `>= 3` cutoff still
+    excluded 2-letter names (HP, GE) despite this docstring's own claim —
+    also confirmed via /code-review — so the cutoff is now >= 2, with the
+    2-letter connector words that opens up (to/in/at/on/de/la/el/...) added
+    to _HEADING_STOPWORDS instead of relying on length to filter them. The
+    fallback itself also flipped from True to False: a heading with nothing
+    significant to compare should not be assumed evidenced by default (the
+    safer failure direction for a truth gate), and every entry_context
+    observed in practice so far still yields at least one real
+    distinguishing word.
     """
-    heading_words = {
-        w.strip(",.") for w in heading.lower().split()
-        if len(w.strip(",.")) >= 3 and w.strip(",.") not in _HEADING_STOPWORDS
-    }
+    heading_words = _extract_significant_words(heading)
     if not heading_words:
         return False  # nothing significant to compare — don't assume evidenced
     for claim in claims:
         if not claim.entry_context:
             continue
-        context_words = {w.strip(",.") for w in claim.entry_context.lower().split() if len(w.strip(",.")) >= 3}
+        context_words = _extract_significant_words(claim.entry_context)
         if heading_words & context_words:
             return True
     return False
@@ -1038,8 +1062,12 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
         results.append({"category": "technology", "claim": term, "supported": is_evidenced(term, claims)})
     for metric in _METRIC_RE.findall(cv_text):
         results.append({"category": "metric", "claim": metric, "supported": is_evidenced(metric, claims)})
-    for heading in _ENTRY_HEADING_RE.findall(no_comments):
-        heading = heading.strip()
+    heading_re = _ENTRY_HEADING_RE if cv_path.suffix == ".md" else _ENTRY_HEADING_HTML_RE
+    for heading in heading_re.findall(no_comments):
+        heading = re.sub(r'<[^>]+>', ' ', heading)
+        heading = re.sub(r'\s+', ' ', heading).strip()
+        if not heading:
+            continue
         results.append({
             "category": "employer_or_title",
             "claim": heading,
