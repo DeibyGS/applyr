@@ -77,6 +77,29 @@ class TestParseEntrySections:
         proj_claims = [c for c in claims if c.section == "project"]
         assert proj_claims[0].entry_context == "JobTracker — Python, FastAPI, PostgreSQL"
 
+    def test_entry_with_no_bullets_or_labels_still_produces_a_claim(self):
+        # EDUCATION entries are often just "**Degree**" + a plain
+        # institution/dates prose line, with no bullets and no "Stack:"-like
+        # labeled line. Without a fallback claim, entry_context would attach
+        # to nothing — invisible to any later check (e.g. cv.py's
+        # employer/title verification) even though it's a real fact.
+        # Confirmed live against a real cv-master.md: "Máster en AI
+        # Engineer" was silently unmatchable until this fix.
+        profile = (
+            "## EDUCATION\n\n"
+            "**Grado Superior — DAM**\n"
+            "The Power · Madrid · 02/2024 – 06/2026\n\n"
+            "**Máster en AI Engineer**\n"
+            "The Power · Madrid · 08/2026 – en curso\n"
+        )
+        claims = parse_evidence(profile)
+        contexts = {c.entry_context for c in claims}
+        assert "Grado Superior — DAM" in contexts
+        assert "Máster en AI Engineer" in contexts
+        # The synthetic claim's own text is the entry title itself.
+        master_claim = next(c for c in claims if c.entry_context == "Máster en AI Engineer")
+        assert master_claim.text == "Máster en AI Engineer"
+
     def test_bullet_before_any_bold_title_gets_null_context(self):
         # CERTIFICATIONS in the sample has no bold-title entries at all.
         claims = parse_evidence(SAMPLE_PROFILE)
@@ -141,6 +164,97 @@ class TestParserTolerance:
     def test_unrecognized_section_heading_is_ignored(self):
         profile = "## HOBBIES\n- Chess\n- Painting\n"
         assert parse_evidence(profile) == []
+
+
+REAL_WORLD_PROFILE = """\
+## EXPERIENCIA PROFESIONAL
+
+### Backend Developer
+**Acme Corp** · Madrid · Remoto · 01/2022 – 01/2025
+
+Desarrollo de APIs internas para el equipo de pagos.
+
+- Built REST APIs with Python and FastAPI
+- Reduced latency by 42%
+
+**Stack:** Python · FastAPI (async) · PostgreSQL · Docker
+
+---
+
+### Freelance Project
+Repo: github.com/example/thing
+
+## PROYECTOS
+
+### RAG Pipeline — PDF search
+Stack: Python · LangChain · ChromaDB · Google Gemini API
+Ingesta de documentos y busqueda semantica con recuperacion aumentada.
+
+## HABILIDADES TECNICAS
+
+**Backend**
+Python · FastAPI · Node.js
+
+**IA**
+LangChain · RAG · MCP
+"""
+
+
+@pytest.mark.unit
+class TestRealWorldStructureVariants:
+    """Patterns found in a real, Spanish-language cv-master.md that don't
+    match cv-master-template.md's single-line "**Title — Company**"
+    convention: Spanish section names, a "### Title" + "**Company**" split
+    across two lines, a "Stack:"/"**Stack:**" labeled fact list attached to
+    the current entry (not a new empty entry), and "·"-separated skills."""
+
+    def test_spanish_section_names_are_recognized(self):
+        claims = parse_evidence(REAL_WORLD_PROFILE)
+        assert any(c.section == "experience" for c in claims)
+        assert any(c.section == "project" for c in claims)
+        assert any(c.section == "skill" for c in claims)
+
+    def test_h3_title_and_bold_company_merge_into_one_entry_context(self):
+        claims = parse_evidence(REAL_WORLD_PROFILE)
+        exp_claims = [c for c in claims if c.section == "experience"]
+        assert exp_claims[0].entry_context == "Backend Developer — Acme Corp"
+
+    def test_stack_label_line_produces_claims_not_a_new_empty_entry(self):
+        claims = parse_evidence(REAL_WORLD_PROFILE)
+        acme_claims = [c for c in claims if c.entry_context == "Backend Developer — Acme Corp"]
+        # Bullets AND the Stack: line's tokens all belong to this ONE entry —
+        # the Stack line must not have started a second, separate
+        # "Stack:"-titled entry (no claim should have entry_context "Stack").
+        texts = {c.text for c in acme_claims}
+        assert "PostgreSQL" in texts
+        assert "FastAPI (async)" in texts
+        assert not any(c.entry_context == "Stack" for c in claims)
+
+    def test_lone_h3_project_entry_with_plain_stack_line(self):
+        # PROJECTS-style: "### Name" alone, no bold company line, a PLAIN
+        # (non-bold) "Stack:" line, and prose instead of bullets.
+        claims = parse_evidence(REAL_WORLD_PROFILE)
+        proj_claims = [c for c in claims if c.section == "project"]
+        assert proj_claims, "expected claims from the lone-### PROJECTS entry"
+        assert all(c.entry_context == "RAG Pipeline — PDF search" for c in proj_claims)
+        assert any(c.text == "LangChain" for c in proj_claims)
+
+    def test_middle_dot_separated_skills_split_into_individual_claims(self):
+        claims = parse_evidence(REAL_WORLD_PROFILE)
+        skill_texts = {c.text for c in claims if c.section == "skill"}
+        assert {"Python", "FastAPI", "Node.js", "LangChain", "RAG", "MCP"} <= skill_texts
+
+    def test_bold_category_header_markers_are_stripped(self):
+        claims = parse_evidence(REAL_WORLD_PROFILE)
+        skill_texts = {c.text for c in claims if c.section == "skill"}
+        assert "**Backend**" not in skill_texts
+        assert "**IA**" not in skill_texts
+
+    def test_real_world_terms_are_evidenced(self):
+        claims = parse_evidence(REAL_WORLD_PROFILE)
+        for term in ("Python", "FastAPI", "PostgreSQL", "LangChain", "RAG", "MCP"):
+            assert is_evidenced(term, claims), f"{term} should be evidenced"
+        assert is_evidenced("Kubernetes", claims) is False
 
 
 @pytest.mark.unit

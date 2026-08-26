@@ -22,13 +22,24 @@ from applyr.constants import PROTECTED_FACT_ALIASES
 # cv-master-template.md's `## SECTION` names, mapped to a canonical claim
 # section. CONTACT / PROFESSIONAL SUMMARY / ADDITIONAL are intentionally
 # absent — they carry no verifiable skill/employment/metric claims to extract.
+# Spanish aliases included: cv-master.md's own language is unconstrained (only
+# the *generated CV*'s language is config-driven, per VALID_LANGUAGES = (en,
+# es)) — a Spanish-authored profile is the common case, not an edge case.
 _SECTION_MAP = {
     "work experience": "experience",
+    "experiencia profesional": "experience",
     "projects": "project",
+    "proyectos": "project",
     "education": "education",
+    "formación": "education",
+    "formacion": "education",
     "certifications": "certification",
+    "certificaciones": "certification",
     "technical skills": "skill",
+    "habilidades tecnicas": "skill",
+    "habilidades técnicas": "skill",
     "languages": "language",
+    "idiomas": "language",
 }
 
 # Ephemeral claim-id prefix per section — stable only within one parse_evidence
@@ -52,6 +63,20 @@ _ENTRY_SECTIONS = {"experience", "project", "education", "certification"}
 _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _BOLD_TITLE_RE = re.compile(r"^\*\*(.+?)\*\*")
 _BULLET_RE = re.compile(r"^[-*]\s+(.+)$")
+# "### Job Title" on its own line, with the employer/entry details on a
+# following (possibly bold) line — real-world cv-master.md files commonly
+# split title and employer this way rather than combining them in one
+# "**Title — Employer**" bold line.
+_H3_RE = re.compile(r"^###\s+(.+)$")
+# "Label: content" or "**Label:** content" (e.g. "Stack: Python, FastAPI" or
+# "**Stack:** Python, FastAPI") — a labeled fact list attached to the current
+# entry, not a new entry itself. The colon must sit right after the label
+# text (optionally still inside the bold markers) to avoid matching a real
+# entry-title bold line like "**Acme Corp** — Remote — 01/2022".
+_LABELED_LINE_RE = re.compile(r"^(?:\*\*)?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9 /]*?):(?:\*\*)?\s*(.+)$")
+# Real profiles separate tech/skill tokens with commas, middle dots, or
+# markdown table pipes depending on section — accept all three.
+_TOKEN_SPLIT_RE = re.compile(r"[,·|]")
 
 # Reverse index (any spelling, lowercased) -> canonical key in
 # PROTECTED_FACT_ALIASES, built once at import time.
@@ -108,26 +133,98 @@ def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
     entry_context: str | None = None
     entry_num = 0
     claim_num = 0
+    # A "### Job Title" line seen but not yet attached to an entry — merged
+    # into entry_context the moment a following bold employer line (or any
+    # other content) confirms the entry, so "### Title" + "**Employer**"
+    # becomes one "Title — Employer" context, matching how the single-line
+    # "**Title — Employer**" form already reads.
+    pending_heading: str | None = None
+
+    def flush_empty_entry() -> None:
+        # An entry that produced zero claims (e.g. an EDUCATION entry that's
+        # just "**Degree**" + a plain institution/dates line, no bullets, no
+        # labeled fact list) would otherwise vanish from the Evidence Graph
+        # entirely — its entry_context never attaches to any claim, so
+        # nothing (e.g. cv.py's employer/title check) can ever match against
+        # it. Give it one claim, its own title, so "this entry exists" is
+        # still checkable.
+        if entry_context is not None and claim_num == 0:
+            claims.append(EvidenceClaim(
+                id=f"{prefix}-{entry_num:03d}-C01",
+                section=section,
+                text=entry_context,
+                entry_context=entry_context,
+            ))
+
+    def start_entry(label: str, merge_pending: bool = True) -> None:
+        nonlocal entry_context, entry_num, claim_num, pending_heading
+        flush_empty_entry()
+        entry_num += 1
+        claim_num = 0
+        if merge_pending and pending_heading:
+            entry_context = f"{pending_heading} — {label}"
+        else:
+            entry_context = label
+        pending_heading = None
+
+    def ensure_started() -> None:
+        # A "### Title" with no bold employer line after it (e.g. PROJECTS
+        # entries, which are often "### Name" alone) still starts an entry —
+        # on whatever the next real content line turns out to be.
+        if pending_heading is not None:
+            start_entry(pending_heading, merge_pending=False)
+
+    def add_claim(text: str) -> None:
+        nonlocal claim_num
+        claim_num += 1
+        claims.append(EvidenceClaim(
+            id=f"{prefix}-{entry_num:03d}-C{claim_num:02d}",
+            section=section,
+            text=text,
+            entry_context=entry_context,
+        ))
+
     for raw_line in body.splitlines():
         line = raw_line.strip()
         if not line or line == "...":
             continue
+
+        h3_match = _H3_RE.match(line)
+        if h3_match:
+            ensure_started()  # flush a previous lone heading first, if any
+            pending_heading = h3_match.group(1).strip()
+            continue
+
+        # Checked before the generic bold-title match: "**Stack:** Python,
+        # FastAPI" and plain "Stack: Python, FastAPI" are both a labeled
+        # fact list for the CURRENT entry, not a new entry.
+        labeled_match = _LABELED_LINE_RE.match(line)
+        if labeled_match:
+            ensure_started()
+            for token in _TOKEN_SPLIT_RE.split(labeled_match.group(2)):
+                token = token.strip()
+                if token:
+                    add_claim(token)
+            continue
+
         bold_match = _BOLD_TITLE_RE.match(line)
         if bold_match:
-            entry_num += 1
-            claim_num = 0
-            entry_context = bold_match.group(1).strip()
+            start_entry(bold_match.group(1).strip())
             continue
+
         bullet_match = _BULLET_RE.match(line)
         if bullet_match:
-            claim_num += 1
-            claims.append(EvidenceClaim(
-                id=f"{prefix}-{entry_num:03d}-C{claim_num:02d}",
-                section=section,
-                text=bullet_match.group(1).strip(),
-                entry_context=entry_context,
-            ))
-        # Anything else (stray prose) is silently ignored — see module docstring.
+            ensure_started()
+            add_claim(bullet_match.group(1).strip())
+            continue
+
+        # Stray prose: not a claim itself, but still confirms a pending
+        # "### Title"-only entry so later lines in this block (e.g. a plain
+        # "Stack:" line further down) attach to it.
+        ensure_started()
+
+    ensure_started()  # a trailing lone "### Title" with nothing after it
+    flush_empty_entry()  # the section's last entry, if it produced nothing
     return claims
 
 
@@ -142,6 +239,12 @@ def _parse_flat_section(body: str, section: str) -> list[EvidenceClaim]:
         bullet_match = _BULLET_RE.match(line)
         if bullet_match:
             line = bullet_match.group(1).strip()
+        # "**Backend**" category headers (real profiles group skills under a
+        # bold sub-heading, then list items on the next line) — strip the
+        # markers so the header itself doesn't read as a claim wrapped in
+        # literal asterisks. Harmless either way for is_evidenced, but this
+        # keeps claim text clean for anything that displays it later.
+        line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
         # TECHNICAL SKILLS lines are documented as "Category: item, item" in
         # cv-master-template.md (e.g. "Backend: Python, FastAPI") — strip the
         # category label so claims are the skills themselves. LANGUAGES has no
@@ -151,7 +254,7 @@ def _parse_flat_section(body: str, section: str) -> list[EvidenceClaim]:
             _, _, rest = line.partition(":")
             if rest.strip():
                 line = rest
-        for token in line.split(","):
+        for token in _TOKEN_SPLIT_RE.split(line):
             token = token.strip()
             if not token:
                 continue
