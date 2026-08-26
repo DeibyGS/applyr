@@ -60,6 +60,7 @@ Agent: generates tailored CV from cv-master.md
        runs applyr cv ats-check (ATS compatibility score: 87/100)
        runs applyr cv bullet-optimize (quality: A)
        runs applyr cv cover-letter (tailored letter)
+       runs applyr cv verify (every claim grounded in cv-master.md — PASS)
        delivers PDF ready to send
 ```
 
@@ -74,7 +75,8 @@ applyr is the **storage layer**. Your AI agent is the **brain**.
 - **"Why you match"** — Executive summary of strengths and weaknesses
 - **Weighted scoring** — 6 configurable topics (tech stack 35%, experience 35%, projects 15%, education 5%, english 5%, cultural fit 5%), with a per-offer `weights_used` snapshot so `rescore` and future rebalances never corrupt historical scores
 - **Score breakdown** — Weighted contribution per topic so you understand why 78%
-- **CV tailoring hints** — What to emphasize, what to de-emphasize in your CV
+- **CV tailoring hints** — What to emphasize, what to de-emphasize in your CV, grounded in a deterministic parse of your `cv-master.md` (no fuzzy matching)
+- **Claim-grounding gate** — `cv verify` checks every technology, metric, and employer name in a generated CV against your `cv-master.md`, deterministically — no LLM call, exit 0 (PASS) or 1 (BLOCKED, lists unsupported claims)
 - **Duplicate detection** — same company+title? applyr catches it before you waste time
 - **ATS-safe CVs** — locked single-column CSS, standard fonts, no images. Your agent fills content, never touches structure
 - **ATS compatibility check** — validates CV against ATS rules (headers, formatting, keywords)
@@ -133,6 +135,7 @@ You:   "Yes"
 
 Agent: applyr cv generate 1 → fills from cv-master.md
        applyr cv review → ATS compatibility score: 87/100, READY TO SEND
+       applyr cv verify → PASS, every claim grounded in cv-master.md
        applyr cv pdf → delivers PDF
 
 You:   "Analyze this Data Analyst role at SmallCo"
@@ -182,6 +185,7 @@ applyr followups                   # Overdue + upcoming
 applyr cv generate <id>            # Markdown CV with YAML frontmatter
 applyr cv review <file.md>         # Recruiter review prompt (accepts .md or .html)
 applyr cv review-blind <id>        # Independent CV evaluation (no score bias)
+applyr cv verify <file.md>         # Deterministic claim-grounding gate (no LLM, exit 0/1)
 applyr cv pdf <file.md>            # Markdown → ATS-HTML → PDF via Chrome
 applyr cv ats-check <file.html>    # Check ATS compatibility (0-100 score)
 applyr cv keywords <id>            # Extract & match keywords vs CV

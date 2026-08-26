@@ -4,6 +4,34 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.12.0] — 2026-08-26
+
+### Added
+
+- **Evidence-Based CV Engine** — a deterministic claim-grounding layer for the CV
+  pipeline, closing the gap where an LLM step between `cv-master.md` and a generated CV
+  could state ungrounded technologies, metrics, or employers with no check against the
+  source of truth.
+  - `applyr add`/`update` accept an optional `job_description` field to store the raw
+    job posting text alongside the Matcher's scored interpretation.
+  - `applyr/evidence.py` — a pure, zero-I/O `parse_evidence()` parser that splits
+    `cv-master.md` into structured `EvidenceClaim`s (skills, employers, dates, metrics),
+    plus `is_evidenced()` with a curated alias dictionary (AWS/Amazon Web Services,
+    PostgreSQL/Postgres, JavaScript/JS, Kubernetes/K8s, CI/CD, and multi-word offer terms
+    credited via per-word decomposition).
+  - CV tailoring hints (`<!-- TAILOR -->` / `<!-- NOT INCLUDED -->`) now compute against
+    the Evidence Graph instead of a raw lowercase substring check — fixes the case where
+    an offer's term (e.g. "AWS") only matched `cv-master.md` under its alias form
+    ("Amazon Web Services").
+  - **`applyr cv verify <file>`** — a new deterministic gate, no LLM call, no
+    agent-executed prompt. Extracts technology, metric, and employer/title claims from a
+    generated CV and checks each against a fresh Evidence Graph parse. Exit 0 (PASS)
+    snapshots the verified claims onto `offers.cv_evidence_used` for later audit via
+    `applyr show <id> --json`; exit 1 (BLOCKED) lists every unsupported claim and writes
+    nothing. Supports `--json`.
+  - Schema: `job_description` and `cv_evidence_used` columns added to `offers` (additive,
+    nullable, no backfill for existing rows).
+
 ## [1.11.1] — 2026-08-22
 
 ### Fixed

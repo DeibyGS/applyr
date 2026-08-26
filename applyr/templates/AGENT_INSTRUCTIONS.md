@@ -10,6 +10,7 @@
 4. **Respect the user's threshold** — never override the configured minimum compatibility.
 5. **Every CV must pass review** — never deliver a CV without running `applyr cv review`.
 6. **The Recruiter is blind** — when running `applyr cv review-blind`, do NOT reveal the Matcher's compatibility score.
+7. **Every CV must pass verify** — never deliver a CV without running `applyr cv verify`. Unlike `cv review`, its result is deterministic and final on exit — no LLM judgment call, no prompt to execute.
 
 ## Privacy
 
@@ -266,13 +267,39 @@ applying the three fixes the review named and re-running the same command scored
 agent that reads the verdict and moves on without editing, which fails silently since
 nothing forces the second call.
 
+### Step 6b — Verify grounding
+
+Once `cv review` reaches READY TO SEND:
+
+```bash
+applyr cv verify <path-to-file>
+```
+
+This is a deterministic gate, not an LLM prompt — unlike every other `cv` subcommand so
+far, there is nothing to execute yourself. It re-parses `cv-master.md` fresh and checks
+every technology, metric, and employer/project/title claim in the CV file against it.
+Exit 0 (PASS) means every claim is grounded; exit 1 (BLOCKED) prints the unsupported
+claims and means the CV states something `cv-master.md` does not back — most often a
+technology from the offer's `tech_stack` that slipped into a bullet point without
+actually being in the candidate's profile.
+
+| Result | Action |
+|--------|--------|
+| PASS | Proceed to Step 7 |
+| BLOCKED | Remove or rewrite each unsupported claim listed, then re-run `cv verify` (same loop discipline as Step 6 — editing the file is what closes it, re-running alone does not) |
+
+On PASS, applyr snapshots the verified claim texts onto the offer row
+(`cv_evidence_used`) — `applyr show <id> --json` can answer "what backed this CV" later
+without re-parsing anything.
+
 ### Step 7 — Deliver
 
 Present the final CV with:
 1. ATS compatibility score from last review
-2. Changes made during iterations (if any)
-3. Remaining recommendations
-4. PDF generation command: `applyr cv pdf <path-to-html>`
+2. `cv verify` result (PASS, with claim count)
+3. Changes made during iterations (if any)
+4. Remaining recommendations
+5. PDF generation command: `applyr cv pdf <path-to-html>`
 
 ## Agent response format
 
@@ -334,8 +361,10 @@ Agent (Matcher — apply recommendations):
 7. Apply Recruiter's recommendations to CV
 8. applyr cv review cv-acme-backend.md
    → READY TO SEND (ATS compatibility: 87/100)
-9. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
-10. Deliver CV with score and recommendations
+9. applyr cv verify cv-acme-backend.md
+   → PASS, 14/14 claims grounded in cv-master.md
+10. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
+11. Deliver CV with score and recommendations
 ```
 
 ## Command reference
@@ -363,6 +392,7 @@ Agent (Matcher — apply recommendations):
 | Export | `applyr export --format json` |
 | Review CV | `applyr cv review <file>` |
 | Blind recruiter evaluation | `applyr cv review-blind <id>` |
+| Verify CV claims are grounded | `applyr cv verify <file>` |
 | Discover commands | `applyr --help` |
 
 ## Error recovery
@@ -376,6 +406,7 @@ Agent (Matcher — apply recommendations):
 | Chrome not found | User must install Chrome or set `chrome_path` in applyr.toml. |
 | Chrome timeout | Simplify HTML and retry. |
 | Offer not found | Run `applyr list` to check IDs. |
+| `cv verify` returns BLOCKED | Remove or rewrite each unsupported claim it lists, then re-run — do not deliver the CV as-is. |
 
 ## ATS CV rules
 
