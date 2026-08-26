@@ -346,6 +346,23 @@ class TestIsEvidencedCompoundTerms:
         ]
         assert is_evidenced("agentes de IA", claims) is False
 
+    def test_shared_entry_context_does_not_bridge_unrelated_bullets(self):
+        # Regression (confirmed via /code-review): entry_context is shared
+        # across every bullet under the same entry — a naive "claim.text +
+        # entry_context" haystack per bullet let a compound term borrow one
+        # word from the entry's own title/company (never a real skill claim)
+        # and an unrelated word from a sibling bullet under the same entry.
+        # A company literally named "Kubernetes Solutions Inc" must not
+        # credit a fabricated "Kubernetes Python" claim just because
+        # "Python" appears in an unrelated bullet under that same job.
+        claims = parse_evidence(
+            "## WORK EXPERIENCE\n\n"
+            "**Backend Developer — Kubernetes Solutions Inc**\n"
+            "- Wrote unit tests in Python\n"
+            "- Documented API endpoints\n"
+        )
+        assert is_evidenced("Kubernetes Python", claims) is False
+
     def test_every_significant_word_must_be_evidenced_not_just_one(self):
         # "Machine" alone being evidenced must not be enough to credit
         # "Machine Learning" — every non-connector word is required.

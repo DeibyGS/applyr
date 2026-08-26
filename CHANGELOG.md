@@ -4,6 +4,20 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.12.1] — 2026-08-27
+
+### Fixed
+
+- **`is_evidenced()`'s compound-term co-occurrence check could be bridged by a shared
+  `entry_context`** — found by a `/code-review high` pass immediately after v1.12.0
+  shipped. Each bullet's haystack was built as `claim.text + entry_context`, and
+  `entry_context` (a job title/company name) is shared across every bullet under the same
+  entry — so a compound term like "Kubernetes Python" could pass by borrowing "Kubernetes"
+  from a company literally named "Kubernetes Solutions Inc" and "Python" from any
+  unrelated bullet under that same job, even though neither word was ever true of the same
+  real fact. Fixed by checking each claim's own text and each distinct `entry_context` as
+  independent units, never concatenated.
+
 ## [1.12.0] — 2026-08-26
 
 ### Added
