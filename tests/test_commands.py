@@ -118,6 +118,14 @@ class TestAddJobDescription:
         _add(company="Acme", job_description="")
         assert _row(tmp_applyr, 1)["job_description"] is None
 
+    def test_non_string_value_dies_cleanly_instead_of_crashing(self, tmp_db, tmp_applyr):
+        # Regression (found by /code-review): `(x or "").strip()` only
+        # substitutes on a falsy value, so a non-string truthy JSON value
+        # (e.g. a bare number) reached `.strip()` directly and raised an
+        # unhandled AttributeError instead of a clean, field-specific error.
+        with pytest.raises(SystemExit):
+            _add(company="Acme", job_description=12345)
+
 
 class TestUpdateJobDescription:
     """Mirrors TestUpdateCvUsed: `--job-description ""` is the only way to

@@ -867,7 +867,11 @@ Be specific. Reference exact lines from the CV. Do not be vague."""
 # ---------------------------------------------------------------------------
 # Metrics: percentages, multipliers, dollar amounts — the kind of concrete
 # number a filling agent is tempted to invent because a CV "expects" one.
-_METRIC_RE = re.compile(r'\$\d[\d,]*|\d+%|\d+x\b', re.IGNORECASE)
+# Decimals included in the digit run (\.\d+)? — without it, "2.5x" matched as
+# just "5x" (the leading "2." was left outside the match entirely), so a
+# fabricated "2.5x" could pass by coincidentally substring-colliding with an
+# unrelated real "15x"/"25x" elsewhere — confirmed live via /code-review.
+_METRIC_RE = re.compile(r'\$\d[\d,]*(?:\.\d+)?|\d+(?:\.\d+)?%|\d+(?:\.\d+)?x\b', re.IGNORECASE)
 # The CV skeleton's per-entry headings ("### [Job Title] - [Company], ...",
 # "### [Project Name]") — see cmd_cv_generate's template below.
 _ENTRY_HEADING_RE = re.compile(r'^###\s+(.+)$', re.MULTILINE)
@@ -885,6 +889,7 @@ _HEADING_STOPWORDS = frozenset({
     "engineer", "engineering", "developer", "development", "manager",
     "analyst", "specialist", "consultant", "architect", "lead", "senior",
     "junior", "director", "coordinator", "administrator", "technician",
+    "cto", "ceo", "cfo", "coo", "vp",
     # Spanish equivalents — cv-master.md's language is unconstrained (see
     # evidence.py's _SECTION_MAP), so a Spanish CV needs the same filter.
     "remoto", "hibrido", "híbrido", "presencial", "empresa",
@@ -933,10 +938,17 @@ def _build_tech_vocabulary(claims: list, offer_tech_stack: str | None = None) ->
 
 
 def _extract_tech_claims(cv_text: str, vocabulary: set[str]) -> list[str]:
-    """Vocabulary terms that actually appear in the CV, word-boundary aware
-    (a plain substring check would let short abbreviations like "TS" or "JS"
-    match inside unrelated words)."""
-    return [term for term in vocabulary if re.search(rf'\b{re.escape(term)}\b', cv_text, re.IGNORECASE)]
+    """Vocabulary terms that actually appear in the CV, alphanumeric-boundary
+    aware (a plain substring check would let short abbreviations like "TS" or
+    "JS" match inside unrelated words). Not `\\b`-based: `\\b` requires a
+    word/non-word transition, which a term ending in a non-word character
+    (e.g. "C++") never gets when followed by a space — the lookaround only
+    requires the surrounding characters not be alphanumeric, which covers
+    both plain words and symbol-suffixed terms. Same fix as evidence.is_evidenced."""
+    return [
+        term for term in vocabulary
+        if re.search(rf'(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])', cv_text, re.IGNORECASE)
+    ]
 
 
 def _check_employer_claim(heading: str, claims: list) -> bool:
@@ -948,17 +960,29 @@ def _check_employer_claim(heading: str, claims: list) -> bool:
     never matches cv-master.md's bold-title punctuation verbatim. This is a
     known, documented limitation (specs/evidence-based-cv-engine § Out of
     scope: no full-sentence claim verification), not a full identity check.
+
+    Length cutoff is >= 3, not > 3: short real company names (IBM, SAP, HP,
+    GE) are exactly 2-3 characters, and a `> 3` cutoff filtered them out of
+    heading_words entirely — combined with the old "nothing significant ->
+    True" fallback below, a fabricated "CTO - IBM, Remote" passed
+    unconditionally, since every one of its words was either a filtered
+    C-level abbreviation (now in _HEADING_STOPWORDS), a stopword, or too
+    short — confirmed live via /code-review. The fallback itself also
+    flipped from True to False: a heading with nothing significant to
+    compare should not be assumed evidenced by default (the safer failure
+    direction for a truth gate), and every entry_context observed in
+    practice so far still yields at least one real distinguishing word.
     """
     heading_words = {
         w.strip(",.") for w in heading.lower().split()
-        if len(w.strip(",.")) > 3 and w.strip(",.") not in _HEADING_STOPWORDS
+        if len(w.strip(",.")) >= 3 and w.strip(",.") not in _HEADING_STOPWORDS
     }
     if not heading_words:
-        return True  # nothing significant to check — don't false-flag
+        return False  # nothing significant to compare — don't assume evidenced
     for claim in claims:
         if not claim.entry_context:
             continue
-        context_words = {w.strip(",.") for w in claim.entry_context.lower().split() if len(w.strip(",.")) > 3}
+        context_words = {w.strip(",.") for w in claim.entry_context.lower().split() if len(w.strip(",.")) >= 3}
         if heading_words & context_words:
             return True
     return False

@@ -286,9 +286,10 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
     "TS" would substring-match inside "costs", and `\\b` itself fails to
     require a boundary after a term ending in a non-word character (e.g.
     "42%" or "C++" followed by a space) since two non-word characters don't
-    form a `\\b` transition. The lookaround below only requires the character
-    immediately before/after the match to be non-alphanumeric, which
-    correctly bounds both plain words and symbol-suffixed terms.
+    form a `\\b` transition — confirmed live via /code-review. The lookaround
+    below only requires the character immediately before/after the match to
+    be non-alphanumeric, which correctly bounds both plain words and
+    symbol-suffixed terms.
     """
     for form in _all_forms(term):
         pattern = re.compile(rf'(?<![A-Za-z0-9]){re.escape(form)}(?![A-Za-z0-9])', re.IGNORECASE)

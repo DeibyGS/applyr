@@ -171,6 +171,96 @@ class TestCvVerifyCatchesRealHallucinations:
 
 
 @pytest.mark.unit
+class TestCvVerifyCodeReviewFixes:
+    """Regression tests for exploits confirmed live by /code-review against
+    the already-committed evidence.py/cv.py: three independent ways a
+    fabricated claim passed cv verify's "authoritative" gate unflagged."""
+
+    def test_fabricated_short_company_name_is_blocked(self, tmp_db, tmp_applyr, offer_for_verify, monkeypatch):
+        # "CTO - IBM, Remote" against an entirely unrelated real profile:
+        # every word in the heading was either a filtered C-level
+        # abbreviation, a stopword, or (at the old `> 3` cutoff) too short —
+        # heading_words ended up empty, and the old "nothing to check ->
+        # True" fallback passed it unconditionally.
+        import applyr.cv as cv_mod
+        monkeypatch.setattr(cv_mod, "APPLYR_DIR", tmp_applyr)
+        cv_master = tmp_applyr / "cv-master.md"
+        cv_master.write_text(
+            "## WORK EXPERIENCE\n\n"
+            "**Backend Developer — Acme Corp** — Remote — 01/2022-01/2025\n"
+            "- Built REST APIs with Python\n"
+        )
+        body = (
+            "# John Doe\n\n"
+            "### CTO - IBM, Remote\n"
+            "01/2022 - 01/2025\n\n"
+            "- Built things\n"
+        )
+        cv_path = tmp_applyr / "cv-acme.md"
+        cv_path.write_text(_cv_md(1, body))
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_cv_verify(str(cv_path), as_json=True)
+        assert exc.value.code == 1
+
+    def test_fabricated_decimal_metric_is_not_confused_with_a_real_one(self, tmp_db, tmp_applyr, offer_for_verify, monkeypatch):
+        # Master genuinely has "15x" (a real, evidenced metric). The old
+        # `\d+x\b` regex extracted a fabricated "2.5x" as just "5x", which
+        # then substring-matched inside the real "15x" and passed.
+        import applyr.cv as cv_mod
+        monkeypatch.setattr(cv_mod, "APPLYR_DIR", tmp_applyr)
+        cv_master = tmp_applyr / "cv-master.md"
+        cv_master.write_text(
+            "## WORK EXPERIENCE\n\n"
+            "**Backend Developer — Acme Corp** — Remote — 01/2022-01/2025\n"
+            "- Scaled throughput 15x under load\n"
+        )
+        body = (
+            "# John Doe\n\n"
+            "### Backend Developer - Acme Corp, Remote\n"
+            "01/2022 - 01/2025\n\n"
+            "- Scaled throughput 2.5x under load\n"
+        )
+        cv_path = tmp_applyr / "cv-acme.md"
+        cv_path.write_text(_cv_md(1, body))
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_cv_verify(str(cv_path), as_json=True)
+        assert exc.value.code == 1
+
+    def test_symbol_suffixed_tech_term_is_actually_checked(self, tmp_db, tmp_applyr, offer_for_verify, monkeypatch):
+        # The old `\b`-based extraction never matched "C++" (a non-word
+        # character never satisfies a trailing `\b` before a space), so a
+        # fabricated "C++" claim was silently excluded from `results`
+        # entirely — never checked, never reported unsupported.
+        import applyr.cv as cv_mod
+        monkeypatch.setattr(cv_mod, "APPLYR_DIR", tmp_applyr)
+        cv_master = tmp_applyr / "cv-master.md"
+        cv_master.write_text(
+            "## WORK EXPERIENCE\n\n"
+            "**Backend Developer — Acme Corp** — Remote — 01/2022-01/2025\n"
+            "- Built REST APIs with Python\n"
+        )
+        conn = get_conn(tmp_db)
+        conn.execute("UPDATE offers SET tech_stack = 'Python, C++' WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        body = (
+            "# John Doe\n\n"
+            "### Backend Developer - Acme Corp, Remote\n"
+            "01/2022 - 01/2025\n\n"
+            "- Built systems in Python and C++\n"
+        )
+        cv_path = tmp_applyr / "cv-acme.md"
+        cv_path.write_text(_cv_md(1, body))
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_cv_verify(str(cv_path), as_json=True)
+        assert exc.value.code == 1
+
+
+@pytest.mark.unit
 class TestCvVerifyBlocked:
 
     def test_unevidenced_technology_blocks_with_exit_1(self, tmp_db, tmp_applyr, offer_for_verify, cv_master_grounded):

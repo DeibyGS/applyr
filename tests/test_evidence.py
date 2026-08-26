@@ -296,3 +296,21 @@ class TestIsEvidenced:
         metric_claim = [EvidenceClaim(id="EXP-001-C01", section="experience",
                                        text="Reduced test results turnaround time by 40%", entry_context=None)]
         assert is_evidenced("TypeScript", metric_claim) is False
+
+    def test_short_alias_does_not_match_inside_unrelated_word(self):
+        # Regression: a plain `in` substring check let "TS" (alias of
+        # TypeScript) match inside "costs" — confirmed live via /code-review.
+        claims = [EvidenceClaim(id="X", section="experience",
+                                 text="Reduced infrastructure costs significantly", entry_context=None)]
+        assert is_evidenced("TS", claims) is False
+
+    def test_metric_does_not_match_inside_a_longer_number(self):
+        # Regression: "99%" substring-matched inside "199%".
+        claims = [EvidenceClaim(id="X", section="experience", text="Grew revenue by 199%", entry_context=None)]
+        assert is_evidenced("99%", claims) is False
+
+    def test_symbol_suffixed_term_still_matches_at_a_real_boundary(self):
+        # The alphanumeric-boundary fix must not accidentally stop matching
+        # terms that legitimately end in a non-word character.
+        claims = [EvidenceClaim(id="X", section="skill", text="C++", entry_context=None)]
+        assert is_evidenced("C++", claims) is True

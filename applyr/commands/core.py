@@ -588,14 +588,17 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     job_url: str | None = data.get("job_url")
     rejection_reason: str | None = data.get("rejection_reason")
     # Stripped to None on empty/whitespace so `IS NOT NULL` checks agree with
-    # `update`'s clearing convention for this field (see cmd_update below). Type-
-    # guarded (unlike title/company above) because job_description is the one
-    # optional field long enough that an agent might pass a list of paragraphs
-    # instead of a joined string.
-    _job_description_raw = data.get("job_description")
-    job_description: str | None = (
-        _job_description_raw.strip() or None if isinstance(_job_description_raw, str) else None
-    )
+    # `update`'s clearing convention for this field (see cmd_update below).
+    # Type-checked before `.strip()`: `(x or "").strip()` only substitutes on
+    # a falsy value, so a non-string truthy JSON value (e.g. a bare number)
+    # reached `.strip()` directly and crashed with an unhandled
+    # AttributeError instead of a clean die() — confirmed live via
+    # /code-review.
+    job_description_raw = data.get("job_description")
+    if job_description_raw is not None and not isinstance(job_description_raw, str):
+        die("Error: 'job_description' must be a string.", code="invalid_value",
+            details={"field": "job_description"})
+    job_description: str | None = (job_description_raw or "").strip() or None
 
     # --- Date fields -------------------------------------------------------
     date_received: str = data.get("date_received") or _today()
