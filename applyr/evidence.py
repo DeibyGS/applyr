@@ -174,13 +174,23 @@ def _all_forms(term: str) -> list[str]:
 def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
     """Whether `term` (or an alias of it) appears in any claim's text/entry.
 
-    Lowercase substring + PROTECTED_FACT_ALIASES expansion only — deliberately
-    not fuzzy or semantic matching (ADR-011): a fuzzy matcher risks the
-    verifier itself hallucinating support for a term that isn't really there.
+    Alphanumeric-boundary substring + PROTECTED_FACT_ALIASES expansion only —
+    deliberately not fuzzy or semantic matching (ADR-011): a fuzzy matcher
+    risks the verifier itself hallucinating support for a term that isn't
+    really there.
+
+    Not a plain `in` check, and not `\\b`-based either: a short alias like
+    "TS" would substring-match inside "costs", and `\\b` itself fails to
+    require a boundary after a term ending in a non-word character (e.g.
+    "42%" or "C++" followed by a space) since two non-word characters don't
+    form a `\\b` transition. The lookaround below only requires the character
+    immediately before/after the match to be non-alphanumeric, which
+    correctly bounds both plain words and symbol-suffixed terms.
     """
-    forms = [form.lower() for form in _all_forms(term)]
-    for claim in claims:
-        haystack = f"{claim.text} {claim.entry_context or ''}".lower()
-        if any(form in haystack for form in forms):
-            return True
+    for form in _all_forms(term):
+        pattern = re.compile(rf'(?<![A-Za-z0-9]){re.escape(form)}(?![A-Za-z0-9])', re.IGNORECASE)
+        for claim in claims:
+            haystack = f"{claim.text} {claim.entry_context or ''}"
+            if pattern.search(haystack):
+                return True
     return False

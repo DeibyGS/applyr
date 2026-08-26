@@ -172,3 +172,13 @@ class TestIsEvidenced:
     def test_no_fuzzy_matching_for_unrelated_terms(self):
         claims = parse_evidence(SAMPLE_PROFILE)
         assert is_evidenced("Golang", claims) is False
+
+    def test_short_alias_does_not_substring_match_inside_unrelated_word(self):
+        # "JS" is a substring of "JSON", "TS" is a substring of "results" —
+        # a bare `in` check would false-positive-match both. Confirmed
+        # exploit via /code-review before this fix.
+        claims = [EvidenceClaim(id="SKILL-001", section="skill", text="Python, FastAPI, JSON, Django", entry_context=None)]
+        assert is_evidenced("JavaScript", claims) is False
+        metric_claim = [EvidenceClaim(id="EXP-001-C01", section="experience",
+                                       text="Reduced test results turnaround time by 40%", entry_context=None)]
+        assert is_evidenced("TypeScript", metric_claim) is False
