@@ -310,10 +310,13 @@ Grouped by chained-PR component (see Task breakdown). AC IDs are
    `test_evidence.py`) [M]
    Pure parser + alias matching, fully unit-tested in isolation, not yet wired
    into `cv.py`. Depends on PR1 only for branch base, not functionally.
-3. **PR3 — Tailoring plan integration** (`cv.py` `_get_tailoring_hints`
+3. [x] **PR3 — Tailoring plan integration** (`cv.py` `_get_tailoring_hints`
    reimplementation) [S]
    Wires PR2's parser into the existing tailoring-hint code path. Small diff,
-   same external contract — lowest-risk PR in the chain.
+   same external contract — lowest-risk PR in the chain. Implemented; call
+   site stopped pre-lowering `cv_master_text` (evidence.py does its own
+   case-insensitive matching and needs original casing for claim text).
+   `simplify-lean` found no changes needed; 126/126 cv-related tests pass.
 4. **PR4 — `cv verify` command** (`cv.py` `cmd_cv_verify`, `cli.py`,
    `test_cv_verify.py`) [L, consider splitting extraction vs. reporting if it
    approaches the 500-line budget]

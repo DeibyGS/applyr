@@ -9,6 +9,7 @@ from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
+from applyr.evidence import is_evidenced, parse_evidence
 
 
 def _die_chrome(message: str, result) -> None:
@@ -155,12 +156,16 @@ def _get_tailoring_hints(
 ) -> tuple[list[str], list[str], list[str]]:
     """Generate tailoring hints based on tech_stack and topic scores.
 
-    profile_text (cv-master.md, lowercased) filters tech_stack down to what the
-    candidate's own profile actually evidences — the same "never invent skills"
-    check generate_cover_letter already applies to its key_skills. Without it,
-    TAILOR silently told the filling agent to prioritize offer-stated tech the
-    profile has no evidence for; anything filtered out is surfaced instead as
-    NOT INCLUDED, so the gap is explicit rather than silently dropped.
+    profile_text is cv-master.md's raw text (not lowercased — the Evidence
+    Graph parser, applyr/evidence.py, needs original casing for claim text and
+    does its own case-insensitive matching internally). Filters tech_stack
+    down to what the candidate's profile actually evidences via
+    evidence.is_evidenced(), which also expands PROTECTED_FACT_ALIASES (e.g.
+    an offer's "AWS" matches a profile written as "Amazon Web Services") —
+    the same "never invent skills" check generate_cover_letter already applies
+    to its key_skills, now alias-aware instead of a raw substring check.
+    Anything not evidenced is surfaced as NOT INCLUDED, so the gap is explicit
+    rather than silently dropped.
 
     Returns:
         Tuple of (highlight, de_emphasize, not_included) lists
@@ -173,8 +178,9 @@ def _get_tailoring_hints(
         # Parse tech_stack from comma-separated string
         skills = [s.strip() for s in tech_stack.split(",") if s.strip()]
         if profile_text:
-            highlight = [s for s in skills if s.lower() in profile_text]
-            not_included = [s for s in skills if s.lower() not in profile_text]
+            claims = parse_evidence(profile_text)
+            highlight = [s for s in skills if is_evidenced(s, claims)]
+            not_included = [s for s in skills if not is_evidenced(s, claims)]
         else:
             highlight = skills
 
@@ -442,7 +448,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
         conn.close()
 
     highlight, de_emphasize, not_included = _get_tailoring_hints(
-        row["tech_stack"], topics_dict, cv_master_text.lower()
+        row["tech_stack"], topics_dict, cv_master_text
     )
     tailoring_hints = _format_tailoring_hints(highlight, de_emphasize, not_included)
 
