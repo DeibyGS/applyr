@@ -341,9 +341,21 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
                 re.compile(rf'(?<![A-Za-z0-9]){re.escape(w)}(?![A-Za-z0-9])', re.IGNORECASE)
                 for w in significant_words
             ]
-            for claim in claims:
-                haystack = f"{claim.text} {claim.entry_context or ''}"
-                if all(p.search(haystack) for p in word_patterns):
+            # Each claim's own text, and each distinct entry_context, are
+            # independent coherent units here — NOT concatenated together.
+            # entry_context (a job title/company name) is shared across
+            # every bullet under that entry; concatenating it onto each
+            # bullet's haystack let a compound term borrow one word from the
+            # title and an unrelated word from any sibling bullet under the
+            # same entry — confirmed via /code-review: a company literally
+            # named "Kubernetes Solutions Inc" paired with an unrelated
+            # "Python" bullet under the same job wrongly credited a
+            # fabricated "Kubernetes Python" claim, since neither word was
+            # ever true of the SAME real fact.
+            units = {claim.text for claim in claims}
+            units.update(claim.entry_context for claim in claims if claim.entry_context)
+            for unit in units:
+                if all(p.search(unit) for p in word_patterns):
                     return True
 
     return False
