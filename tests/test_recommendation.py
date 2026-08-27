@@ -81,13 +81,19 @@ class TestClassifyTopic:
 
 class TestClassifyIcon:
     def test_strong(self):
-        assert _classify_icon("strong") == "✓"
+        icon, text = _classify_icon("strong")
+        assert icon == "✓"
+        assert text == "Strong"
 
     def test_partial(self):
-        assert _classify_icon("partial") == "△"
+        icon, text = _classify_icon("partial")
+        assert icon == "△"
+        assert text == "Partial"
 
     def test_missing(self):
-        assert _classify_icon("missing") == "✕"
+        icon, text = _classify_icon("missing")
+        assert icon == "✕"
+        assert text == "Missing"
 
 
 class TestGetMatchBreakdown:

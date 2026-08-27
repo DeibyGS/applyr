@@ -7,6 +7,7 @@ import threading
 import time
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 
 
 @pytest.fixture
@@ -124,3 +125,11 @@ def reset_json_mode():
     errors.set_json_mode(False)
     yield
     errors.set_json_mode(False)
+
+
+@pytest.fixture(autouse=True)
+def mock_tty():
+    """Mock TTY for color tests - enables colors in test environment."""
+    with patch.object(sys.stdout, 'isatty', return_value=True):
+        with patch('shutil.get_terminal_size', return_value=(80, 24)):
+            yield

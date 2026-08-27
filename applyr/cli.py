@@ -33,6 +33,7 @@ from applyr.commands import (
 )
 from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_review_blind, cmd_cv_ats_check, cmd_cv_keywords, cmd_cv_bullet_optimize, cmd_cv_cover_letter
 from applyr.analytics import compare_cvs, response_rate
+from applyr.constants import set_terminal_context, get_terminal_context, TerminalContext
 from applyr.db import init_db, VALID_STATUSES
 from applyr.errors import die, error, set_json_mode
 
@@ -150,6 +151,13 @@ def main():
 
     init_colors(no_color=no_color or as_json)
     set_json_mode(as_json)
+
+    # Set terminal context for dynamic widths
+    ctx = get_terminal_context()
+    # Override with detected flags
+    ctx.json_mode = as_json
+    ctx.colors_enabled = ctx.is_tty and not os.environ.get("NO_COLOR", "") and not as_json
+    set_terminal_context(ctx)
 
     if not args or args[0] in ("help", "--help", "-h"):
         if not args and not _is_initialized():

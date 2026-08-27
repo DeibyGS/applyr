@@ -18,12 +18,14 @@ from applyr.constants import (
     DUPLICATE_COMPANY_HISTORY_LIMIT,
     FOLLOWUP_UPCOMING_DAYS,
     JSON_ERROR_CONTEXT,
-    LIST_COL_WIDTHS,
-    LIST_HEADERS,
-    TRUNCATE_COMPANY,
-    TRUNCATE_TITLE,
     VALID_CONFIDENCE_LEVELS,
     VALID_SALARY_PERIODS,
+    LIST_COL_SPECS,
+    TRUNCATE_COMPANY,
+    TRUNCATE_TITLE,
+    LIST_HEADERS,
+    LIST_COL_WIDTHS,
+    get_terminal_context,
 )
 from applyr.db import (
     REPLY_STATUSES,
@@ -50,9 +52,12 @@ from applyr.ui_events import (
     notify_handoff_completed,
 )
 from applyr.scoring import calculate_score
-from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum
+from applyr.commands._helpers import (_bar, _today, _truncate, _classify_topic, _derive_confidence,
+                                      _show_score_breakdown, _validate_enum,
+                                      _print_table, _print_section_header, _print_kv, _print_field_group)
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
+from applyr.colors import get_status_label, get_status_color, get_status_icon, color
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -367,7 +372,7 @@ def _report_duplicate(row, reason: str) -> None:
         text="or re-run with --force to add it anyway.")
 
 
-def _print_table(rows: list[dict], headers: list[str], col_widths: list[int]) -> None:
+def _print_fixed_table(rows: list[dict], headers: list[str], col_widths: list[int]) -> None:
     """Print a fixed-width ASCII table."""
     sep = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
     fmt = "| " + " | ".join(f"{{:<{w}}}" for w in col_widths) + " |"
@@ -947,8 +952,19 @@ def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", li
         return
 
     # Build display rows
-    display = [_make_display_row(r) for r in rows]
-    _print_table(display, LIST_HEADERS, LIST_COL_WIDTHS)
+    table_rows = []
+    for r in rows:
+        table_rows.append({
+            "id": r["id"],
+            "company": r["company"] or "—",
+            "title": r["title"],
+            "pct": f"{r['compatibility_pct']}%",
+            "status": get_status_label(r["status"]),
+            "mode": r["work_mode"] or "—",
+            "date": r["date_applied"] or r["date_received"] or "—",
+        })
+
+    _print_table(table_rows, LIST_COL_SPECS)
     print(f"  {len(rows)} offer(s) shown.")
 
 
@@ -982,71 +998,85 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return
 
-    config = load_config()
-    topic_labels: dict = TOPIC_LABELS
+    ctx = get_terminal_context()
 
-    print(f"\n{'='*60}")
+    # Header
+    print(f"\n{'=' * min(60, ctx.width)}")
     print(f"  Offer #{row['id']}  —  {row['title']}")
-    print(f"{'='*60}")
+    print(f"{'=' * min(60, ctx.width)}")
 
-    def _field(label: str, value) -> None:
-        if value is not None and value != "" and value != 0:
-            print(f"  {label:<22}: {value}")
-
-    _field("Company", row["company"])
-    _field("Job URL", row["job_url"])
-    _field("Status", STATUS_LABELS.get(row["status"], row["status"]))
-    _field("Canal", row["canal"])
-    _field("Compatibility", f"{row['compatibility_pct']}%")
+# Core fields
+    _print_section_header("Core")
+    _print_field_group([
+        ("Company", row["company"] or "—"),
+        ("Job URL", row["job_url"] or "—"),
+    ])
+    job_desc = row["job_description"] if "job_description" in row.keys() else None
+    if job_desc:
+        _print_kv("Job Description", f"[stored, {len(job_desc)} chars — see --json]")
+    cv_evidence = row["cv_evidence_used"] if "cv_evidence_used" in row.keys() else None
+    if cv_evidence:
+        _print_kv("Evidence Verified", f"{len(json.loads(cv_evidence))} claim(s) — see --json")
+    _print_kv("Status", get_status_label(row["status"]))
+    _print_kv("Canal", row["canal"] or "—")
+    _print_kv("Compatibility", f"{row['compatibility_pct']}%")
     if row["weights_used"]:
         weights_dict = json.loads(row["weights_used"])
         weights_str = ", ".join(f"{k}={v}" for k, v in weights_dict.items())
-        _field("Scored Under", weights_str)
+        _print_kv("Scored Under", weights_str)
     else:
-        _field("Scored Under", "unknown (pre-v9 or manual override)")
-    print()
+        _print_kv("Scored Under", "unknown (pre-v9 or manual override)")
 
-    _field("Work Mode", row["work_mode"])
-    _field("Location", row["location"])
-    _field("Seniority", row["seniority_level"])
-    _field("Role Category", row["role_category"])
-    _field("Tech Stack", row["tech_stack"])
-    _field("Language", row["language"])
-    print()
+    # Work details
+    _print_section_header("Work Details")
+    _print_field_group([
+        ("Work Mode", row["work_mode"] or "—"),
+        ("Location", row["location"] or "—"),
+        ("Seniority", row["seniority_level"] or "—"),
+        ("Role Category", row["role_category"] or "—"),
+        ("Tech Stack", row["tech_stack"] or "—"),
+        ("Language", row["language"] or "—"),
+    ])
 
-    _field("Date Received", row["date_received"])
-    _field("Date Applied", row["date_applied"])
-    _field("Date Responded", row["date_responded"])
-    print()
+    # Dates
+    _print_section_header("Dates")
+    _print_field_group([
+        ("Date Received", row["date_received"] or "—"),
+        ("Date Applied", row["date_applied"] or "—"),
+        ("Date Responded", row["date_responded"] or "—"),
+    ])
 
     # Salary
     if row["salary_min"] or row["salary_max"]:
+        _print_section_header("Salary")
         period = row["salary_period"] or "annual"
-        sal_str = ""
         if row["salary_min"] and row["salary_max"]:
             sal_str = f"{row['salary_min']:,} – {row['salary_max']:,} ({period})"
         elif row["salary_min"]:
             sal_str = f">= {row['salary_min']:,} ({period})"
         else:
             sal_str = f"<= {row['salary_max']:,} ({period})"
-        _field("Salary", sal_str)
-        print()
+        _print_kv("Salary", sal_str)
 
     # Contact
-    _field("Contact Name", row["contact_name"])
-    _field("Contact Role", row["contact_role"])
     if row["contact_name"] or row["contact_role"]:
-        print()
+        _print_section_header("Contact")
+        _print_field_group([
+            ("Contact Name", row["contact_name"] or "—"),
+            ("Contact Role", row["contact_role"] or "—"),
+        ])
 
     # Materials
+    _print_section_header("Materials")
     if row["cover_letter"]:
-        _field("Cover Letter", row["cover_letter_file"] or "Yes (no file specified)")
-    _field("CV Used", row["cv_used"])
+        _print_kv("Cover Letter", row["cover_letter_file"] or "Yes (no file specified)")
+    _print_kv("CV Used", row["cv_used"] or "—")
 
     # Follow-up
     today_str = _today()
     fu_date = row["follow_up_date"]
     if fu_date:
+        _print_section_header("Follow-up")
         if row["follow_up_done"]:
             fu_status = "Done"
         elif fu_date < today_str:
@@ -1055,39 +1085,21 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
             fu_status = f"Upcoming ({fu_date})"
         else:
             fu_status = fu_date
-        _field("Follow-up", fu_status)
-    _field("Follow-up Notes", row["follow_up_notes"])
+        _print_kv("Follow-up", fu_status)
+        if row["follow_up_notes"]:
+            _print_kv("Follow-up Notes", row["follow_up_notes"])
 
     # Rejection
-    _field("Rejection Reason", row["rejection_reason"])
-
-    # Summary / Notes
+    if row["rejection_reason"]:
+        _print_section_header("Rejection")
+        _print_kv("Rejection Reason", row["rejection_reason"])
+# Summary / Notes
     if row["summary"]:
-        print(f"\n  Summary:\n    {row['summary']}")
+        _print_section_header("Summary")
+        print(f"  {row['summary']}")
     if row["notes"]:
-        print(f"\n  Notes:\n    {row['notes']}")
-
-    # Topic scores
-    topics_dicts = [dict(t) for t in topics]
-    if topics_dicts:
-        print(f"\n  Scoring Topics:")
-        for t in topics_dicts:
-            label = topic_labels.get(t["topic"], t["topic"])
-            bar = _bar(t["score"])
-            suffix = _topic_display_suffix(t["detail"], t["confidence"])
-            print(f"    {label:<18} {t['score']:>3}%  {bar} {suffix}")
-
-        # Skill-level breakdown
-        _show_match_breakdown(topics_dicts, topic_labels)
-
-        # Score breakdown
-        _show_score_breakdown(topics_dicts, config.get("weights", {}))
-
-    # Recommendation
-    recommendation, icon = _get_recommendation(row["compatibility_pct"], config)
-    rec_label_text = _get_recommendation_label(recommendation)
-    print(f"\n  >> {icon} {rec_label_text} (score {row['compatibility_pct']}%)")
-    print(f"     CONFIDENCE: {_derive_confidence(topics_dicts).upper()}")
+        _print_section_header("Notes")
+        print(f"  {row['notes']}")
 
     print()
 
@@ -1321,5 +1333,5 @@ def cmd_search(keyword: str, status_filter: str | None = None, company: str | No
         return
 
     display = [_make_display_row(r) for r in rows]
-    _print_table(display, LIST_HEADERS, LIST_COL_WIDTHS)
+    _print_fixed_table(display, LIST_HEADERS, LIST_COL_WIDTHS)
     print(f"  {len(rows)} result(s) for {target}.")
