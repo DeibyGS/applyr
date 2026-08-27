@@ -74,6 +74,18 @@ _H3_RE = re.compile(r"^###\s+(.+)$")
 # text (optionally still inside the bold markers) to avoid matching a real
 # entry-title bold line like "**Acme Corp** — Remote — 01/2022".
 _LABELED_LINE_RE = re.compile(r"^(?:\*\*)?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9 /]*?):(?:\*\*)?\s*(.+)$")
+# GFM table row ("| Cert | Issuer | Date |") and its header-separator row
+# ("|---|---|---|", ":---:" alignment markers allowed).
+_TABLE_ROW_RE = re.compile(r"^\|(.+)\|\s*$")
+_TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
+# Splits a table row's inner text into cells on "|", but not on GFM's escaped
+# "\|" (a literal pipe inside a cell, e.g. an issuer name "A | B") — a bare
+# .split("|") would fragment that cell in two and truncate the real value.
+_UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+
+
+def _split_table_row(inner: str) -> list[str]:
+    return [cell.replace(r"\|", "|").strip() for cell in _UNESCAPED_PIPE_RE.split(inner)]
 # Real profiles separate tech/skill tokens with commas, middle dots, or
 # markdown table pipes depending on section — accept all three.
 _TOKEN_SPLIT_RE = re.compile(r"[,·|]")
@@ -127,11 +139,73 @@ def parse_evidence(profile_text: str) -> list[EvidenceClaim]:
     return claims
 
 
+def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[list[EvidenceClaim], set[int], int]:
+    """One entry per data row of a GFM table (header row + separator row + data rows).
+
+    cv-master.md documents entry sections (e.g. CERTIFICATIONS) as free text,
+    but a pipe-delimited table is a natural, common choice this parser never
+    accounted for — every row fell through to the "stray prose" branch below
+    and produced zero claims, so a real credential ("| Prompt Engineering...
+    | Udemy | mar 2026 |") could be reported as unsupported by `cv verify`
+    even though it is right there in cv-master.md. Each data row becomes one
+    entry: first cell is the title (also the entry_context, so it reads like
+    a "**Bold Title**" entry elsewhere in this file), remaining cells are
+    additional claims for that same entry.
+
+    Returns the claims, the set of line indices consumed (so the caller's
+    line-by-line loop skips them instead of treating the leftover `|` lines
+    as stray prose), and the number of entries created — the caller must
+    resume its own entry_num counter from there, not from 0, or a section
+    mixing a table with an ordinary bold-title/bullet entry produces two
+    claims with the same id (e.g. two unrelated claims both "CERT-001-C01"),
+    breaking EvidenceClaim.id's "stable within one parse_evidence call"
+    guarantee (found by /code-review).
+    """
+    claims: list[EvidenceClaim] = []
+    consumed: set[int] = set()
+    entry_num = 0
+    i = 0
+    while i < len(lines) - 1:
+        header_match = _TABLE_ROW_RE.match(lines[i].strip())
+        sep_match = _TABLE_ROW_RE.match(lines[i + 1].strip())
+        if not (header_match and sep_match):
+            i += 1
+            continue
+        sep_cells = _split_table_row(sep_match.group(1))
+        if not sep_cells or not all(_TABLE_SEPARATOR_CELL_RE.match(c) for c in sep_cells):
+            i += 1
+            continue
+        consumed.add(i)
+        consumed.add(i + 1)
+        j = i + 2
+        while j < len(lines):
+            row_match = _TABLE_ROW_RE.match(lines[j].strip())
+            if not row_match:
+                break
+            consumed.add(j)
+            cells = [c for c in _split_table_row(row_match.group(1)) if c]
+            if cells:
+                entry_num += 1
+                title, *rest = cells
+                claims.append(EvidenceClaim(
+                    id=f"{prefix}-{entry_num:03d}-C01", section=section, text=title, entry_context=title,
+                ))
+                for k, extra in enumerate(rest, start=2):
+                    claims.append(EvidenceClaim(
+                        id=f"{prefix}-{entry_num:03d}-C{k:02d}", section=section, text=extra, entry_context=title,
+                    ))
+            j += 1
+        i = j
+    return claims, consumed, entry_num
+
+
 def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
     prefix = _PREFIXES[section]
-    claims: list[EvidenceClaim] = []
+    lines = body.splitlines()
+    table_claims, consumed_table_lines, table_entry_count = _parse_table_entries(lines, prefix, section)
+    claims: list[EvidenceClaim] = list(table_claims)
     entry_context: str | None = None
-    entry_num = 0
+    entry_num = table_entry_count
     claim_num = 0
     # A "### Job Title" line seen but not yet attached to an entry — merged
     # into entry_context the moment a following bold employer line (or any
@@ -184,7 +258,9 @@ def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
             entry_context=entry_context,
         ))
 
-    for raw_line in body.splitlines():
+    for line_idx, raw_line in enumerate(lines):
+        if line_idx in consumed_table_lines:
+            continue
         line = raw_line.strip()
         if not line or line == "...":
             continue

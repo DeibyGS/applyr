@@ -7,6 +7,16 @@ from typing import NamedTuple
 
 from applyr.errors import error
 
+# Punctuation that wraps a title word rather than being part of it — parens,
+# brackets, quotes (straight and curly). Deliberately NOT string.punctuation:
+# that also includes "+", "#", "-", "/", which are meaningful inside a term
+# ("C++", "C#", "CI/CD") and must survive stripping, not be reduced to a
+# single letter that then fails the length filter below. Found by
+# /code-review: a title like "Senior C++ Developer" — word "C++" — stripped
+# to "c" under string.punctuation, dropped by the len > 2 gate, and silently
+# lost the keyword entirely.
+_TITLE_WRAPPING_PUNCTUATION = "()[]{}\"'“”‘’«»"
+
 
 class ATSIssue(NamedTuple):
     """Single ATS compatibility issue."""
@@ -211,7 +221,7 @@ def extract_keywords(offer_data: dict) -> list[str]:
         # Common words to skip
         skip_words = {"developer", "engineer", "senior", "junior", "mid", "full", "stack", "the", "and", "or"}
         for word in title.split():
-            word_lower = word.lower().strip()
+            word_lower = word.lower().strip(_TITLE_WRAPPING_PUNCTUATION)
             if word_lower not in skip_words and len(word_lower) > 2:
                 keywords.add(word_lower)
 

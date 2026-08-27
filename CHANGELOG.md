@@ -4,6 +4,33 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.12.2] — 2026-08-27
+
+### Fixed
+
+- **`cv keywords` counted a generated CV's own `<!-- TAILOR: ... --> / <!-- NOT INCLUDED:
+  ... -->` scaffold comment as CV content** — the comment documents which offer keywords
+  the agent deliberately left out, so those excluded keywords were reported as MATCHED.
+  Frontmatter stripping (fixed earlier) never covered HTML comments. Found live: a real
+  CV's keyword match rate was inflated from a true 37.5% to a false 70%. Fixed by
+  stripping HTML comments the same way `cv review`'s markdown parser already does.
+- **`cv keywords` produced garbage keyword tokens from a title's punctuation** —
+  `extract_keywords()` split a job title on whitespace but only stripped whitespace, not
+  punctuation, from the outer words. A title like "AI Automation Engineer (Full Stack)"
+  produced `"(full"` and `"stack)"`, neither of which matched `skip_words`, so both were
+  reported as permanently missing keywords no CV body could ever satisfy.
+- **The Evidence Graph parser silently produced zero claims for a GFM table-formatted
+  entry section** — `_parse_entry_section` only recognized entries starting with a
+  `**Bold Title**` or `### Heading` line. A `cv-master.md` with its CERTIFICATIONS section
+  written as a pipe-delimited Markdown table (a natural, common choice) had every row fall
+  through to the "stray prose" branch, producing zero claims — so a real, true
+  certification could be reported as an unsupported/invented claim by `cv verify`. Found
+  live: a real "Prompt Engineering" certification was blocked before this fix. Fixed by
+  adding a table-parsing pre-pass that turns each data row into one entry (first cell =
+  title, remaining cells = additional claims). Confirmed against the real `cv-master.md`:
+  certification claims went from 0 to 60, and a generated CV's keyword match rose from
+  78.6% to 85.7% once the genuine certification could pass verification.
+
 ## [1.12.1] — 2026-08-27
 
 ### Fixed

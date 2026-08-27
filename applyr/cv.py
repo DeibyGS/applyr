@@ -697,7 +697,7 @@ def _strip_html_tags(html: str) -> str:
     """Remove markup, styles and comments, returning the readable CV text."""
     text = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
     text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
-    text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+    text = _strip_html_comments(text)
     text = re.sub(r'<[^>]+>', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text[:_MAX_CV_TEXT_CHARS]
@@ -754,15 +754,26 @@ def _strip_frontmatter(md: str) -> str:
     return md[end + 3:].lstrip("\n") if end != -1 else md
 
 
+def _strip_html_comments(text: str) -> str:
+    """Remove `<!-- ... -->` blocks, incl. the `TAILOR:`/`NOT INCLUDED:` scaffold
+    `cv generate` writes into every file — never content a recruiter, an ATS,
+    or any of this module's own analysis passes should see. Shared so every
+    command that reads a generated CV's body agrees on what "the CV" is
+    (found via /code-review: `cv keywords` and `cv verify` already stripped
+    it through independent copies of this same regex; `cv ats-check` did
+    not, so a comment line starting with "|" could trip its table-layout
+    heuristic while every sibling command saw clean text).
+    """
+    return re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+
+
 def _parse_markdown_for_review(md: str) -> str:
     """Parse markdown content for CV review, extracting readable text.
 
     Strips YAML frontmatter and HTML comments, converts markdown to plain text.
     """
     md = _strip_frontmatter(md)
-
-    # Strip HTML comments
-    text = re.sub(r'<!--.*?-->', '', md, flags=re.DOTALL)
+    text = _strip_html_comments(md)
 
     # Convert markdown to plain text
     # Headers: ## Title → Title
@@ -1055,7 +1066,7 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
     claims = parse_evidence(cv_master.read_text(encoding="utf-8"))
 
     vocabulary = _build_tech_vocabulary(claims, offer["tech_stack"])
-    no_comments = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+    no_comments = _strip_html_comments(content)
 
     results = []
     for term in _extract_tech_claims(cv_text, vocabulary):
@@ -1271,7 +1282,7 @@ def cmd_cv_ats_check(cv_file: str, as_json: bool = False) -> None:
         )
         die(f"{cv_file} is not a text file.{hint}", code="unsupported_format",
             details={"path": str(cv_path)})
-    report = validate_ats_format(cv_text)
+    report = validate_ats_format(_strip_html_comments(cv_text))
 
     if as_json:
         payload = {
@@ -1368,9 +1379,12 @@ def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
     # matching the whole file compared the offer's keywords against a verbatim
     # copy of themselves: every keyword hit, every CV scored 100% STRONG, and a
     # CV mentioning neither AWS nor Redux nor Webpack was reported as covering
-    # all three.
+    # all three. The same file also carries an HTML `<!-- TAILOR: ... -->` /
+    # `<!-- NOT INCLUDED: ... -->` scaffold comment naming the very keywords
+    # the agent chose to leave out — left unstripped, those show up as
+    # "matched" too.
     try:
-        cv_text = _strip_frontmatter(cv_path.read_text(encoding="utf-8"))
+        cv_text = _strip_html_comments(_strip_frontmatter(cv_path.read_text(encoding="utf-8")))
     except UnicodeDecodeError:
         die(f"{cv_path} is not readable as text — check how it was saved (expected UTF-8).",
             code="unsupported_format", details={"path": str(cv_path)})
