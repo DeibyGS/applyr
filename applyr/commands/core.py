@@ -1011,10 +1011,12 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
         ("Company", row["company"] or "—"),
         ("Job URL", row["job_url"] or "—"),
     ])
-    if row["job_description"]:
-        _print_kv("Job Description", f"[stored, {len(row['job_description'])} chars — see --json]")
-    if row["cv_evidence_used"]:
-        _print_kv("Evidence Verified", f"{len(json.loads(row['cv_evidence_used']))} claim(s) — see --json")
+    job_desc = row["job_description"] if "job_description" in row.keys() else None
+    if job_desc:
+        _print_kv("Job Description", f"[stored, {len(job_desc)} chars — see --json]")
+    cv_evidence = row["cv_evidence_used"] if "cv_evidence_used" in row.keys() else None
+    if cv_evidence:
+        _print_kv("Evidence Verified", f"{len(json.loads(cv_evidence))} claim(s) — see --json")
     _print_kv("Status", get_status_label(row["status"]))
     _print_kv("Canal", row["canal"] or "—")
     _print_kv("Compatibility", f"{row['compatibility_pct']}%")
