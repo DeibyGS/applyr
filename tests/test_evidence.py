@@ -257,6 +257,68 @@ class TestRealWorldStructureVariants:
         assert is_evidenced("Kubernetes", claims) is False
 
 
+TABLE_CERTIFICATIONS_PROFILE = """\
+## WORK EXPERIENCE
+
+**Backend Developer — Acme Corp** — Remote — 01/2022-01/2025
+- Built REST APIs with Python and FastAPI
+
+## CERTIFICATIONS
+
+| Certification | Issuer | Date |
+|---|---|---|
+| AWS Certified Developer | Amazon | 2023 |
+| Prompt Engineering for Generative AI | Udemy | 2024 |
+"""
+
+
+@pytest.mark.unit
+class TestTableEntries:
+    """A pipe-delimited GFM table is a natural, common way to list
+    certifications, but every row used to fall through to the "stray prose"
+    branch and produce zero claims — a real credential in a table row could
+    be reported as unsupported by `cv verify` even though it's right there in
+    cv-master.md."""
+
+    def test_each_data_row_becomes_its_own_entry(self):
+        claims = parse_evidence(TABLE_CERTIFICATIONS_PROFILE)
+        cert_contexts = {c.entry_context for c in claims if c.section == "certification"}
+        assert cert_contexts == {"AWS Certified Developer", "Prompt Engineering for Generative AI"}
+
+    def test_remaining_cells_become_claims_under_the_same_entry(self):
+        claims = parse_evidence(TABLE_CERTIFICATIONS_PROFILE)
+        aws_claims = {c.text for c in claims if c.entry_context == "AWS Certified Developer"}
+        assert aws_claims == {"AWS Certified Developer", "Amazon", "2023"}
+
+    def test_header_and_separator_rows_are_not_claims(self):
+        claims = parse_evidence(TABLE_CERTIFICATIONS_PROFILE)
+        cert_texts = {c.text for c in claims if c.section == "certification"}
+        assert "Certification" not in cert_texts
+        assert "Issuer" not in cert_texts
+        assert not any(set(t) <= {"-", ":"} for t in cert_texts)
+
+    def test_table_cert_term_is_evidenced(self):
+        claims = parse_evidence(TABLE_CERTIFICATIONS_PROFILE)
+        assert is_evidenced("Prompt Engineering", claims)
+        assert is_evidenced("AWS Certified Developer", claims)
+
+    def test_bullet_based_section_before_the_table_still_parses(self):
+        """Regression guard: switching to index-based line iteration to skip
+        consumed table rows must not break ordinary bullet-based sections
+        that appear earlier in the same document."""
+        claims = parse_evidence(TABLE_CERTIFICATIONS_PROFILE)
+        exp_claims = [c for c in claims if c.section == "experience"]
+        assert any(c.text == "Built REST APIs with Python and FastAPI" for c in exp_claims)
+
+    def test_table_without_a_separator_row_is_not_misparsed(self):
+        """A two-line block that merely starts and ends with "|" but has no
+        real header-separator row is not a GFM table — must not be swallowed
+        as one, and must not crash."""
+        malformed = "## CERTIFICATIONS\n\n| Not a real table |\n| just two pipe lines |\n"
+        claims = parse_evidence(malformed)
+        assert not any(c.entry_context == "Not a real table" for c in claims)
+
+
 @pytest.mark.unit
 class TestIsEvidenced:
     """Alias-aware substring matching — deliberately not fuzzy (ADR-011)."""

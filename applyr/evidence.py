@@ -74,6 +74,10 @@ _H3_RE = re.compile(r"^###\s+(.+)$")
 # text (optionally still inside the bold markers) to avoid matching a real
 # entry-title bold line like "**Acme Corp** — Remote — 01/2022".
 _LABELED_LINE_RE = re.compile(r"^(?:\*\*)?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9 /]*?):(?:\*\*)?\s*(.+)$")
+# GFM table row ("| Cert | Issuer | Date |") and its header-separator row
+# ("|---|---|---|", ":---:" alignment markers allowed).
+_TABLE_ROW_RE = re.compile(r"^\|(.+)\|\s*$")
+_TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
 # Real profiles separate tech/skill tokens with commas, middle dots, or
 # markdown table pipes depending on section — accept all three.
 _TOKEN_SPLIT_RE = re.compile(r"[,·|]")
@@ -127,9 +131,66 @@ def parse_evidence(profile_text: str) -> list[EvidenceClaim]:
     return claims
 
 
+def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[list[EvidenceClaim], set[int]]:
+    """One entry per data row of a GFM table (header row + separator row + data rows).
+
+    cv-master.md documents entry sections (e.g. CERTIFICATIONS) as free text,
+    but a pipe-delimited table is a natural, common choice this parser never
+    accounted for — every row fell through to the "stray prose" branch below
+    and produced zero claims, so a real credential ("| Prompt Engineering...
+    | Udemy | mar 2026 |") could be reported as unsupported by `cv verify`
+    even though it is right there in cv-master.md. Each data row becomes one
+    entry: first cell is the title (also the entry_context, so it reads like
+    a "**Bold Title**" entry elsewhere in this file), remaining cells are
+    additional claims for that same entry.
+
+    Returns the claims plus the set of line indices consumed, so the caller's
+    line-by-line loop skips them instead of treating the leftover `|` lines
+    as stray prose.
+    """
+    claims: list[EvidenceClaim] = []
+    consumed: set[int] = set()
+    entry_num = 0
+    i = 0
+    while i < len(lines) - 1:
+        header_match = _TABLE_ROW_RE.match(lines[i].strip())
+        sep_match = _TABLE_ROW_RE.match(lines[i + 1].strip())
+        if not (header_match and sep_match):
+            i += 1
+            continue
+        sep_cells = [c.strip() for c in sep_match.group(1).split("|")]
+        if not sep_cells or not all(_TABLE_SEPARATOR_CELL_RE.match(c) for c in sep_cells):
+            i += 1
+            continue
+        consumed.add(i)
+        consumed.add(i + 1)
+        j = i + 2
+        while j < len(lines):
+            row_match = _TABLE_ROW_RE.match(lines[j].strip())
+            if not row_match:
+                break
+            consumed.add(j)
+            cells = [c.strip() for c in row_match.group(1).split("|") if c.strip()]
+            if cells:
+                entry_num += 1
+                title, *rest = cells
+                claims.append(EvidenceClaim(
+                    id=f"{prefix}-{entry_num:03d}-C01", section=section, text=title, entry_context=title,
+                ))
+                for k, extra in enumerate(rest, start=2):
+                    claims.append(EvidenceClaim(
+                        id=f"{prefix}-{entry_num:03d}-C{k:02d}", section=section, text=extra, entry_context=title,
+                    ))
+            j += 1
+        i = j
+    return claims, consumed
+
+
 def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
     prefix = _PREFIXES[section]
-    claims: list[EvidenceClaim] = []
+    lines = body.splitlines()
+    table_claims, consumed_table_lines = _parse_table_entries(lines, prefix, section)
+    claims: list[EvidenceClaim] = list(table_claims)
     entry_context: str | None = None
     entry_num = 0
     claim_num = 0
@@ -184,7 +245,9 @@ def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
             entry_context=entry_context,
         ))
 
-    for raw_line in body.splitlines():
+    for line_idx, raw_line in enumerate(lines):
+        if line_idx in consumed_table_lines:
+            continue
         line = raw_line.strip()
         if not line or line == "...":
             continue
