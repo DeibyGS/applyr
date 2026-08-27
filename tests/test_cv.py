@@ -492,6 +492,28 @@ class TestCvAtsCheck:
         assert "rendered PDF" in err
 
 
+class TestCvAtsCheckIgnoresHtmlComments:
+    """Regression (/code-review): `cv keywords` and `cv verify` both strip a
+    generated CV's `<!-- TAILOR: ... --> / <!-- NOT INCLUDED: ... -->`
+    scaffold comment before analyzing it; `cv ats-check` did not, so a
+    comment line starting with "|" could trip the table-layout heuristic
+    while every sibling command saw clean text."""
+
+    def test_a_table_like_line_inside_a_comment_is_not_flagged(self, tmp_path, capsys):
+        from applyr.cv import cmd_cv_ats_check
+
+        cv_path = tmp_path / "cv-comment-table.md"
+        cv_path.write_text(
+            "# Jane Doe\n\n"
+            "<!-- NOT INCLUDED: | fake | table | row | -->\n\n"
+            "## Technical Skills\n\n"
+            "**Frontend:** React | TypeScript\n"
+        )
+        cmd_cv_ats_check(str(cv_path))
+        out = capsys.readouterr().out
+        assert "Tables detected" not in out
+
+
 class TestCvReview:
     """Same bug class as TestCvAtsCheck: `cv review` is the single most-invoked
     command in the documented agent workflow (called in a loop until READY TO

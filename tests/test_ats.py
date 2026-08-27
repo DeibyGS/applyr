@@ -156,6 +156,23 @@ class TestExtractKeywords:
         keywords = extract_keywords(offer)
         assert keywords == []
 
+    def test_plus_and_hash_suffixed_terms_survive_title_stripping(self):
+        """Regression: an earlier fix for garbage tokens like "(full" used
+        string.punctuation, which also strips "+" and "#" — reducing "C++"
+        and "C#" to a single letter that then failed the length filter and
+        vanished. string.punctuation must not be used for this; only
+        wrapping punctuation (parens/quotes) may be stripped."""
+        offer = {"title": "Senior C++ Developer", "tech_stack": ""}
+        keywords = extract_keywords(offer)
+        assert "c++" in keywords
+        assert "c" not in keywords
+
+    def test_unicode_quotes_are_stripped_like_ascii_ones(self):
+        offer = {"title": 'AI “Automation” Specialist', "tech_stack": ""}
+        keywords = extract_keywords(offer)
+        assert "automation" in keywords
+        assert "“automation”" not in keywords
+
 
 class TestMatchKeywords:
     """Tests for match_keywords()."""

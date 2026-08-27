@@ -318,6 +318,38 @@ class TestTableEntries:
         claims = parse_evidence(malformed)
         assert not any(c.entry_context == "Not a real table" for c in claims)
 
+    def test_table_entry_and_bullet_entry_in_same_section_get_distinct_ids(self):
+        """Regression (/code-review): the table pre-pass and the main loop
+        each started their own entry_num at 0/1, so a section mixing a
+        "**Bold Title**" entry with a GFM table produced two different claims
+        both id'd "CERT-001-C01" — breaking EvidenceClaim.id's documented
+        "stable within one parse_evidence call" guarantee."""
+        mixed = (
+            "## CERTIFICATIONS\n\n"
+            "**Existing Cert** — Some Issuer — 2020\n\n"
+            "| Certification | Issuer |\n"
+            "|---|---|\n"
+            "| Prompt Engineering | Udemy |\n"
+        )
+        claims = parse_evidence(mixed)
+        ids = [c.id for c in claims]
+        assert len(ids) == len(set(ids)), f"duplicate claim ids: {ids}"
+
+    def test_escaped_pipe_inside_a_cell_does_not_fragment_it(self):
+        """GFM lets a cell contain a literal pipe as "\\|". A bare .split("|")
+        would cut "A \\| B" into two cells, truncating the real value (e.g.
+        an issuer name) and losing the escaped half entirely."""
+        escaped = (
+            "## CERTIFICATIONS\n\n"
+            "| Certification | Issuer |\n"
+            "|---|---|\n"
+            "| Some Cert | A \\| B |\n"
+        )
+        claims = parse_evidence(escaped)
+        texts = {c.text for c in claims}
+        assert "A | B" in texts
+        assert "A \\" not in texts
+
 
 @pytest.mark.unit
 class TestIsEvidenced:

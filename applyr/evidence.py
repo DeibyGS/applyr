@@ -78,6 +78,14 @@ _LABELED_LINE_RE = re.compile(r"^(?:\*\*)?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9 /]*?):(?
 # ("|---|---|---|", ":---:" alignment markers allowed).
 _TABLE_ROW_RE = re.compile(r"^\|(.+)\|\s*$")
 _TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
+# Splits a table row's inner text into cells on "|", but not on GFM's escaped
+# "\|" (a literal pipe inside a cell, e.g. an issuer name "A | B") — a bare
+# .split("|") would fragment that cell in two and truncate the real value.
+_UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+
+
+def _split_table_row(inner: str) -> list[str]:
+    return [cell.replace(r"\|", "|").strip() for cell in _UNESCAPED_PIPE_RE.split(inner)]
 # Real profiles separate tech/skill tokens with commas, middle dots, or
 # markdown table pipes depending on section — accept all three.
 _TOKEN_SPLIT_RE = re.compile(r"[,·|]")
@@ -131,7 +139,7 @@ def parse_evidence(profile_text: str) -> list[EvidenceClaim]:
     return claims
 
 
-def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[list[EvidenceClaim], set[int]]:
+def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[list[EvidenceClaim], set[int], int]:
     """One entry per data row of a GFM table (header row + separator row + data rows).
 
     cv-master.md documents entry sections (e.g. CERTIFICATIONS) as free text,
@@ -144,9 +152,14 @@ def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[l
     a "**Bold Title**" entry elsewhere in this file), remaining cells are
     additional claims for that same entry.
 
-    Returns the claims plus the set of line indices consumed, so the caller's
+    Returns the claims, the set of line indices consumed (so the caller's
     line-by-line loop skips them instead of treating the leftover `|` lines
-    as stray prose.
+    as stray prose), and the number of entries created — the caller must
+    resume its own entry_num counter from there, not from 0, or a section
+    mixing a table with an ordinary bold-title/bullet entry produces two
+    claims with the same id (e.g. two unrelated claims both "CERT-001-C01"),
+    breaking EvidenceClaim.id's "stable within one parse_evidence call"
+    guarantee (found by /code-review).
     """
     claims: list[EvidenceClaim] = []
     consumed: set[int] = set()
@@ -158,7 +171,7 @@ def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[l
         if not (header_match and sep_match):
             i += 1
             continue
-        sep_cells = [c.strip() for c in sep_match.group(1).split("|")]
+        sep_cells = _split_table_row(sep_match.group(1))
         if not sep_cells or not all(_TABLE_SEPARATOR_CELL_RE.match(c) for c in sep_cells):
             i += 1
             continue
@@ -170,7 +183,7 @@ def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[l
             if not row_match:
                 break
             consumed.add(j)
-            cells = [c.strip() for c in row_match.group(1).split("|") if c.strip()]
+            cells = [c for c in _split_table_row(row_match.group(1)) if c]
             if cells:
                 entry_num += 1
                 title, *rest = cells
@@ -183,16 +196,16 @@ def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[l
                     ))
             j += 1
         i = j
-    return claims, consumed
+    return claims, consumed, entry_num
 
 
 def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
     prefix = _PREFIXES[section]
     lines = body.splitlines()
-    table_claims, consumed_table_lines = _parse_table_entries(lines, prefix, section)
+    table_claims, consumed_table_lines, table_entry_count = _parse_table_entries(lines, prefix, section)
     claims: list[EvidenceClaim] = list(table_claims)
     entry_context: str | None = None
-    entry_num = 0
+    entry_num = table_entry_count
     claim_num = 0
     # A "### Job Title" line seen but not yet attached to an entry — merged
     # into entry_context the moment a following bold employer line (or any
