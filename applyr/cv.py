@@ -1368,9 +1368,12 @@ def cmd_cv_keywords(offer_id: int, as_json: bool = False) -> None:
     # matching the whole file compared the offer's keywords against a verbatim
     # copy of themselves: every keyword hit, every CV scored 100% STRONG, and a
     # CV mentioning neither AWS nor Redux nor Webpack was reported as covering
-    # all three.
+    # all three. The same file also carries an HTML `<!-- TAILOR: ... -->` /
+    # `<!-- NOT INCLUDED: ... -->` scaffold comment naming the very keywords
+    # the agent chose to leave out — left unstripped, those show up as
+    # "matched" too.
     try:
-        cv_text = _strip_frontmatter(cv_path.read_text(encoding="utf-8"))
+        cv_text = re.sub(r'<!--.*?-->', '', _strip_frontmatter(cv_path.read_text(encoding="utf-8")), flags=re.DOTALL)
     except UnicodeDecodeError:
         die(f"{cv_path} is not readable as text — check how it was saved (expected UTF-8).",
             code="unsupported_format", details={"path": str(cv_path)})

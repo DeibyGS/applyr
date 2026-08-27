@@ -89,6 +89,7 @@ def offer_id(tmp_db, tmp_applyr):
     cmd_add(json.dumps({
         "title": "Full Stack (JS)",
         "company": "Fusuma",
+        "tech_stack": "Python",
         "topics": {"experience": {"score": 20, "detail": "no professional experience"}},
     }))
     return 1
@@ -287,6 +288,55 @@ summary: "Frontend con React.js, Redux, Webpack. Cloud-native sobre AWS."
 
         broken = "---\noffer_id: 1\n\n# Jane Doe\n"
         assert "# Jane Doe" in _strip_frontmatter(broken)
+
+    CV_WITH_TAILORING_COMMENT = """---
+offer_id: 210
+tech_stack: "React.js, Redux, Webpack, AWS"
+---
+
+<!-- NOT INCLUDED: Redux, Webpack, AWS -->
+
+# Jane Doe
+
+## Technical Skills
+
+**Frontend:** React.js | TypeScript | CSS
+"""
+
+    def test_offer_keywords_do_not_leak_from_tailoring_comment(self):
+        """`cv generate` documents which keywords it deliberately left out in an
+        HTML comment (`<!-- NOT INCLUDED: ... -->`). Frontmatter stripping alone
+        does not remove it, so those excluded keywords matched anyway — a CV
+        that truthfully omits Redux/Webpack/AWS was reported as covering them."""
+        import re
+        from applyr.ats import match_keywords
+        from applyr.cv import _strip_frontmatter
+
+        keywords = ["react.js", "redux", "webpack", "aws"]
+        body = re.sub(r"<!--.*?-->", "", _strip_frontmatter(self.CV_WITH_TAILORING_COMMENT), flags=re.DOTALL)
+        report = match_keywords(body, keywords)
+        matched = {m.keyword.lower() for m in report.matched}
+
+        assert "react.js" in matched
+        for absent in ("redux", "webpack", "aws"):
+            assert absent not in matched, f"{absent} appears only in the tailoring comment"
+
+
+class TestExtractKeywordsStripsTitlePunctuation:
+    """Splitting the title on whitespace alone left enclosing punctuation
+    attached to the outermost words: "AI Automation Engineer (Full Stack)"
+    produced the tokens "(full" and "stack)" — neither matched `skip_words`
+    ("full", "stack"), so both survived as keywords no CV body could ever
+    contain, and were reported as permanently missing."""
+
+    def test_parenthesized_title_words_are_not_reported_as_keywords(self):
+        from applyr.ats import extract_keywords
+
+        keywords = extract_keywords({"title": "AI Automation Engineer (Full Stack)", "tech_stack": ""})
+
+        assert "(full" not in keywords
+        assert "stack)" not in keywords
+        assert "automation" in keywords
 
 
 class TestCvCoverLetter:

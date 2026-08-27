@@ -2,6 +2,7 @@
 
 import json
 import re
+import string
 from pathlib import Path
 from typing import NamedTuple
 
@@ -211,7 +212,7 @@ def extract_keywords(offer_data: dict) -> list[str]:
         # Common words to skip
         skip_words = {"developer", "engineer", "senior", "junior", "mid", "full", "stack", "the", "and", "or"}
         for word in title.split():
-            word_lower = word.lower().strip()
+            word_lower = word.lower().strip(string.punctuation)
             if word_lower not in skip_words and len(word_lower) > 2:
                 keywords.add(word_lower)
 
