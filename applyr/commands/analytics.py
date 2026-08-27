@@ -4,28 +4,24 @@ import json
 from collections import defaultdict
 from datetime import date, timedelta
 
-from applyr.colors import color
+from applyr.colors import color, get_status_color, get_status_label, get_status_icon
 from applyr.config import TOPIC_LABELS, load_config
 from applyr.constants import (
     CALIBRATION_MIN_SAMPLE,
-    COMPARE_COL_MAX,
-    COMPARE_COL_MIN,
-    COMPARE_LABEL_WIDTH,
-    COMPARE_MAX_OFFERS,
-    COMPARE_MIN_OFFERS,
-    COMPARE_TERMINAL_WIDTH,
-    FOLLOWUP_COMPANY_WIDTH,
-    FOLLOWUP_TITLE_WIDTH,
     FOLLOWUP_UPCOMING_DAYS,
     GAP_PRIORITY_HIGH_SHARE,
     GAP_PRIORITY_MEDIUM_SHARE,
-    PIPELINE_COMPANY_WIDTH,
-    PIPELINE_TITLE_WIDTH,
-    TREND_BAR_WIDTH,
     TREND_HISTORY_LIMIT,
+    PIPELINE_COL_SPECS,
+    LIST_COL_SPECS,
+    GAPS_COL_SPECS,
+    PLAN_COL_SPECS,
+    TRENDS_COL_SPECS,
+    SALARY_COL_SPECS,
+    CATEGORY_SALARY_COL_SPECS,
 )
 from applyr.db import REPLY_STATUSES, STATUS_LABELS, VALID_SEVERITIES, get_conn
-from applyr.commands._helpers import _bar, _today, _truncate
+from applyr.commands._helpers import _bar, _today, _truncate, _print_table, _print_section_header, _print_field_group
 from applyr.errors import die
 from applyr.scoring import calculate_score
 
@@ -130,17 +126,31 @@ def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
-    print(f"\n{color('--- Pipeline ---', 'bold')}\n")
+    _print_section_header("Pipeline")
+
     for status in _STATUS_ORDER:
         items = groups[status]
-        label = STATUS_LABELS.get(status, status)
-        status_color = {"offer": "green", "in_process": "cyan", "applied": "blue",
-                        "waiting": "yellow", "rejected": "red", "discarded": "dim"}.get(status, "white")
-        print(f"  {color(f'{label:<20}', status_color)} ({len(items)})")
+        if not items:
+            continue
+        label = get_status_label(status)
+        icon = get_status_icon(status)
+        status_color = get_status_color(status)
+        header = f"  {icon} {label} ({len(items)})"
+        if status_color:
+            print(color(header, status_color.replace("info", "primary").replace("warning", "warning").replace("error", "error").replace("success", "success").replace("muted", "muted").replace("dim", "dim")))
+        else:
+            print(header)
+
+        # Build table rows
+        table_rows = []
         for item in items:
-            pct = item["compatibility_pct"]
-            company = item["company"] or "—"
-            print(f"    #{item['id']:>4}  {pct:>3}%  {_truncate(company, PIPELINE_COMPANY_WIDTH):<{PIPELINE_COMPANY_WIDTH}}  {_truncate(item['title'], PIPELINE_TITLE_WIDTH)}")
+            table_rows.append({
+                "id": item["id"],
+                "pct": f"{item['compatibility_pct']}%",
+                "company": item["company"] or "—",
+                "title": item["title"],
+            })
+        _print_table(table_rows, PIPELINE_COL_SPECS)
     print()
 
 
@@ -312,36 +322,43 @@ def cmd_stats(as_json: bool = False) -> None:
     calibration = payload["score_calibration"]
     excluded_unknown_weights = payload["excluded_unknown_weights"]
 
-    print("\n--- Stats ---\n")
-    print(f"  Total offers    : {total}")
-    print(f"  Pending         : {pending}")
-    print(f"  Discarded       : {discarded}")
-    print(f"  Avg Compat.     : {avg_compat:.1f}%{_excluded_note(avg_compat_excluded)}")
+    _print_section_header("Stats")
 
-    print(f"\n  Conversion Funnel:")
-    print(f"    Applied        {applied:>4}  ({_pct(applied, total)} of total)")
-    print(f"    Responded      {responded:>4}  ({_pct(responded, applied)} of applied)")
-    print(f"    Interview      {interview:>4}  ({_pct(interview, responded)} of responded)")
-    print(f"    Offer          {offers_cnt:>4}  ({_pct(offers_cnt, interview)} of interviews)")
+    _print_field_group([
+        ("Total offers", str(total)),
+        ("Pending", str(pending)),
+        ("Discarded", str(discarded)),
+        ("Avg Compat.", f"{avg_compat:.1f}%{_excluded_note(avg_compat_excluded)}"),
+    ])
+
+    _print_section_header("Conversion Funnel")
+    _print_field_group([
+        ("Applied", f"{applied:>4}  ({_pct(applied, total)} of total)"),
+        ("Responded", f"{responded:>4}  ({_pct(responded, applied)} of applied)"),
+        ("Interview", f"{interview:>4}  ({_pct(interview, responded)} of responded)"),
+        ("Offer", f"{offers_cnt:>4}  ({_pct(offers_cnt, interview)} of interviews)"),
+    ])
 
     if channels:
-        print(f"\n  Channel Breakdown:")
-        for canal, cnt in channels.items():
-            print(f"    {canal:<20} {cnt}")
+        _print_section_header("Channel Breakdown")
+        for ch in channels:
+            _print_kv(ch["canal"], str(ch["cnt"]))
 
     if modes:
-        print(f"\n  Work Mode Breakdown:")
-        for mode, cnt in modes.items():
-            print(f"    {mode:<12} {cnt}")
+        _print_section_header("Work Mode Breakdown")
+        for m in modes:
+            _print_kv(m["work_mode"], str(m["cnt"]))
 
-    if sal:
-        print(f"\n  Salary (salary_min, where provided):")
-        print(f"    Min : {sal['min']:,}")
-        print(f"    Max : {sal['max']:,}")
-        print(f"    Avg : {sal['avg']:,}")
+    if sal and sal[0] is not None:
+        _print_section_header("Salary (salary_min, where provided)")
+        _print_field_group([
+            ("Min", f"{sal[0]:,}"),
+            ("Max", f"{sal[1]:,}"),
+            ("Avg", f"{round(sal[2]):,}"),
+        ])
 
     if any(b["total"] for b in calibration.values()) or excluded_unknown_weights:
-        print(f"\n  Score Calibration (does a higher score predict a better outcome?):")
+        _print_section_header("Score Calibration")
         for key in ("apply", "maybe", "low_match"):
             band = calibration[key]
             if band["total"] == 0:
@@ -457,14 +474,36 @@ def cmd_gaps(limit: int = 10, as_json: bool = False) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
-    print("\n--- Skill Gaps ---\n")
+    _print_section_header("Skill Gaps")
+
+    table_rows = []
     for r in rows:
         label = topic_labels.get(r["skill"], r["skill"])
-        freq  = r["frequency"]
+        freq = r["frequency"]
         priority = _gap_priority(r["total_gap"], worst_gap)
-        priority_color = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}.get(priority, "white")
         avg_gap = round(r["total_gap"] / freq) if freq else 0
-        print(f"  [{color(f'{priority:<6}', priority_color)}]  {label:<20}  seen {freq}x  avg gap {avg_gap}%")
+        table_rows.append({
+            "priority": priority,
+            "label": label,
+            "seen": f"{freq}x",
+            "avg_gap": f"{avg_gap}%",
+        })
+
+    # Add color function for priority column
+    for row in table_rows:
+        priority = row["priority"]
+        priority_color = {"HIGH": "error", "MEDIUM": "warning", "LOW": "muted"}.get(priority, "muted")
+        row["_priority_color"] = priority_color
+
+    # Custom column specs with color function
+    col_specs = [
+        {"key": "priority", "ratio": 0.10, "min_width": 8, "align": "left",
+         "color_fn": lambda r: r.get("_priority_color", "muted")},
+        {"key": "label", "ratio": 0.30, "min_width": 16, "align": "left"},
+        {"key": "seen", "ratio": 0.10, "min_width": 8, "align": "right"},
+        {"key": "avg_gap", "ratio": 0.12, "min_width": 10, "align": "right"},
+    ]
+    _print_table(table_rows, col_specs)
     print()
 
 
@@ -510,19 +549,7 @@ def cmd_followups(as_json: bool = False) -> None:
     finally:
         conn.close()
 
-    def _print_followup_row(r) -> None:
-        contact = ""
-        if r["contact_name"]:
-            contact = f"  Contact: {r['contact_name']}"
-            if r["contact_role"]:
-                contact += f" ({r['contact_role']})"
-        print(f"    #{r['id']:>4}  {r['follow_up_date']}  {_truncate(r['company'] or '—', FOLLOWUP_COMPANY_WIDTH):<{FOLLOWUP_COMPANY_WIDTH}}  {_truncate(r['title'], FOLLOWUP_TITLE_WIDTH)}{contact}")
-
     if not overdue and not upcoming:
-        # This early return ignored `as_json` and always printed the human
-        # sentence, so an agent calling `followups --json` with nothing pending
-        # got a plain string instead of a payload — a JSONDecodeError on the
-        # one case its caller most needs to handle cleanly: nothing to do.
         if as_json:
             print(json.dumps({"overdue": [], "upcoming": []}, indent=2))
         else:
@@ -539,15 +566,27 @@ def cmd_followups(as_json: bool = False) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
+    _print_section_header("Follow-ups")
+
     if overdue:
-        print(f"\n  {color('OVERDUE', 'red')} ({len(overdue)}):")
+        print(color(f"  OVERDUE ({len(overdue)}):", "error"))
         for r in overdue:
-            _print_followup_row(r)
+            contact = ""
+            if r["contact_name"]:
+                contact = f"  Contact: {r['contact_name']}"
+                if r["contact_role"]:
+                    contact += f" ({r['contact_role']})"
+            print(f"    #{r['id']:>4}  {r['follow_up_date']}  {_truncate(r['company'] or '—', 16):<16}  {_truncate(r['title'], 28)}{contact}")
 
     if upcoming:
-        print(f"\n  Upcoming — next {FOLLOWUP_UPCOMING_DAYS} days ({len(upcoming)}):")
+        print(color(f"  Upcoming — next {FOLLOWUP_UPCOMING_DAYS} days ({len(upcoming)}):", "warning"))
         for r in upcoming:
-            _print_followup_row(r)
+            contact = ""
+            if r["contact_name"]:
+                contact = f"  Contact: {r['contact_name']}"
+                if r["contact_role"]:
+                    contact += f" ({r['contact_role']})"
+            print(f"    #{r['id']:>4}  {r['follow_up_date']}  {_truncate(r['company'] or '—', 16):<16}  {_truncate(r['title'], 28)}{contact}")
 
     print()
 
@@ -613,13 +652,25 @@ def cmd_trends(period: str = "week", as_json: bool = False) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
-    print(f"\n--- Trends by {period.capitalize()} ---\n")
-    for entry in payload:
-        cnt = entry["count"]
-        growth = entry["growth_pct"]
-        growth_str = f"  ({'+' if growth >= 0 else ''}{growth}% vs prev)" if growth is not None else ""
-        bar = _bar(cnt, width=TREND_BAR_WIDTH)
-        print(f"  {entry['period']}  {bar}  {cnt:>3}{growth_str}")
+    _print_section_header(f"Trends by {period.capitalize()}")
+
+    table_rows = []
+    for i, r in enumerate(rows):
+        cnt = r["cnt"]
+        prev_cnt = rows[i + 1]["cnt"] if i + 1 < len(rows) else None
+        if prev_cnt is not None and prev_cnt > 0:
+            growth = round((cnt - prev_cnt) / prev_cnt * 100)
+            growth_str = f"({'+' if growth >= 0 else ''}{growth}% vs prev)"
+        else:
+            growth_str = ""
+        table_rows.append({
+            "period": r["period"],
+            "bar": _bar(cnt),
+            "count": cnt,
+            "growth": growth_str,
+        })
+
+    _print_table(table_rows, TRENDS_COL_SPECS)
     print()
 
 
@@ -705,18 +756,20 @@ def cmd_summary(as_json: bool = False) -> None:
         }
         print(json.dumps(payload, indent=2))
     else:
-        print(f"\n--- Weekly Summary  ({week_start} to {week_end}) ---\n")
-        print(f"  Applications sent    : {sent}")
-        print(f"  Responses received   : {responses}  ({response_rate}% response rate)")
-        print(f"  Avg compatibility    : {avg_compat}%{_excluded_note(avg_compat_excluded)}")
+        _print_section_header(f"Weekly Summary ({week_start} to {week_end})")
+        _print_field_group([
+            ("Applications sent", str(sent)),
+            ("Responses received", f"{responses}  ({response_rate}% response rate)"),
+            ("Avg compatibility", f"{avg_compat}%{_excluded_note(avg_compat_excluded)}"),
+        ])
         if top_gap:
-            print(f"  Top skill gap        : {top_gap}")
+            _print_kv("Top skill gap", top_gap)
         if channels_used:
             ch_str = ", ".join(f"{k}: {v}" for k, v in channels_used.items())
-            print(f"  Channels used        : {ch_str}")
+            _print_kv("Channels used", ch_str)
         if work_modes:
             wm_str = ", ".join(f"{k}: {v}" for k, v in work_modes.items())
-            print(f"  Work modes           : {wm_str}")
+            _print_kv("Work modes", wm_str)
         print()
 
 
@@ -749,10 +802,6 @@ def cmd_compare(ids: list[int], as_json: bool = False) -> None:
     by_id = {r["id"]: r for r in rows}
     offers = [by_id[oid] for oid in ids]
 
-    # Build vertical comparison table
-    label_width = COMPARE_LABEL_WIDTH
-    col_width = max(COMPARE_COL_MIN, min(COMPARE_COL_MAX, COMPARE_TERMINAL_WIDTH // len(offers)))
-
     if as_json:
         payload = []
         for o in offers:
@@ -771,7 +820,7 @@ def cmd_compare(ids: list[int], as_json: bool = False) -> None:
                     else:
                         val = None
                 elif field_key == "status":
-                    val = STATUS_LABELS.get(o[field_key], o[field_key])
+                    val = get_status_label(o[field_key])
                 elif field_key == "weights_used":
                     val = json.loads(o[field_key]) if o[field_key] else None
                 else:
@@ -781,13 +830,23 @@ def cmd_compare(ids: list[int], as_json: bool = False) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
+    _print_section_header("Compare Offers")
+
     # Header row
+    ctx = get_terminal_context()
+    label_width = 12
+    col_width = max(15, min(25, ctx.width // len(offers)))
+
     header = f"{'Field':<{label_width}}"
     for o in offers:
         header += f"  {'#' + str(o['id']):<{col_width}}"
-    print()
     print(header)
-    print("-" * len(header))
+
+    if ctx.colors_enabled:
+        sep = "─" * len(header)
+        print(color(sep, "muted"))
+    else:
+        print("-" * len(header))
 
     for field_label, field_key in _COMPARE_FIELDS:
         line = f"{field_label:<{label_width}}"
@@ -807,7 +866,7 @@ def cmd_compare(ids: list[int], as_json: bool = False) -> None:
             elif field_key == "compatibility_pct":
                 val = f"{o[field_key]}%"
             elif field_key == "status":
-                val = STATUS_LABELS.get(o[field_key], o[field_key])
+                val = get_status_label(o[field_key])
             elif field_key == "weights_used":
                 val = "known" if o[field_key] else "unknown"
             else:
@@ -919,13 +978,29 @@ def cmd_plan(limit: int = 10, as_json: bool = False) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
-    print("\n--- Learning Plan ---\n")
-    print(f"  {'#':<4}  {'Skill':<22}  {'Seen':>4}  {'Avg Gap':>7}  {'Priority':<8}")
-    print(f"  {'—'*4}  {'—'*22}  {'—'*4}  {'—'*7}  {'—'*8}")
+    _print_section_header("Learning Plan")
 
+    table_rows = []
     for rank, _skill, label, freq, avg_gap, priority in (_row(i, r) for i, r in enumerate(scored, 1)):
-        priority_color = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}.get(priority, "white")
-        print(f"  {rank:<4}  {label:<22}  {freq:>4}x  {avg_gap:>6}%  {color(f'{priority:<8}', priority_color)}")
+        priority_color = {"HIGH": "error", "MEDIUM": "warning", "LOW": "muted"}.get(priority, "muted")
+        table_rows.append({
+            "rank": rank,
+            "label": label,
+            "seen": f"{freq}x",
+            "avg_gap": f"{avg_gap}%",
+            "priority": priority,
+            "_priority_color": priority_color,
+        })
+
+    col_specs = [
+        {"key": "rank", "ratio": 0.05, "min_width": 3, "align": "right"},
+        {"key": "label", "ratio": 0.35, "min_width": 18, "align": "left"},
+        {"key": "seen", "ratio": 0.10, "min_width": 6, "align": "right"},
+        {"key": "avg_gap", "ratio": 0.12, "min_width": 9, "align": "right"},
+        {"key": "priority", "ratio": 0.10, "min_width": 8, "align": "left",
+         "color_fn": lambda r: r.get("_priority_color", "muted")},
+    ]
+    _print_table(table_rows, col_specs)
 
     print("\n  Focus on HIGH items first.")
     print("  Skill gaps update automatically when you add scored offers.\n")
