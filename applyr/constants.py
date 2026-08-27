@@ -124,26 +124,6 @@ TRUNCATE_TITLE = 28
 FOLLOWUP_COMPANY_WIDTH = 16
 FOLLOWUP_TITLE_WIDTH = 28
 
-# ---------------------------------------------------------------------------
-# Table display (legacy constants — kept for backward compatibility)
-# ---------------------------------------------------------------------------
-LIST_COL_WIDTHS = [4, 18, 28, 4, 16, 8, 10]
-LIST_HEADERS = ["ID", "COMPANY", "TITLE", "%", "STATUS", "MODE", "DATE"]
-COMPARE_LABEL_WIDTH = 12
-COMPARE_COL_MIN = 15
-COMPARE_COL_MAX = 25
-COMPARE_TERMINAL_WIDTH = 80
-COMPARE_MAX_OFFERS = 10
-COMPARE_MIN_OFFERS = 2
-PROGRESS_BAR_WIDTH = 20  # Legacy fallback
-TREND_BAR_WIDTH = 15
-PIPELINE_COMPANY_WIDTH = 16
-PIPELINE_TITLE_WIDTH = 30
-TRUNCATE_COMPANY = 18
-TRUNCATE_TITLE = 28
-FOLLOWUP_COMPANY_WIDTH = 16
-FOLLOWUP_TITLE_WIDTH = 28
-
 # Column specs for dynamic tables (ratio, min_width, align)
 LIST_COL_SPECS = [
     {"key": "id", "ratio": 0.04, "min_width": 4, "align": "right"},

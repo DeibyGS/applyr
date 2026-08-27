@@ -372,7 +372,7 @@ def _report_duplicate(row, reason: str) -> None:
         text="or re-run with --force to add it anyway.")
 
 
-def _print_table(rows: list[dict], headers: list[str], col_widths: list[int]) -> None:
+def _print_fixed_table(rows: list[dict], headers: list[str], col_widths: list[int]) -> None:
     """Print a fixed-width ASCII table."""
     sep = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
     fmt = "| " + " | ".join(f"{{:<{w}}}" for w in col_widths) + " |"
@@ -1333,5 +1333,5 @@ def cmd_search(keyword: str, status_filter: str | None = None, company: str | No
         return
 
     display = [_make_display_row(r) for r in rows]
-    _print_table(display, LIST_HEADERS, LIST_COL_WIDTHS)
+    _print_fixed_table(display, LIST_HEADERS, LIST_COL_WIDTHS)
     print(f"  {len(rows)} result(s) for {target}.")

@@ -7,11 +7,14 @@ from datetime import date, timedelta
 from applyr.colors import color, get_status_color, get_status_label, get_status_icon
 from applyr.config import TOPIC_LABELS, load_config
 from applyr.constants import (
+    get_terminal_context,
     CALIBRATION_MIN_SAMPLE,
     FOLLOWUP_UPCOMING_DAYS,
     GAP_PRIORITY_HIGH_SHARE,
     GAP_PRIORITY_MEDIUM_SHARE,
     TREND_HISTORY_LIMIT,
+    COMPARE_MIN_OFFERS,
+    COMPARE_MAX_OFFERS,
     PIPELINE_COL_SPECS,
     LIST_COL_SPECS,
     GAPS_COL_SPECS,
@@ -21,7 +24,8 @@ from applyr.constants import (
     CATEGORY_SALARY_COL_SPECS,
 )
 from applyr.db import REPLY_STATUSES, STATUS_LABELS, VALID_SEVERITIES, get_conn
-from applyr.commands._helpers import _bar, _today, _truncate, _print_table, _print_section_header, _print_field_group
+from applyr.commands._helpers import (_bar, _today, _truncate, _print_table, _print_section_header,
+                                       _print_field_group, _print_kv)
 from applyr.errors import die
 from applyr.scoring import calculate_score
 
@@ -341,13 +345,13 @@ def cmd_stats(as_json: bool = False) -> None:
 
     if channels:
         _print_section_header("Channel Breakdown")
-        for ch in channels:
-            _print_kv(ch["canal"], str(ch["cnt"]))
+        for canal, cnt in channels.items():
+            _print_kv(canal, str(cnt))
 
     if modes:
         _print_section_header("Work Mode Breakdown")
-        for m in modes:
-            _print_kv(m["work_mode"], str(m["cnt"]))
+        for work_mode, cnt in modes.items():
+            _print_kv(work_mode, str(cnt))
 
     if sal and sal[0] is not None:
         _print_section_header("Salary (salary_min, where provided)")
@@ -655,18 +659,13 @@ def cmd_trends(period: str = "week", as_json: bool = False) -> None:
     _print_section_header(f"Trends by {period.capitalize()}")
 
     table_rows = []
-    for i, r in enumerate(rows):
-        cnt = r["cnt"]
-        prev_cnt = rows[i + 1]["cnt"] if i + 1 < len(rows) else None
-        if prev_cnt is not None and prev_cnt > 0:
-            growth = round((cnt - prev_cnt) / prev_cnt * 100)
-            growth_str = f"({'+' if growth >= 0 else ''}{growth}% vs prev)"
-        else:
-            growth_str = ""
+    for p in payload:
+        growth = p["growth_pct"]
+        growth_str = f"({'+' if growth >= 0 else ''}{growth}% vs prev)" if growth is not None else ""
         table_rows.append({
-            "period": r["period"],
-            "bar": _bar(cnt),
-            "count": cnt,
+            "period": p["period"],
+            "bar": _bar(p["count"]),
+            "count": p["count"],
             "growth": growth_str,
         })
 
