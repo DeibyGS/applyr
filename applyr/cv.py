@@ -1010,12 +1010,24 @@ def _check_employer_claim(heading: str, claims: list) -> bool:
     safer failure direction for a truth gate), and every entry_context
     observed in practice so far still yields at least one real
     distinguishing word.
+
+    Excludes "certification" claims: a generated CV's ### heading only ever
+    comes from EXPERIENCE, PROJECTS, or EDUCATION (CERTIFICATIONS renders as
+    a plain bullet list, never a ### heading — see cmd_cv_generate's
+    skeleton), so a certification's entry_context can never legitimately be
+    the thing a heading is verified against. Without this filter, a
+    fabricated "### Cloud Engineer - AWS, Remote" heading passed as
+    supported whenever cv-master.md merely listed an AWS certification whose
+    issuer is "Amazon Web Services" — confirmed via /code-review, and
+    reproducible with cv-master.md's pre-existing bullet-style certification
+    format too, not just the GFM-table format this release added support
+    for.
     """
     heading_words = _extract_significant_words(heading)
     if not heading_words:
         return False  # nothing significant to compare — don't assume evidenced
     for claim in claims:
-        if not claim.entry_context:
+        if claim.section == "certification" or not claim.entry_context:
             continue
         context_words = _extract_significant_words(claim.entry_context)
         if heading_words & context_words:

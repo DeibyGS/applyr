@@ -307,13 +307,18 @@ tech_stack: "React.js, Redux, Webpack, AWS"
         """`cv generate` documents which keywords it deliberately left out in an
         HTML comment (`<!-- NOT INCLUDED: ... -->`). Frontmatter stripping alone
         does not remove it, so those excluded keywords matched anyway — a CV
-        that truthfully omits Redux/Webpack/AWS was reported as covering them."""
-        import re
+        that truthfully omits Redux/Webpack/AWS was reported as covering them.
+
+        Calls the real `_strip_html_comments` helper, not a hand-rolled regex
+        copy — a test using its own copy would keep passing even if the fix in
+        cmd_cv_keywords (which calls this exact helper) were reverted, since it
+        would never touch the code path it claims to guard (found via
+        /code-review)."""
         from applyr.ats import match_keywords
-        from applyr.cv import _strip_frontmatter
+        from applyr.cv import _strip_frontmatter, _strip_html_comments
 
         keywords = ["react.js", "redux", "webpack", "aws"]
-        body = re.sub(r"<!--.*?-->", "", _strip_frontmatter(self.CV_WITH_TAILORING_COMMENT), flags=re.DOTALL)
+        body = _strip_html_comments(_strip_frontmatter(self.CV_WITH_TAILORING_COMMENT))
         report = match_keywords(body, keywords)
         matched = {m.keyword.lower() for m in report.matched}
 
@@ -500,12 +505,21 @@ class TestCvAtsCheckIgnoresHtmlComments:
     while every sibling command saw clean text."""
 
     def test_a_table_like_line_inside_a_comment_is_not_flagged(self, tmp_path, capsys):
+        """The comment must contain a line that actually STARTS with "|" —
+        validate_ats_format's table_pattern (`^\\s*\\|.*\\|`) is anchored to
+        line start, so a single-line "<!-- NOT INCLUDED: | a | b | -->"
+        comment never matches it regardless of stripping (confirmed by
+        /code-review: an earlier version of this test used exactly that
+        fixture and passed identically with or without the fix it claimed to
+        guard, since the whole line starts with "<!--", not "|"). A
+        multi-line comment with an inner "|"-leading line is the only
+        fixture shape that actually distinguishes stripped from unstripped."""
         from applyr.cv import cmd_cv_ats_check
 
         cv_path = tmp_path / "cv-comment-table.md"
         cv_path.write_text(
             "# Jane Doe\n\n"
-            "<!-- NOT INCLUDED: | fake | table | row | -->\n\n"
+            "<!-- NOT INCLUDED:\n| fake | table | row |\n-->\n\n"
             "## Technical Skills\n\n"
             "**Frontend:** React | TypeScript\n"
         )

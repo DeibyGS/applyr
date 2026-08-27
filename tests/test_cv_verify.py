@@ -259,6 +259,38 @@ class TestCvVerifyCodeReviewFixes:
             cmd_cv_verify(str(cv_path), as_json=True)
         assert exc.value.code == 1
 
+    def test_fabricated_employer_is_not_grounded_by_a_certification_issuer(
+        self, tmp_db, tmp_applyr, offer_for_verify, monkeypatch,
+    ):
+        # _check_employer_claim scanned entry_context across ALL sections,
+        # certifications included — a real "AWS Certified Solutions
+        # Architect — Amazon Web Services" certification's entry_context
+        # shares the word "aws" with a fabricated "### Cloud Engineer - AWS,
+        # Remote" experience heading the candidate never actually held, and
+        # the old code credited it as supported. A certification's
+        # entry_context can never legitimately correspond to a ### heading
+        # (CERTIFICATIONS renders as a plain bullet list in a generated CV,
+        # never a heading), so it must never ground one.
+        import applyr.cv as cv_mod
+        monkeypatch.setattr(cv_mod, "APPLYR_DIR", tmp_applyr)
+        cv_master = tmp_applyr / "cv-master.md"
+        cv_master.write_text(
+            "## CERTIFICATIONS\n\n"
+            "**AWS Certified Solutions Architect — Amazon Web Services — 2023**\n"
+        )
+        body = (
+            "# John Doe\n\n"
+            "### Cloud Engineer - AWS, Remote\n"
+            "01/2022 - 01/2025\n\n"
+            "- Ran production workloads\n"
+        )
+        cv_path = tmp_applyr / "cv-acme.md"
+        cv_path.write_text(_cv_md(1, body))
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_cv_verify(str(cv_path), as_json=True)
+        assert exc.value.code == 1
+
 
 @pytest.mark.unit
 class TestCvVerifyBlocked:
