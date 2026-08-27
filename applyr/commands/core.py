@@ -25,6 +25,7 @@ from applyr.constants import (
     TRUNCATE_TITLE,
     LIST_HEADERS,
     LIST_COL_WIDTHS,
+    get_terminal_context,
 )
 from applyr.db import (
     REPLY_STATUSES,
