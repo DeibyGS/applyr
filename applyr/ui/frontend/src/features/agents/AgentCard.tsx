@@ -1,6 +1,10 @@
+import { useState } from "react";
+import { Cloud } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AGENT_CONFIG } from "./agent-config";
+import { AgentQueueModal } from "./AgentQueueModal";
+import { BADGE_COPY } from "./badge-copy";
 import type { AgentStatus } from "./types";
 
 const PIPELINE_ZONE_LABELS: Record<"cv" | "ats" | "application", string> = {
@@ -33,16 +37,39 @@ type AgentCardProps = {
 };
 
 export function AgentCard({ status, variant = "compact" }: AgentCardProps) {
+  const [queueOpen, setQueueOpen] = useState(false);
   const config = AGENT_CONFIG[status.agentId];
   const task = taskText(status);
   const detailed = variant === "detailed";
+  const working = status.state === "working";
+  const badgeText = working ? BADGE_COPY[status.agentId].working : BADGE_COPY[status.agentId].idle;
 
   return (
     <Card
-      className={`flex flex-col items-center gap-2 border-border bg-card text-center ${
+      className={`relative flex flex-col items-center gap-2 border-border bg-card text-center ${
         detailed ? "w-64 p-6" : "w-44 p-4"
-      }`}
+      } ${working ? "agent-card-glow" : ""}`}
     >
+      {working && (
+        <>
+          <button
+            type="button"
+            aria-label={`${config.name} queue — ${status.items.length} item${status.items.length === 1 ? "" : "s"}`}
+            onClick={() => setQueueOpen(true)}
+            className="absolute top-2 right-2 animate-pulse rounded-full p-2 text-muted-foreground transition-all hover:scale-110 hover:animate-none hover:bg-muted hover:text-foreground"
+          >
+            <Cloud className="size-6" />
+          </button>
+          <AgentQueueModal
+            agentId={status.agentId}
+            agentName={config.name}
+            items={status.items}
+            open={queueOpen}
+            onOpenChange={setQueueOpen}
+          />
+        </>
+      )}
+
       <img
         src={config.illustration}
         alt={config.name}
@@ -50,10 +77,9 @@ export function AgentCard({ status, variant = "compact" }: AgentCardProps) {
       />
       <p className="font-display text-sm font-medium text-foreground">{config.name}</p>
 
-      {status.state === "working" && (
-        <Badge className="bg-success text-background">Working</Badge>
-      )}
-      {status.state === "idle" && <Badge variant="outline">Idle</Badge>}
+      <Badge className={working ? "bg-success text-background" : ""} variant={working ? undefined : "outline"}>
+        {badgeText}
+      </Badge>
 
       {detailed ? (
         <>

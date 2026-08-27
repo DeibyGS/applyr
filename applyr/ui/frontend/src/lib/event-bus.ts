@@ -4,7 +4,7 @@
  * Framework-agnostic (no React, no Pixi).
  */
 
-import type { ApplyrEvent, AgentId } from "./types";
+import type { ApplyrEvent, AgentId } from "./applyr-events";
 
 type EventHandler = (event: ApplyrEvent) => void;
 
@@ -118,31 +118,6 @@ export class EventBus {
   getSubscriberCount(): number {
     return this.subscriptions.size;
   }
-}
-
-/**
- * React-friendly hook for subscribing to EventBus.
- * Usage in components:
- *   const events = useEventBus((e) => e.type === "agent.started");
- *   useEffect(() => bus.subscribeToAgent("recruiter", handleEvent), []);
- */
-export function createEventBusHook() {
-  const bus = EventBus.getInstance();
-
-  return {
-    subscribe: (handler: EventHandler, filter?: (event: ApplyrEvent) => boolean) =>
-      bus.subscribe(handler, filter),
-    subscribeToAgent: (agentId: AgentId, handler: EventHandler) =>
-      bus.subscribeToAgent(agentId, handler),
-    subscribeToType: (type: string, handler: EventHandler) =>
-      bus.subscribeToType(type, handler),
-    unsubscribe: (id: string) => bus.unsubscribe(id),
-    emit: (event: ApplyrEvent) => bus.emit(event),
-    getAgentHistory: (agentId: AgentId) => bus.getAgentHistory(agentId),
-    getGlobalHistory: (limit?: number) => bus.getGlobalHistory(limit),
-    getEventsByType: (type: string, limit?: number) => bus.getEventsByType(type, limit),
-    getEventsByCorrelation: (correlationId: string) => bus.getEventsByCorrelation(correlationId),
-  };
 }
 
 /**

@@ -54,7 +54,31 @@ describe("deriveAgentStatuses", () => {
   it("recruiter is working with the real pending count", () => {
     const intake = [intakeRow({ id: 1 }), intakeRow({ id: 2 }), intakeRow({ id: 3, status: "promoted" })];
     const [recruiter] = deriveAgentStatuses(intake, []);
-    expect(recruiter).toEqual({ agentId: "recruiter", state: "working", pendingCount: 2 });
+    expect(recruiter).toEqual({
+      agentId: "recruiter",
+      state: "working",
+      pendingCount: 2,
+      items: [
+        { intakeId: 1, preview: "some offer", createdAt: "2026-08-23 10:00:00" },
+        { intakeId: 2, preview: "some offer", createdAt: "2026-08-23 10:00:00" },
+      ],
+    });
+  });
+
+  it("recruiter queue lists every pending intake row, most recent first, and truncates long previews", () => {
+    const longText = "x".repeat(150);
+    const intake = [
+      intakeRow({ id: 1, raw_text: "old paste", created_at: "2026-08-20 09:00:00" }),
+      intakeRow({ id: 2, raw_text: longText, created_at: "2026-08-24 09:00:00" }),
+    ];
+    const [recruiter] = deriveAgentStatuses(intake, []);
+    expect(recruiter).toMatchObject({
+      state: "working",
+      items: [
+        { intakeId: 2, preview: `${longText.slice(0, 120)}…` },
+        { intakeId: 1, preview: "old paste" },
+      ],
+    });
   });
 
   it("matching is idle when there are no pending offers", () => {
@@ -74,7 +98,24 @@ describe("deriveAgentStatuses", () => {
       state: "working",
       company: "New Co",
       compatibilityPct: 91,
+      items: [
+        { offerId: 2, company: "New Co", title: "Backend Dev", compatibilityPct: 91, createdAt: "2026-08-23 09:00:00" },
+        { offerId: 1, company: "Old Co", title: "Backend Dev", compatibilityPct: 40, createdAt: "2026-08-20 09:00:00" },
+      ],
     });
+  });
+
+  it("matching queue lists every pending offer, most recent first, excluding non-pending ones", () => {
+    const jobs = [
+      job({ id: 1, company: "Old Co", created_at: "2026-08-20 09:00:00" }),
+      job({ id: 2, company: "New Co", created_at: "2026-08-23 09:00:00" }),
+      job({ id: 3, company: "Applied Co", status: "applied", created_at: "2026-08-24 09:00:00" }),
+    ];
+    const [, matching] = deriveAgentStatuses([], jobs);
+    if (matching.agentId !== "matching" || matching.state !== "working") {
+      throw new Error("expected matching to be working");
+    }
+    expect(matching.items.map((i) => i.company)).toEqual(["New Co", "Old Co"]);
   });
 
   it("cv, ats, and application are idle when no offer is in that pipeline stage", () => {
@@ -96,8 +137,16 @@ describe("deriveAgentStatuses", () => {
       job({ id: 5, pipeline_stage: null }),
     ];
     const [, , cv, ats, application] = deriveAgentStatuses([], jobs);
-    expect(cv).toEqual({ agentId: "cv", state: "working", count: 2 });
-    expect(ats).toEqual({ agentId: "ats", state: "working", count: 1 });
-    expect(application).toEqual({ agentId: "application", state: "working", count: 1 });
+    expect(cv).toEqual({
+      agentId: "cv",
+      state: "working",
+      count: 2,
+      items: [
+        { offerId: 1, company: "Acme", title: "Backend Dev", compatibilityPct: 80, createdAt: "2026-08-23 10:00:00" },
+        { offerId: 2, company: "Acme", title: "Backend Dev", compatibilityPct: 80, createdAt: "2026-08-23 10:00:00" },
+      ],
+    });
+    expect(ats).toMatchObject({ state: "working", count: 1, items: [{ offerId: 3 }] });
+    expect(application).toMatchObject({ state: "working", count: 1, items: [{ offerId: 4 }] });
   });
 });

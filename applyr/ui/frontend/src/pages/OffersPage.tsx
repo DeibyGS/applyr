@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import { JobList } from "@/features/jobs/JobList";
 import { JobDetail } from "@/features/jobs/JobDetail";
 import { KanbanBoard } from "@/features/jobs/KanbanBoard";
@@ -18,7 +19,11 @@ import { useSelectedJob } from "@/hooks/useSelectedJob";
 export default function OffersPage() {
   const { jobs } = useIntakeAndJobs();
   const thresholds = useThresholds();
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+  const [searchParams] = useSearchParams();
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(() => {
+    const jobId = searchParams.get("jobId");
+    return jobId ? Number(jobId) : null;
+  });
   const selectedJob = useSelectedJob(selectedJobId);
 
   const [view, setView] = useState<OffersView>("list");

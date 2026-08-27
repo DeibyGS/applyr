@@ -13,9 +13,8 @@ export function useIntakeAndJobs() {
   const [pendingIntake, setPendingIntake] = useState<IntakeRow[]>([]);
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   // Distinct from `jobs.length > 0` — a fresh install with zero offers must
-  // still report "loaded" after its first real fetch, or a consumer using
-  // this to gate a one-time action (OfficeScene's pipeline-sprite seeding,
-  // ADR-013) would wait forever (code-review finding).
+  // still report "loaded" after its first real fetch, or a consumer gating
+  // a one-time action on it would wait forever (code-review finding).
   const [loaded, setLoaded] = useState(false);
 
   async function refresh() {
