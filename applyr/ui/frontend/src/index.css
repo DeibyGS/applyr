@@ -143,3 +143,40 @@
   background-size: cover;
   background-position: center;
 }
+
+/*
+ * Agent card "working" border glow — a light tracing the border in a loop.
+ * specs/office-flow-diagram/spec.md. @property registers --glow-angle as an
+ * animatable <angle> so the keyframe can smoothly interpolate the
+ * conic-gradient's rotation instead of just snapping between values.
+ */
+@property --glow-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes agent-glow-spin {
+  to {
+    --glow-angle: 360deg;
+  }
+}
+
+.agent-card-glow {
+  position: relative;
+}
+
+.agent-card-glow::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 3px;
+  background: conic-gradient(from var(--glow-angle, 0deg), transparent 0%, var(--success) 18%, #a8e0cc 22%, var(--success) 26%, transparent 44%);
+  filter: drop-shadow(0 0 4px var(--success));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: agent-glow-spin 2.5s linear infinite;
+  pointer-events: none;
+}

@@ -5,8 +5,8 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { API_BASE } from "@/api/client";
-import type { ApplyrEvent, AgentId } from "@/features/office-scene/types";
-import { EventBus, connectEventSourceToBus } from "@/features/office-scene/event-bus";
+import type { ApplyrEvent, AgentId } from "@/lib/applyr-events";
+import { EventBus, connectEventSourceToBus } from "@/lib/event-bus";
 
 interface UseApplyrEventsOptions {
   /** Event types to subscribe to (default: all) */
