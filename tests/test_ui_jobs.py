@@ -9,6 +9,8 @@ import sqlite3
 import time
 
 import pytest
+
+pytest.importorskip("fastapi", reason="requires the optional applyr[ui] extra")
 from fastapi.testclient import TestClient
 
 from applyr.db import SCHEMA_VERSION, get_conn
