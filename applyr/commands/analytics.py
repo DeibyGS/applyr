@@ -12,6 +12,7 @@ from applyr.constants import (
     FOLLOWUP_UPCOMING_DAYS,
     GAP_PRIORITY_HIGH_SHARE,
     GAP_PRIORITY_MEDIUM_SHARE,
+    HOURS_PER_WORK_YEAR,
     TREND_HISTORY_LIMIT,
     COMPARE_MIN_OFFERS,
     COMPARE_MAX_OFFERS,
@@ -62,17 +63,36 @@ def _median(values: list[int]) -> int:
     return values[mid]
 
 
+def _normalize_to_annual(value: int, period: str) -> int:
+    """Convert a salary value to its annual equivalent.
+
+    monthly -> x12, hourly -> x HOURS_PER_WORK_YEAR, annual (or any other/
+    unset value, matching the `salary_period` column's own default) is
+    returned unchanged. Pure function so both `_salary_stats` and
+    `_stats_payload`'s salary block normalize identically.
+    """
+    if period == "monthly":
+        return value * 12
+    if period == "hourly":
+        return value * HOURS_PER_WORK_YEAR
+    return value
+
+
 def _salary_stats(entries: list[dict]) -> tuple[int, int, int, int] | None:
     """Extract salary values from entries and return (min, max, avg, median).
 
-    Returns None if no valid salary data found.
+    Each value is normalized to its annual equivalent (see
+    `_normalize_to_annual`) before aggregating, so monthly/hourly rows are
+    never mixed in raw with annual ones. Returns None if no valid salary
+    data found.
     """
     all_values = []
     for e in entries:
+        period = e["salary_period"] or "annual"
         if e["salary_min"]:
-            all_values.append(e["salary_min"])
+            all_values.append(_normalize_to_annual(e["salary_min"], period))
         if e["salary_max"]:
-            all_values.append(e["salary_max"])
+            all_values.append(_normalize_to_annual(e["salary_max"], period))
 
     if not all_values:
         return None
@@ -92,6 +112,48 @@ def _excluded_note(count: int) -> str:
     " (N excluded, unknown weights)".
     """
     return f" ({count} excluded, unknown weights)" if count else ""
+
+
+def _analytics_filter_clause(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    work_mode: str | None = None,
+    canal: str | None = None,
+    seniority_level: str | None = None,
+    role_category: str | None = None,
+) -> tuple[str, list]:
+    """Build an AND-combined, parameterized SQL fragment shared by every
+    query in `_stats_payload`/`_trends_payload`/`_score_calibration`.
+
+    Returns (fragment, params). The fragment starts with " AND ..." so it
+    can be appended directly to any WHERE clause that already has at least
+    one condition (or to "WHERE 1=1" when there isn't one) — it is "" when
+    no filters were given. Callers own their own fixed conditions (e.g. the
+    ADR-009 `weights_used` exclusion) — this helper never overrides them.
+    """
+    conditions = []
+    params: list = []
+    if date_from:
+        conditions.append("created_at >= ?")
+        params.append(date_from)
+    if date_to:
+        conditions.append("created_at <= ?")
+        params.append(date_to)
+    if work_mode:
+        conditions.append("work_mode = ?")
+        params.append(work_mode)
+    if canal:
+        conditions.append("canal = ?")
+        params.append(canal)
+    if seniority_level:
+        conditions.append("seniority_level = ?")
+        params.append(seniority_level)
+    if role_category:
+        conditions.append("role_category = ?")
+        params.append(role_category)
+    if not conditions:
+        return "", []
+    return " AND " + " AND ".join(conditions), params
 
 # ---------------------------------------------------------------------------
 # cmd_pipeline
@@ -162,7 +224,7 @@ def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
 # cmd_stats
 # ---------------------------------------------------------------------------
 
-def _score_calibration(conn) -> tuple[dict, int]:
+def _score_calibration(conn, filter_clause: str = "", filter_params: list | None = None) -> tuple[dict, int]:
     """Bucket applied offers by score band and report real outcome rates.
 
     Answers "does a higher compatibility_pct actually predict a better
@@ -176,7 +238,12 @@ def _score_calibration(conn) -> tuple[dict, int]:
     compatibility_pct override) are excluded: their score was not produced
     by any recorded weight config, so mixing them into these bands would
     silently combine scores that mean different things (ADR 009).
+
+    `filter_clause`/`filter_params` come from `_analytics_filter_clause` and
+    are AND-combined on top of the fixed conditions above — the ADR-009
+    exclusion always wins, filters only ever narrow further.
     """
+    filter_params = filter_params or []
     config = load_config()
     threshold_apply = config["general"]["threshold_apply"]
     threshold_maybe = config["general"]["threshold_maybe"]
@@ -190,6 +257,8 @@ def _score_calibration(conn) -> tuple[dict, int]:
     rows = conn.execute(
         "SELECT compatibility_pct, status FROM offers "
         "WHERE status != 'pending' AND status != 'discarded' AND weights_used IS NOT NULL"
+        + filter_clause,
+        filter_params,
     ).fetchall()
     for row in rows:
         if row["compatibility_pct"] >= threshold_apply:
@@ -209,32 +278,60 @@ def _score_calibration(conn) -> tuple[dict, int]:
     excluded = conn.execute(
         "SELECT COUNT(*) FROM offers "
         "WHERE status != 'pending' AND status != 'discarded' AND weights_used IS NULL"
+        + filter_clause,
+        filter_params,
     ).fetchone()[0]
 
     return bands, excluded
 
 
-def _stats_payload(conn) -> dict | None:
+def _stats_payload(
+    conn,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    work_mode: str | None = None,
+    canal: str | None = None,
+    seniority_level: str | None = None,
+    role_category: str | None = None,
+) -> dict | None:
     """Build the aggregate stats payload shared by `cmd_stats` and `GET /api/stats`.
 
-    Returns None when the database has zero offers (the empty-state signal both
-    the CLI and the API branch on).
+    All filter params are optional and AND-combined via `_analytics_filter_clause`
+    (parameterized SQL only). Returns None when the database has zero offers and
+    no filters were given — the pre-existing empty-state signal both the CLI and
+    the API branch on. When filters narrow an otherwise non-empty database down
+    to zero matches, returns `{"total": 0, "filtered": True}` instead, so a
+    caller can tell "no offers in DB" apart from "no offers match this filter."
     """
-    total = conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0]
-    if total == 0:
-        return None
+    filter_clause, filter_params = _analytics_filter_clause(
+        date_from, date_to, work_mode, canal, seniority_level, role_category
+    )
+    filters_active = bool(filter_clause)
 
-    discarded = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'discarded'").fetchone()[0]
-    pending   = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'pending'").fetchone()[0]
+    total = conn.execute(
+        "SELECT COUNT(*) FROM offers WHERE 1=1" + filter_clause, filter_params
+    ).fetchone()[0]
+    if total == 0:
+        return {"total": 0, "filtered": True} if filters_active else None
+
+    discarded = conn.execute(
+        "SELECT COUNT(*) FROM offers WHERE status = 'discarded'" + filter_clause, filter_params
+    ).fetchone()[0]
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM offers WHERE status = 'pending'" + filter_clause, filter_params
+    ).fetchone()[0]
     # Excludes weights_used IS NULL for the same reason _score_calibration
     # does (ADR 009): mixing scores from different/unknown weight configs
     # into one average would silently combine numbers that mean different
-    # things.
+    # things. This exclusion is fixed — user filters AND-combine on top of
+    # it, they never replace it.
     avg_compat = conn.execute(
-        "SELECT AVG(compatibility_pct) FROM offers WHERE weights_used IS NOT NULL"
+        "SELECT AVG(compatibility_pct) FROM offers WHERE weights_used IS NOT NULL" + filter_clause,
+        filter_params,
     ).fetchone()[0] or 0
     avg_compat_excluded = conn.execute(
-        "SELECT COUNT(*) FROM offers WHERE weights_used IS NULL"
+        "SELECT COUNT(*) FROM offers WHERE weights_used IS NULL" + filter_clause, filter_params
     ).fetchone()[0]
 
     # Conversion funnel. `responded` excludes `waiting`: that status means
@@ -242,31 +339,47 @@ def _stats_payload(conn) -> dict | None:
     # `update` schedules a follow-up for it. Counting it as a reply made
     # this funnel disagree with `response-rate` on identical data — 14%
     # against 9% on a real 206-offer database.
-    applied    = conn.execute("SELECT COUNT(*) FROM offers WHERE status != 'pending' AND status != 'discarded'").fetchone()[0]
-    reply_slots = ", ".join("?" * len(REPLY_STATUSES))
-    responded  = conn.execute(
-        f"SELECT COUNT(*) FROM offers WHERE status IN ({reply_slots})",
-        sorted(REPLY_STATUSES),
+    applied = conn.execute(
+        "SELECT COUNT(*) FROM offers WHERE status != 'pending' AND status != 'discarded'" + filter_clause,
+        filter_params,
     ).fetchone()[0]
-    interview  = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'in_process'").fetchone()[0]
-    offers_cnt = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'offer'").fetchone()[0]
+    reply_slots = ", ".join("?" * len(REPLY_STATUSES))
+    responded = conn.execute(
+        f"SELECT COUNT(*) FROM offers WHERE status IN ({reply_slots})" + filter_clause,
+        sorted(REPLY_STATUSES) + filter_params,
+    ).fetchone()[0]
+    interview = conn.execute(
+        "SELECT COUNT(*) FROM offers WHERE status = 'in_process'" + filter_clause, filter_params
+    ).fetchone()[0]
+    offers_cnt = conn.execute(
+        "SELECT COUNT(*) FROM offers WHERE status = 'offer'" + filter_clause, filter_params
+    ).fetchone()[0]
 
     # Channel breakdown
     channels = conn.execute(
-        "SELECT canal, COUNT(*) as cnt FROM offers WHERE canal IS NOT NULL GROUP BY canal ORDER BY cnt DESC"
+        "SELECT canal, COUNT(*) as cnt FROM offers WHERE canal IS NOT NULL"
+        + filter_clause + " GROUP BY canal ORDER BY cnt DESC",
+        filter_params,
     ).fetchall()
 
     # Work mode breakdown
     modes = conn.execute(
-        "SELECT work_mode, COUNT(*) as cnt FROM offers WHERE work_mode IS NOT NULL GROUP BY work_mode ORDER BY cnt DESC"
+        "SELECT work_mode, COUNT(*) as cnt FROM offers WHERE work_mode IS NOT NULL"
+        + filter_clause + " GROUP BY work_mode ORDER BY cnt DESC",
+        filter_params,
     ).fetchall()
 
-    # Salary stats
-    sal = conn.execute(
-        "SELECT MIN(salary_min), MAX(salary_min), AVG(salary_min) FROM offers WHERE salary_min IS NOT NULL"
-    ).fetchone()
+    # Salary stats — raw rows normalized+aggregated in Python via
+    # `_salary_stats`, mirroring `cmd_salary`'s per-row approach, instead of
+    # a raw SQL MIN/MAX/AVG that would mix monthly/hourly values in with
+    # annual ones.
+    sal_rows = conn.execute(
+        "SELECT salary_min, salary_max, salary_period FROM offers WHERE salary_min IS NOT NULL"
+        + filter_clause,
+        filter_params,
+    ).fetchall()
 
-    calibration, excluded_unknown_weights = _score_calibration(conn)
+    calibration, excluded_unknown_weights = _score_calibration(conn, filter_clause, filter_params)
 
     def _pct_or_none(num, denom):
         return round(num / denom * 100) if denom else None
@@ -290,8 +403,10 @@ def _stats_payload(conn) -> dict | None:
         "score_calibration": calibration,
         "excluded_unknown_weights": excluded_unknown_weights,
     }
-    if sal and sal[0] is not None:
-        payload["salary"] = {"min": sal[0], "max": sal[1], "avg": round(sal[2])}
+    salary_stats = _salary_stats([dict(r) for r in sal_rows])
+    if salary_stats:
+        s_min, s_max, s_avg, s_med = salary_stats
+        payload["salary"] = {"min": s_min, "max": s_max, "avg": s_avg, "median": s_med, "count": len(sal_rows)}
     return payload
 
 
@@ -599,28 +714,46 @@ def cmd_followups(as_json: bool = False) -> None:
 # cmd_trends
 # ---------------------------------------------------------------------------
 
-def _trends_payload(conn, period: str) -> list[dict]:
+def _trends_payload(
+    conn,
+    period: str,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    work_mode: str | None = None,
+    canal: str | None = None,
+    seniority_level: str | None = None,
+    role_category: str | None = None,
+) -> list[dict]:
     """Build the trends payload shared by `cmd_trends` and `GET /api/trends`.
 
     Both current callers pre-validate `period` before calling this (`cmd_trends`
     exits via `die()`, the API raises `HTTPException(400)`) — the guard below is
     a defensive backstop so a future caller that skips that step fails loudly
     instead of silently grouping by the wrong format.
+
+    Accepts the same optional filter params as `_stats_payload`, AND-combined
+    via `_analytics_filter_clause` on top of the existing dated-offer condition.
     """
     if period not in ("week", "month"):
         raise ValueError(f"period must be 'week' or 'month', got {period!r}")
     fmt = "%Y-W%W" if period == "week" else "%Y-%m"
+
+    filter_clause, filter_params = _analytics_filter_clause(
+        date_from, date_to, work_mode, canal, seniority_level, role_category
+    )
 
     rows = conn.execute(
         f"""
         SELECT strftime('{fmt}', COALESCE(date_applied, date_received)) AS period,
                COUNT(*) AS cnt
         FROM offers
-        WHERE COALESCE(date_applied, date_received) IS NOT NULL
+        WHERE COALESCE(date_applied, date_received) IS NOT NULL{filter_clause}
         GROUP BY period
         ORDER BY period DESC
         LIMIT {TREND_HISTORY_LIMIT}
         """,
+        filter_params,
     ).fetchall()
 
     payload = []

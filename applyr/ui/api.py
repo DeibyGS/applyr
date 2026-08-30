@@ -20,7 +20,14 @@ from pydantic import BaseModel
 from applyr.commands.analytics import _stats_payload, _trends_payload
 from applyr.commands.workflow import _check_cv_master
 from applyr.config import load_config
-from applyr.db import VALID_PIPELINE_STAGES, get_conn
+from applyr.db import (
+    VALID_CHANNELS,
+    VALID_PIPELINE_STAGES,
+    VALID_ROLE_CATEGORIES,
+    VALID_SENIORITY,
+    VALID_WORK_MODES,
+    get_conn,
+)
 from applyr.intake import create_intake, get_intake, list_intake
 
 router = APIRouter()
@@ -189,14 +196,41 @@ def get_job_detail(job_id: int) -> dict:
         conn.close()
 
 
+def _validate_analytics_filters(work_mode: str | None, canal: str | None,
+                                 seniority_level: str | None, role_category: str | None) -> None:
+    """Reject a filter value outside its existing `VALID_*` enum (db.py) with
+    a 400 rather than silently applying a no-op WHERE clause that would just
+    match zero rows — see analytics-filters-and-fixes spec."""
+    if work_mode is not None and work_mode not in VALID_WORK_MODES:
+        raise HTTPException(status_code=400, detail=f"work_mode must be one of {VALID_WORK_MODES}")
+    if canal is not None and canal not in VALID_CHANNELS:
+        raise HTTPException(status_code=400, detail=f"canal must be one of {VALID_CHANNELS}")
+    if seniority_level is not None and seniority_level not in VALID_SENIORITY:
+        raise HTTPException(status_code=400, detail=f"seniority_level must be one of {VALID_SENIORITY}")
+    if role_category is not None and role_category not in VALID_ROLE_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"role_category must be one of {VALID_ROLE_CATEGORIES}")
+
+
 @router.get("/api/stats")
-def get_stats() -> dict:
+def get_stats(
+    date_from: str | None = Query(default=None, alias="from"),
+    date_to: str | None = Query(default=None, alias="to"),
+    work_mode: str | None = Query(default=None),
+    canal: str | None = Query(default=None),
+    seniority_level: str | None = Query(default=None),
+    role_category: str | None = Query(default=None),
+) -> dict:
     """Same aggregate payload as `applyr stats --json` (funnel, channel/work-mode
     breakdown, salary, score calibration) — reuses `_stats_payload`, never
-    reimplements the aggregation SQL here."""
+    reimplements the aggregation SQL here. All filter params are optional and
+    AND-combined (see `_analytics_filter_clause`)."""
+    _validate_analytics_filters(work_mode, canal, seniority_level, role_category)
     conn = get_conn()
     try:
-        payload = _stats_payload(conn)
+        payload = _stats_payload(
+            conn, date_from=date_from, date_to=date_to, work_mode=work_mode,
+            canal=canal, seniority_level=seniority_level, role_category=role_category,
+        )
     finally:
         conn.close()
     if payload is None:
@@ -205,14 +239,27 @@ def get_stats() -> dict:
 
 
 @router.get("/api/trends")
-def get_trends(period: str = Query(default="week")) -> list[dict]:
+def get_trends(
+    period: str = Query(default="week"),
+    date_from: str | None = Query(default=None, alias="from"),
+    date_to: str | None = Query(default=None, alias="to"),
+    work_mode: str | None = Query(default=None),
+    canal: str | None = Query(default=None),
+    seniority_level: str | None = Query(default=None),
+    role_category: str | None = Query(default=None),
+) -> list[dict]:
     """Same payload as `applyr trends --period <p> --json` — reuses
-    `_trends_payload`, never reimplements the aggregation SQL here."""
+    `_trends_payload`, never reimplements the aggregation SQL here. Accepts
+    the same optional filter params as `/api/stats`, in addition to `period`."""
     if period not in ("week", "month"):
         raise HTTPException(status_code=400, detail="period must be 'week' or 'month'")
+    _validate_analytics_filters(work_mode, canal, seniority_level, role_category)
     conn = get_conn()
     try:
-        return _trends_payload(conn, period)
+        return _trends_payload(
+            conn, period, date_from=date_from, date_to=date_to, work_mode=work_mode,
+            canal=canal, seniority_level=seniority_level, role_category=role_category,
+        )
     finally:
         conn.close()
 

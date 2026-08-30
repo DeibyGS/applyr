@@ -22,7 +22,7 @@ export function BreakdownChart({ title, data }: { title: string; data: Record<st
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle className="font-display">{title}</CardTitle>
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (

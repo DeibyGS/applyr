@@ -851,3 +851,227 @@ class TestFollowupsEmptyJsonPayload:
 
         cmd_followups(as_json=False)
         assert "No pending follow-ups" in capsys.readouterr().out
+
+
+class TestNormalizeToAnnual:
+    """_normalize_to_annual converts monthly/hourly salaries to their annual
+    equivalent so `_salary_stats`/`_stats_payload` never mix incompatible
+    units in one aggregate (spec: analytics-filters-and-fixes)."""
+
+    @pytest.mark.parametrize("period,value,expected", [
+        ("annual", 60000, 60000),
+        ("monthly", 5000, 60000),
+        ("hourly", 30, 30 * 2080),
+    ])
+    def test_normalizes_by_period(self, period, value, expected):
+        from applyr.commands.analytics import _normalize_to_annual
+
+        assert _normalize_to_annual(value, period) == expected
+
+    def test_uses_the_constants_module_value(self):
+        """HOURS_PER_WORK_YEAR must live in constants.py, not be duplicated
+        as a magic number inside _normalize_to_annual."""
+        from applyr.commands.analytics import _normalize_to_annual
+        from applyr.constants import HOURS_PER_WORK_YEAR
+
+        assert _normalize_to_annual(10, "hourly") == 10 * HOURS_PER_WORK_YEAR
+
+
+class TestSalaryStatsNormalization:
+    """_salary_stats is shared by `cmd_salary` and `_stats_payload`'s salary
+    block — both must normalize before aggregating, and pure-annual data
+    must produce the exact same numbers as before this change (no regression)."""
+
+    def test_pure_annual_data_is_unchanged(self):
+        from applyr.commands.analytics import _salary_stats
+
+        entries = [
+            {"salary_min": 50000, "salary_max": None, "salary_period": "annual"},
+            {"salary_min": 70000, "salary_max": None, "salary_period": "annual"},
+        ]
+        assert _salary_stats(entries) == (50000, 70000, 60000, 60000)
+
+    def test_missing_period_defaults_to_annual_not_a_multiplier(self):
+        """salary_period unset (None, e.g. legacy rows) must not be treated
+        as monthly/hourly — same default cmd_salary already assumes."""
+        from applyr.commands.analytics import _salary_stats
+
+        entries = [{"salary_min": 40000, "salary_max": None, "salary_period": None}]
+        assert _salary_stats(entries) == (40000, 40000, 40000, 40000)
+
+    def test_monthly_and_hourly_are_annualized_before_aggregating(self):
+        from applyr.commands.analytics import _salary_stats
+        from applyr.constants import HOURS_PER_WORK_YEAR
+
+        entries = [
+            {"salary_min": 60000, "salary_max": None, "salary_period": "annual"},
+            {"salary_min": 5000, "salary_max": None, "salary_period": "monthly"},  # -> 60000
+            {"salary_min": 30, "salary_max": None, "salary_period": "hourly"},  # -> 30*2080
+        ]
+        s_min, s_max, s_avg, _s_med = _salary_stats(entries)
+        assert s_min == 60000  # annual and monthly both normalize to 60000
+        assert s_max == 30 * HOURS_PER_WORK_YEAR
+
+
+class TestStatsPayloadSalaryNormalization:
+    """`_stats_payload`'s salary block now fetches raw rows and normalizes
+    in Python instead of a raw SQL MIN/MAX/AVG(salary_min) — verifies the
+    `--json` key names (`salary.min/max/avg`) are unchanged and the values
+    reflect annual-equivalent amounts."""
+
+    def _stats(self, tmp_db):
+        from applyr.commands.analytics import _stats_payload
+        from applyr.db import get_conn
+
+        conn = get_conn(tmp_db)
+        try:
+            return _stats_payload(conn)
+        finally:
+            conn.close()
+
+    def test_monthly_salary_is_annualized_in_payload(self, tmp_db, tmp_applyr):
+        _add(company="A", salary_min=60000, salary_period="annual")
+        _add(company="B", salary_min=5000, salary_period="monthly")
+
+        payload = self._stats(tmp_db)
+        assert payload["salary"] == {"min": 60000, "max": 60000, "avg": 60000, "median": 60000, "count": 2}
+
+    def test_pure_annual_data_matches_prior_behavior(self, tmp_db, tmp_applyr):
+        _add(company="A", salary_min=50000, salary_period="annual")
+        _add(company="B", salary_min=70000, salary_period="annual")
+
+        payload = self._stats(tmp_db)
+        assert payload["salary"] == {"min": 50000, "max": 70000, "avg": 60000, "median": 60000, "count": 2}
+
+
+class TestCmdSalaryMedianNormalization:
+    """cmd_salary's median must use normalized values, not raw ones."""
+
+    def test_median_uses_annual_equivalents(self, tmp_db, tmp_applyr, capsys):
+        from applyr.commands.analytics import cmd_salary
+
+        _add(company="A", salary_min=60000, salary_period="annual", seniority_level="mid")
+        _add(company="B", salary_min=5000, salary_period="monthly", seniority_level="mid")  # -> 60000
+        _add(company="C", salary_min=30, salary_period="hourly", seniority_level="mid")  # -> 62400
+
+        capsys.readouterr()  # discard the three cmd_add success reports
+        cmd_salary(as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        entry = payload["by_seniority"][0]
+        assert entry["seniority"] == "mid"
+        # sorted normalized values: [60000, 60000, 62400] -> median 60000
+        assert entry["median"] == 60000
+
+
+class TestStatsPayloadFilters:
+    """_stats_payload's optional filter params are AND-combined, parameterized
+    WHERE conditions on top of the existing query set (spec:
+    analytics-filters-and-fixes). Covers each filter dimension individually,
+    combined, the ADR-009 AND-composition, and the empty-filtered-result shape."""
+
+    def _stats(self, tmp_db, **filters):
+        from applyr.commands.analytics import _stats_payload
+        from applyr.db import get_conn
+
+        conn = get_conn(tmp_db)
+        try:
+            return _stats_payload(conn, **filters)
+        finally:
+            conn.close()
+
+    def test_no_filters_behaves_exactly_as_before(self, tmp_db, tmp_applyr):
+        _add(company="A", work_mode="remote")
+        _add(company="B", work_mode="onsite")
+        payload = self._stats(tmp_db)
+        assert payload["total"] == 2
+        assert "filtered" not in payload
+
+    @pytest.mark.parametrize("field,value,other_value", [
+        ("work_mode", "remote", "onsite"),
+        ("canal", "linkedin_easy", "email"),
+        ("seniority_level", "junior", "senior"),
+        ("role_category", "backend", "frontend"),
+    ])
+    def test_single_dimension_filter_narrows_to_matching_offers(
+        self, tmp_db, tmp_applyr, field, value, other_value
+    ):
+        _add(company="A", **{field: value})
+        _add(company="B", **{field: other_value})
+        payload = self._stats(tmp_db, **{field: value})
+        assert payload["total"] == 1
+
+    def test_date_from_and_date_to_filter_created_at(self, tmp_db, tmp_applyr):
+        _add(company="A")
+        _add(company="B")
+        conn = sqlite3.connect(tmp_applyr / "jobs.db")
+        try:
+            conn.execute("UPDATE offers SET created_at = ? WHERE id = 1", ("2020-01-01 00:00:00",))
+            conn.execute("UPDATE offers SET created_at = ? WHERE id = 2", ("2030-01-01 00:00:00",))
+            conn.commit()
+        finally:
+            conn.close()
+
+        assert self._stats(tmp_db, date_from="2025-01-01")["total"] == 1
+        assert self._stats(tmp_db, date_to="2025-01-01")["total"] == 1
+
+    def test_combined_filters_are_and_composed(self, tmp_db, tmp_applyr):
+        _add(company="A", work_mode="remote", seniority_level="junior")
+        _add(company="B", work_mode="remote", seniority_level="senior")
+        _add(company="C", work_mode="onsite", seniority_level="junior")
+
+        payload = self._stats(tmp_db, work_mode="remote", seniority_level="junior")
+        assert payload["total"] == 1
+
+    def test_empty_filtered_result_is_distinguishable_from_empty_db(self, tmp_db, tmp_applyr):
+        _add(company="A", work_mode="remote")
+        payload = self._stats(tmp_db, work_mode="onsite")
+        assert payload == {"total": 0, "filtered": True}
+
+    def test_empty_database_with_no_filters_still_returns_none(self, tmp_db):
+        assert self._stats(tmp_db) is None
+
+    def test_adr009_exclusion_stays_and_combined_with_user_filters(self, tmp_db, tmp_applyr):
+        """weights_used IS NOT NULL exclusion must survive any filter
+        combination, AND-combined, never replaced by it (ADR 009)."""
+        _add(company="A", work_mode="remote", topics={"tech_stack": {"score": 90, "detail": "x"}})
+        _add(company="B", work_mode="remote", compatibility_pct=85)  # override -> weights_used NULL
+
+        payload = self._stats(tmp_db, work_mode="remote")
+        assert payload["total"] == 2
+        # B has no weights_used (explicit override) — must be excluded from
+        # the average, not silently mixed in with A's weighted score.
+        assert payload["avg_compatibility_pct_excluded_unknown_weights"] == 1
+        assert payload["avg_compatibility_pct"] == 90.0
+
+
+class TestTrendsPayloadFilters:
+    """_trends_payload accepts the same optional filter params as
+    `_stats_payload`, AND-combined on top of its existing dated-offer
+    condition (spec: analytics-filters-and-fixes)."""
+
+    def _trends(self, tmp_db, period="week", **filters):
+        from applyr.commands.analytics import _trends_payload
+        from applyr.db import get_conn
+
+        conn = get_conn(tmp_db)
+        try:
+            return _trends_payload(conn, period, **filters)
+        finally:
+            conn.close()
+
+    def test_no_filters_counts_all_dated_offers(self, tmp_db, tmp_applyr):
+        _add(company="A", work_mode="remote")
+        _add(company="B", work_mode="onsite")
+        rows = self._trends(tmp_db)
+        assert rows[0]["count"] == 2
+
+    def test_work_mode_filter_narrows_the_bucket(self, tmp_db, tmp_applyr):
+        _add(company="A", work_mode="remote")
+        _add(company="B", work_mode="onsite")
+        rows = self._trends(tmp_db, work_mode="remote")
+        assert len(rows) == 1
+        assert rows[0]["count"] == 1
+
+    def test_invalid_period_still_raises_before_filters_are_applied(self, tmp_db):
+        with pytest.raises(ValueError, match="period must be"):
+            self._trends(tmp_db, period="year", work_mode="remote")
