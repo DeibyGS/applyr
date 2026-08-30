@@ -10,8 +10,10 @@ clean `die()` instead of a traceback.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import shutil
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 _STATUS_CODES_TO_ERROR_CODE = {404: "not_found", 422: "invalid_value"}
@@ -20,16 +22,37 @@ _FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
 
 def create_app():
-    """Build the FastAPI app: routes + CORS (localhost only) + JSON errors."""
+    """Build the FastAPI app: routes + CORS (localhost only) + JSON errors.
+
+    Also owns the async intake pipeline worker's lifecycle (ADR-014): started
+    as a background task on app startup, cancelled on shutdown. No separate
+    `applyr autopilot` process — this is the only place that worker runs.
+    """
     from fastapi import FastAPI, Request
     from fastapi.exceptions import RequestValidationError
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
     from starlette.exceptions import HTTPException as StarletteHTTPException
 
+    from applyr.ui import api
     from applyr.ui.api import router
+    from applyr.ui.pipeline_worker import run_worker
 
-    app = FastAPI(title="applyr ui")
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        app.state.worker_task = asyncio.create_task(
+            run_worker(api._worker_wake_event, on_event=api._broadcast_enriched)
+        )
+        try:
+            yield
+        finally:
+            app.state.worker_task.cancel()
+            try:
+                await app.state.worker_task
+            except asyncio.CancelledError:
+                pass
+
+    app = FastAPI(title="applyr ui", lifespan=_lifespan)
 
     # Local single-user tool (docs/visual-ui/AGENTS.md) — the only other
     # origin is the Vite dev server for the frontend scaffold in this slice.

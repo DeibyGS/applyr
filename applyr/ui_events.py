@@ -95,6 +95,26 @@ def notify_stage(offer_id: int, stage: str, port: int | None = None) -> None:
     )
 
 
+def notify_job_state(
+    intake_id: int,
+    state: str,
+    *,
+    error_message: str | None = None,
+    port: int | None = None,
+) -> None:
+    """Best-effort notification that the async-pipeline job paired with
+    `intake_id` (ADR-014) reached `state` — "ready" once `applyr add
+    --intake-id` succeeds, "failed" if the intake linkage itself errors.
+    Only meaningful after `add` was called with `--intake-id`; never call
+    this otherwise. Never raises — same contract as every function here."""
+    if state not in ("ready", "failed"):
+        return
+    payload: dict[str, Any] = {"intake_id": intake_id, "state": state}
+    if error_message is not None:
+        payload["error_message"] = error_message
+    _post_event("/api/internal/job-state", payload, port)
+
+
 def notify_event(
     event_type: str,
     agent_id: str,

@@ -9,26 +9,61 @@ import sqlite3
 
 from applyr.db import get_conn
 
+# ADR-014: how long a repeated paste of the same raw_text is treated as a
+# double "Enviar" click (return the existing pending row) rather than a
+# deliberate second submission (create a new one). Named constant, not a
+# magic number, so it's a one-line change to retune.
+IDEMPOTENCY_WINDOW_SECONDS = 10
+
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
     return dict(row)
 
 
-def create_intake(raw_text: str, source_note: str | None = None, db_path: str | None = None) -> dict:
-    """Insert a new pending intake row. Raises ValueError if raw_text is blank."""
+def create_intake(
+    raw_text: str,
+    source_note: str | None = None,
+    db_path: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Insert a new pending intake row, or return the existing one if the
+    same raw_text was submitted within IDEMPOTENCY_WINDOW_SECONDS and is
+    still pending (guards a double "Enviar" click from creating two
+    intake/job pairs for one paste). Raises ValueError if raw_text is blank.
+
+    Accepts an existing, uncommitted `conn` so a caller can create the paired
+    `ui_jobs` row in the same transaction (ADR-014) — same reasoning as
+    `mark_intake_promoted`. When no `conn` is given, opens, commits, and
+    closes its own, same as before.
+    """
     if not raw_text or not raw_text.strip():
         raise ValueError("raw_text must not be empty")
-    conn = get_conn(db_path)
+
+    owns_conn = conn is None
+    if owns_conn:
+        conn = get_conn(db_path)
     try:
+        existing = conn.execute(
+            """SELECT * FROM ui_intake
+               WHERE raw_text = ? AND status = 'pending'
+                 AND created_at > datetime('now', ?)
+               ORDER BY created_at DESC LIMIT 1""",
+            (raw_text, f"-{IDEMPOTENCY_WINDOW_SECONDS} seconds"),
+        ).fetchone()
+        if existing is not None:
+            return _row_to_dict(existing)
+
         cursor = conn.execute(
             "INSERT INTO ui_intake (raw_text, source_note) VALUES (?, ?)",
             (raw_text, source_note),
         )
-        conn.commit()
+        if owns_conn:
+            conn.commit()
         row = conn.execute("SELECT * FROM ui_intake WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return _row_to_dict(row)
     finally:
-        conn.close()
+        if owns_conn:
+            conn.close()
 
 
 def list_intake(status: str | None = None, db_path: str | None = None) -> list[dict]:

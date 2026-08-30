@@ -18,6 +18,7 @@ reverses one of them.
 | [011](011-visual-ui-optional-interface.md) | Visual UI as an optional, additive interface — narrows 005 | Accepted |
 | [012](012-applyr-world-pixijs-engine.md) | PixiJS as the rendering engine for Office's "Applyr World" scene — narrows 011's Stack table, engine decision only, implementation not yet scoped | Accepted |
 | [013](013-applyr-world-movement-and-push-transport.md) | Cross-zone offer movement + SSE push transport for "Applyr World" — partially supersedes 012's "no WebSocket, polling only" constraint | Accepted |
+| [014](014-async-intake-pipeline-agent-attended-scoring.md) | Async intake pipeline — SQLite job queue + in-process worker, `PENDING_AGENT` scoring state, reaffirms 003 (no server-side LLM calls) | Accepted |
 
 ## Conventions
 
