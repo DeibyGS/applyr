@@ -244,6 +244,9 @@ UPDATE_CHECK_CACHE_TTL_HOURS = 24
 # Validation
 # ---------------------------------------------------------------------------
 VALID_SALARY_PERIODS = ("annual", "monthly", "hourly")
+# Standard full-time work-year used to annualize an hourly salary_period
+# (40h/week * 52 weeks) — see _normalize_to_annual in commands/analytics.py.
+HOURS_PER_WORK_YEAR = 2080
 # Enum, not a float — an LLM-reported "0.82" isn't more meaningful than "high",
 # and would invite the same two-representations-of-one-concept bug already
 # found and fixed once this session for threshold/threshold_apply.

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CalendarClock } from "lucide-react";
 import { JobList } from "@/features/jobs/JobList";
 import { JobDetail } from "@/features/jobs/JobDetail";
 import { filterInProcess } from "@/features/jobs/filter-in-process";
@@ -28,7 +29,10 @@ export default function InterviewsPage() {
         </p>
       </header>
       {interviews.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No offers currently in interview stage.</p>
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card p-12 text-center">
+          <CalendarClock className="size-8 text-muted-foreground" aria-hidden />
+          <p className="text-sm text-muted-foreground">No offers currently in interview stage.</p>
+        </div>
       ) : (
         <JobList jobs={interviews} thresholds={thresholds} onSelect={setSelectedJobId} />
       )}

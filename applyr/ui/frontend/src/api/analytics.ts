@@ -1,4 +1,5 @@
 import { request } from "./client";
+import type { AnalyticsQueryParams } from "@/features/analytics/analytics-filters";
 
 export type Funnel = {
   applied: number;
@@ -28,7 +29,7 @@ export type ScoreCalibration = {
   low_match: CalibrationBand;
 };
 
-export type StatsEmpty = { total: 0 };
+export type StatsEmpty = { total: 0; filtered?: boolean };
 
 export type StatsPayload = {
   total: number;
@@ -42,7 +43,7 @@ export type StatsPayload = {
   work_modes: Record<string, number>;
   score_calibration: ScoreCalibration;
   excluded_unknown_weights: number;
-  salary?: { min: number; max: number; avg: number };
+  salary?: { min: number; max: number; avg: number; median: number; count: number };
 };
 
 export type TrendPeriod = "week" | "month";
@@ -57,10 +58,31 @@ export function isEmptyStats(payload: StatsPayload | StatsEmpty): payload is Sta
   return payload.total === 0;
 }
 
-export function getStats(): Promise<StatsPayload | StatsEmpty> {
-  return request("/api/stats");
+/**
+ * Distinguishes "filters matched zero offers" from "the DB has no offers at
+ * all" — the backend only sets `filtered: true` in the former case (see
+ * `_stats_payload`).
+ */
+export function isFilteredEmptyStats(payload: StatsPayload | StatsEmpty): boolean {
+  return isEmptyStats(payload) && payload.filtered === true;
 }
 
-export function getTrends(period: TrendPeriod = "week"): Promise<TrendEntry[]> {
-  return request(`/api/trends?period=${period}`);
+function buildQuery(params: Record<string, string | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) search.set(key, value);
+  }
+  const query = search.toString();
+  return query ? `?${query}` : "";
+}
+
+export function getStats(filters: AnalyticsQueryParams = {}): Promise<StatsPayload | StatsEmpty> {
+  return request(`/api/stats${buildQuery(filters)}`);
+}
+
+export function getTrends(
+  period: TrendPeriod = "week",
+  filters: AnalyticsQueryParams = {}
+): Promise<TrendEntry[]> {
+  return request(`/api/trends${buildQuery({ period, ...filters })}`);
 }

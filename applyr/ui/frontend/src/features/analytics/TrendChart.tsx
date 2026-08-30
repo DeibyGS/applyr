@@ -1,36 +1,36 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getTrends, type TrendEntry, type TrendPeriod } from "@/api/analytics";
+import type { AnalyticsQueryParams } from "./analytics-filters";
 import { trendChartData, TOOLTIP_CONTENT_STYLE } from "./analytics-data";
 
 export function TrendChart({
   initialData,
   initialPeriod,
+  filters,
 }: {
   initialData: TrendEntry[];
   initialPeriod: TrendPeriod;
+  filters: AnalyticsQueryParams;
 }) {
   const [period, setPeriod] = useState<TrendPeriod>(initialPeriod);
   const [entries, setEntries] = useState<TrendEntry[]>(initialData);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  // Mirrors the initial fetch AnalyticsPage already did for the default
+  // filters — skip re-fetching on mount so filters and period toggling
+  // don't race each other.
+  const isFirstRender = useRef(true);
 
-  // The one interaction in this whole slice allowed to trigger a second
-  // fetch (spec AC) — aggregate stats otherwise load once on page mount,
-  // no polling, since they don't change on a 2-3s timescale. `period` only
-  // flips (and the active-button styling with it) once the new data has
-  // actually loaded — flipping it eagerly would leave the toggle pointing
-  // at a period whose chart never arrived if the fetch fails.
-  async function handlePeriodChange(next: TrendPeriod) {
-    if (next === period) return;
+  async function fetchTrends(nextPeriod: TrendPeriod, nextFilters: AnalyticsQueryParams) {
     setLoading(true);
     setLoadError(false);
     try {
-      const data = await getTrends(next);
+      const data = await getTrends(nextPeriod, nextFilters);
       setEntries(data);
-      setPeriod(next);
+      setPeriod(nextPeriod);
     } catch {
       setLoadError(true);
     } finally {
@@ -38,12 +38,36 @@ export function TrendChart({
     }
   }
 
+  // The filter row applies to every chart on the page (spec AC) — the
+  // Week/Month toggle stays independent but composes with it, so a filter
+  // change re-fetches at whatever period is currently selected.
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    void fetchTrends(period, filters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  // The one other interaction in this whole slice allowed to trigger a
+  // second fetch (spec AC) — aggregate stats otherwise load once on page
+  // mount, no polling, since they don't change on a 2-3s timescale.
+  // `period` only flips (and the active-button styling with it) once the
+  // new data has actually loaded — flipping it eagerly would leave the
+  // toggle pointing at a period whose chart never arrived if the fetch
+  // fails.
+  async function handlePeriodChange(next: TrendPeriod) {
+    if (next === period) return;
+    await fetchTrends(next, filters);
+  }
+
   const data = trendChartData(entries);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Applications Over Time</CardTitle>
+        <CardTitle className="font-display">Applications Over Time</CardTitle>
         <CardAction>
           <div className="flex gap-1">
             <Button

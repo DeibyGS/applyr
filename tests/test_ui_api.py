@@ -263,7 +263,7 @@ class TestStatsEndpoint:
         assert body["funnel_pct"]["applied"] == 100
         assert body["channels"] == {"linkedin_easy": 1}
         assert body["work_modes"] == {"remote": 1}
-        assert body["salary"] == {"min": 40000, "max": 40000, "avg": 40000}
+        assert body["salary"] == {"min": 40000, "max": 40000, "avg": 40000, "median": 40000, "count": 1}
 
 
 @pytest.mark.unit
@@ -297,6 +297,32 @@ class TestTrendsEndpoint:
         body = resp.json()
         assert body["error"] is True
 
+    def test_valid_work_mode_filter_narrows_results_over_http(self, client, tmp_db):
+        """End-to-end check that GET /api/trends actually threads its filter
+        Query params into _trends_payload — the other trends filter tests
+        either call _trends_payload directly (bypassing the route) or only
+        exercise the 400 invalid-value path, so a param-name mismatch in the
+        route wiring itself would slip through undetected without this."""
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute(
+                "INSERT INTO offers (title, company, date_applied, work_mode) "
+                "VALUES ('Dev', 'Acme', '2026-08-10', 'remote')"
+            )
+            conn.execute(
+                "INSERT INTO offers (title, company, date_applied, work_mode) "
+                "VALUES ('QA', 'Beta', '2026-08-11', 'onsite')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = client.get("/api/trends", params={"work_mode": "remote"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["count"] == 1
+
     def test_month_period(self, client, tmp_db):
         conn = get_conn(tmp_db)
         try:
@@ -311,6 +337,69 @@ class TestTrendsEndpoint:
         resp = client.get("/api/trends", params={"period": "month"})
         assert resp.status_code == 200
         assert resp.json()[0]["period"] == "2026-08"
+
+
+@pytest.mark.unit
+class TestAnalyticsFilterValidation:
+    """`work_mode`/`canal`/`seniority_level`/`role_category` on /api/stats and
+    /api/trends must reject a value outside the existing VALID_* enums in
+    db.py with a 400 and the app's structured JSON error shape, not a silent
+    no-op filter (spec: analytics-filters-and-fixes)."""
+
+    @pytest.mark.parametrize("param,value", [
+        ("work_mode", "flying"),
+        ("canal", "carrier_pigeon"),
+        ("seniority_level", "wizard"),
+        ("role_category", "space"),
+    ])
+    def test_invalid_value_is_400_on_stats(self, client, param, value):
+        resp = client.get("/api/stats", params={param: value})
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["error"] is True
+
+    @pytest.mark.parametrize("param,value", [
+        ("work_mode", "flying"),
+        ("canal", "carrier_pigeon"),
+        ("seniority_level", "wizard"),
+        ("role_category", "space"),
+    ])
+    def test_invalid_value_is_400_on_trends(self, client, param, value):
+        resp = client.get("/api/trends", params={param: value})
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["error"] is True
+
+    def test_valid_filters_apply_and_return_200(self, client, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute(
+                "INSERT INTO offers (title, company, work_mode) VALUES ('Dev', 'Acme', 'remote')"
+            )
+            conn.execute(
+                "INSERT INTO offers (title, company, work_mode) VALUES ('QA', 'Beta', 'onsite')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = client.get("/api/stats", params={"work_mode": "remote"})
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_filter_matching_nothing_is_distinguishable_from_empty_db(self, client, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute(
+                "INSERT INTO offers (title, company, work_mode) VALUES ('Dev', 'Acme', 'remote')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        resp = client.get("/api/stats", params={"work_mode": "onsite"})
+        assert resp.status_code == 200
+        assert resp.json() == {"total": 0, "filtered": True}
 
 
 @pytest.mark.unit

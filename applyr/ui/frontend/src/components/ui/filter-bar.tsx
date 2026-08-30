@@ -97,17 +97,54 @@ function SegmentedControl<T extends string>({
   )
 }
 
+function FilterSelect<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  value: T
+  onChange: (value: T) => void
+  options: { value: T; label: string }[]
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </span>
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className="h-7 w-fit rounded-lg border border-border bg-input px-2 text-xs font-medium text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 function ActiveFilterChips({
   chips,
   onClearAll,
+  className,
 }: {
   chips: { key: string; label: string; onRemove: () => void }[]
   onClearAll: () => void
+  className?: string
 }) {
   if (chips.length === 0) return null
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
+    // Default border-t/pt-3 assumes the chips sit stacked below a filter
+    // row; callers embedding them inline next to a toggle button (no row
+    // above to separate from) override it via className.
+    <div className={cn("flex flex-wrap items-center gap-1.5 border-t border-border pt-3", className)}>
       {chips.map((chip) => (
         <button
           key={chip.key}
@@ -132,4 +169,4 @@ function ActiveFilterChips({
   )
 }
 
-export { FilterGroup, FilterPill, SegmentedControl, ActiveFilterChips }
+export { FilterGroup, FilterPill, SegmentedControl, FilterSelect, ActiveFilterChips }
