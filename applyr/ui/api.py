@@ -20,6 +20,8 @@ from pydantic import BaseModel
 from applyr.commands.analytics import _stats_payload, _trends_payload
 from applyr.commands.workflow import _check_cv_master
 from applyr.config import load_config
+from applyr.cv import get_cv_master_path
+from applyr.cv_master import inspect_cv_master
 from applyr.db import (
     VALID_CHANNELS,
     VALID_PIPELINE_STAGES,
@@ -144,6 +146,32 @@ def get_settings() -> dict:
         "cv_master_status": "ok" if check["status"] == "ok" else "warning",
         "cv_master_message": message,
     }
+
+
+@router.get("/api/cv-master")
+def get_cv_master_status_route() -> dict:
+    """Read-only CV Master health check. Returns filled status, word count,
+    and reason when unfilled. Reuses inspect_cv_master() — never reimplements
+    the template-detection logic."""
+    path = get_cv_master_path()
+    if not path.exists():
+        return {"filled": False, "content_words": 0, "reason": "File not found — run 'applyr init'."}
+    report = inspect_cv_master(path.read_text(encoding="utf-8"))
+    return {
+        "filled": report.filled,
+        "content_words": report.content_words,
+        "reason": None if report.filled else report.reason,
+    }
+
+
+@router.get("/api/cv-master/content")
+def get_cv_master_content_route() -> dict:
+    """Return the raw markdown content of cv-master.md. Returns 404 when the
+    file does not exist (distinct from 'exists but unfilled')."""
+    path = get_cv_master_path()
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="cv-master.md not found — run 'applyr init'.")
+    return {"content": path.read_text(encoding="utf-8")}
 
 
 @router.post("/api/intake", status_code=201)

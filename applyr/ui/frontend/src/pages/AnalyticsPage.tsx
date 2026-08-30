@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BarChart3 } from "lucide-react";
 import { ComingSoon } from "@/layout/ComingSoon";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   getStats,
   getTrends,
@@ -23,6 +24,7 @@ export default function AnalyticsPage() {
   const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_ANALYTICS_FILTERS);
   const [stats, setStats] = useState<StatsPayload | StatsEmpty | null>(null);
   const [trends, setTrends] = useState<TrendEntry[] | null>(null);
+  const [monthTrends, setMonthTrends] = useState<TrendEntry[] | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   // Re-fetches whenever the filter row changes — every chart on the page
@@ -32,10 +34,11 @@ export default function AnalyticsPage() {
   useEffect(() => {
     const params = toQueryParams(filters);
     setLoadError(false);
-    Promise.all([getStats(params), getTrends("week", params)])
-      .then(([statsResult, trendsResult]) => {
+    Promise.all([getStats(params), getTrends("week", params), getTrends("month", params)])
+      .then(([statsResult, trendsResult, monthTrendsResult]) => {
         setStats(statsResult);
         setTrends(trendsResult);
+        setMonthTrends(monthTrendsResult);
       })
       // No safe fallback for aggregate data (unlike useThresholds, which can
       // fall back to sane defaults) — surface a clear message instead of
@@ -53,7 +56,7 @@ export default function AnalyticsPage() {
     );
   }
 
-  if (stats === null || trends === null) {
+  if (stats === null || trends === null || monthTrends === null) {
     return null;
   }
 
@@ -74,14 +77,23 @@ export default function AnalyticsPage() {
     );
   }
 
+  // Header KPI chips — use most recent period from each trend series
+  // (index 0 because _trends_payload orders DESC).
+  const appliedCount = stats.funnel.applied;
+  const thisWeekCount = trends[0]?.count ?? 0;
+  const thisMonthCount = monthTrends[0]?.count ?? 0;
+
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-medium text-foreground">Analytics</h1>
-        <p className="text-sm text-muted-foreground">
-          {stats.total} offers total &middot; {stats.pending} pending &middot; {stats.discarded} discarded
-        </p>
-      </header>
+      <PageHeader
+        title="Analytics"
+        description={`${stats.total} offers total · ${stats.pending} pending · ${stats.discarded} discarded`}
+        chips={[
+          { label: "applied", value: appliedCount },
+          { label: "this week", value: thisWeekCount },
+          { label: "this month", value: thisMonthCount },
+        ]}
+      />
 
       <AnalyticsFilterBar filters={filters} onFiltersChange={setFilters} />
 

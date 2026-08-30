@@ -517,3 +517,85 @@ class TestPipelineStageEvents:
             assert len(_event_subscribers) == before
 
         asyncio.run(run())
+
+
+@pytest.mark.unit
+class TestCvMasterEndpoint:
+    """GET /api/cv-master returns filled status, word count, and reason.
+    Reuses inspect_cv_master() — tests verify the endpoint wiring, not
+    the template-detection logic itself (covered in test_cv_master.py)."""
+
+    def test_missing_file_returns_filled_false(self, client, tmp_applyr):
+        resp = client.get("/api/cv-master")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["filled"] is False
+        assert body["content_words"] == 0
+        assert "not found" in body["reason"].lower()
+
+    def test_filled_profile_returns_filled_true(self, client, tmp_applyr):
+        (tmp_applyr / "cv-master.md").write_text(
+            "# CV Master\n\n"
+            "Senior Python developer with 8 years of experience building "
+            "distributed systems and data pipelines at scale. Led migration "
+            "of monolith to microservices architecture serving 10M requests. "
+            "Strong background in cloud infrastructure and DevOps practices."
+        )
+        resp = client.get("/api/cv-master")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["filled"] is True
+        assert body["content_words"] > 30
+        assert body["reason"] is None
+
+    def test_thin_profile_returns_filled_false_with_reason(self, client, tmp_applyr):
+        (tmp_applyr / "cv-master.md").write_text("# CV Master\n\nDeveloper.\n")
+        resp = client.get("/api/cv-master")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["filled"] is False
+        assert body["reason"] is not None
+        assert "too thin" in body["reason"]
+
+    def test_template_with_placeholders_returns_filled_false(self, client, tmp_applyr):
+        (tmp_applyr / "cv-master.md").write_text(
+            "# CV Master\n\n## Experience\n\n...\n\n## Skills\n\n...\n"
+        )
+        resp = client.get("/api/cv-master")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["filled"] is False
+        assert "template" in body["reason"].lower()
+
+    def test_never_exposes_filesystem_path(self, client, tmp_applyr):
+        (tmp_applyr / "cv-master.md").write_text(
+            "# CV Master\n\n" + "Real experience content " * 20
+        )
+        resp = client.get("/api/cv-master")
+        assert str(tmp_applyr) not in resp.text
+
+
+@pytest.mark.unit
+class TestCvMasterContentEndpoint:
+    """GET /api/cv-master/content returns raw markdown. 404 when missing."""
+
+    def test_returns_raw_content(self, client, tmp_applyr):
+        content = "# CV Master\n\nSenior developer with cloud expertise."
+        (tmp_applyr / "cv-master.md").write_text(content)
+        resp = client.get("/api/cv-master/content")
+        assert resp.status_code == 200
+        assert resp.json()["content"] == content
+
+    def test_missing_file_returns_404(self, client, tmp_applyr):
+        resp = client.get("/api/cv-master/content")
+        assert resp.status_code == 404
+        body = resp.json()
+        assert body["error"] is True
+        assert body["code"] == "not_found"
+
+    def test_never_exposes_filesystem_path(self, client, tmp_applyr):
+        content = "# CV Master\n\n" + "Real experience content " * 20
+        (tmp_applyr / "cv-master.md").write_text(content)
+        resp = client.get("/api/cv-master/content")
+        assert str(tmp_applyr) not in resp.text
+        assert "cv-master.md" not in resp.text

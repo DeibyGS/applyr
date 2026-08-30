@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CalendarClock } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { JobList } from "@/features/jobs/JobList";
 import { JobDetail } from "@/features/jobs/JobDetail";
 import { filterInProcess } from "@/features/jobs/filter-in-process";
@@ -14,6 +15,7 @@ export default function InterviewsPage() {
   const selectedJob = useSelectedJob(selectedJobId);
 
   const interviews = filterInProcess(jobs);
+  const successCount = jobs.filter((job) => job.status === "offer").length;
 
   if (selectedJob) {
     return <JobDetail job={selectedJob} thresholds={thresholds} onBack={() => setSelectedJobId(null)} />;
@@ -21,13 +23,14 @@ export default function InterviewsPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-medium text-foreground">Interviews</h1>
-        <p className="text-sm text-muted-foreground">
-          Offers currently in the interview stage ({interviews.length}). applyr doesn't
-          track interview dates or times — only that an offer reached this stage.
-        </p>
-      </header>
+      <PageHeader
+        title="Interviews"
+        description={`Offers currently in the interview stage (${interviews.length}). applyr doesn't track interview dates or times — only that an offer reached this stage.`}
+        chips={[
+          { label: "waiting", value: interviews.length },
+          { label: "success", value: successCount },
+        ]}
+      />
       {interviews.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card p-12 text-center">
           <CalendarClock className="size-8 text-muted-foreground" aria-hidden />
