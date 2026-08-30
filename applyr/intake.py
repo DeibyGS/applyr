@@ -43,6 +43,15 @@ def create_intake(
     if owns_conn:
         conn = get_conn(db_path)
     try:
+        # BEGIN IMMEDIATE takes SQLite's write lock before the SELECT below,
+        # not at the INSERT — plain `conn.execute(SELECT)` starts no
+        # transaction at all, so two connections could otherwise both read
+        # "nothing pending yet" before either commits an INSERT, defeating
+        # the idempotency guard under a genuine double-click race. A second
+        # connection's own BEGIN IMMEDIATE blocks until this one commits (or
+        # rolls back on close), so its SELECT is guaranteed to see this
+        # transaction's result.
+        conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
             """SELECT * FROM ui_intake
                WHERE raw_text = ? AND status = 'pending'
@@ -51,6 +60,8 @@ def create_intake(
             (raw_text, f"-{IDEMPOTENCY_WINDOW_SECONDS} seconds"),
         ).fetchone()
         if existing is not None:
+            if owns_conn:
+                conn.commit()
             return _row_to_dict(existing)
 
         cursor = conn.execute(

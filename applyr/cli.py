@@ -36,6 +36,7 @@ from applyr.analytics import compare_cvs, response_rate
 from applyr.constants import set_terminal_context, get_terminal_context, TerminalContext
 from applyr.db import init_db, VALID_STATUSES
 from applyr.errors import die, error, set_json_mode
+from applyr.ui_events import notify_job_state
 
 USAGE = f"""\
 applyr v{__version__} — CLI job application tracker for AI coding agents
@@ -239,7 +240,28 @@ def main():
             raw = args[1]
         else:
             raw = sys.stdin.read()
-        cmd_add(raw, force=force, as_json=as_json, intake_id=intake_id)
+        if intake_id is not None:
+            # ADR-014 safety net: cmd_add can die() from many validation
+            # paths (bad JSON, missing title, a CLI-side duplicate block,
+            # invalid confidence/compatibility_pct...), not just the
+            # intake-linkage step near the end. Any of those, uncaught,
+            # would leave the paired ui_jobs row stuck at pending_agent
+            # forever — no retry path exists for that state. This generic
+            # catch covers every path uniformly; cmd_add's own linkage-
+            # failure branch also notifies with a more specific error
+            # message for that one case, so this fires twice there — a
+            # harmless, idempotent, deliberately cheap redundancy rather
+            # than tracking exactly which die() already notified.
+            try:
+                cmd_add(raw, force=force, as_json=as_json, intake_id=intake_id)
+            except SystemExit:
+                notify_job_state(
+                    intake_id, "failed",
+                    error_message="applyr add failed — see stderr for details",
+                )
+                raise
+        else:
+            cmd_add(raw, force=force, as_json=as_json, intake_id=intake_id)
 
     elif cmd == "list":
         status = _get_flag(args, "--status")
