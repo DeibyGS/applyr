@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
+import { PageHeader } from "@/components/ui/page-header";
 import { JobList } from "@/features/jobs/JobList";
 import { JobDetailModal } from "@/features/jobs/JobDetailModal";
 import { KanbanBoard } from "@/features/jobs/KanbanBoard";
@@ -43,10 +44,7 @@ export default function OffersPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-medium text-foreground">Offers</h1>
-        <p className="text-sm text-muted-foreground">Every offer, filterable and sortable.</p>
-      </header>
+      <PageHeader title="Offers" description="Every offer, filterable and sortable." />
 
       <OffersToolbar
         view={view}

@@ -2,20 +2,27 @@ import { useEffect, useState } from "react";
 import { Settings as SettingsIcon } from "lucide-react";
 import { ComingSoon } from "@/layout/ComingSoon";
 import { getSettings, type Settings } from "@/api/settings";
+import { getCvMasterStatus, type CvMasterStatusResponse } from "@/api/cv-master";
 import { ThresholdsCard } from "@/features/settings/ThresholdsCard";
 import { WeightsCard } from "@/features/settings/WeightsCard";
-import { CvMasterStatusBadge } from "@/features/settings/CvMasterStatusBadge";
+import { CvMasterModal } from "@/features/settings/CvMasterModal";
+import { PageHeader, type PageHeaderChip } from "@/components/ui/page-header";
 
 export default function SettingsPage() {
   // Single fetch on mount, no polling — config values don't change on a
   // 2-3s timescale, same reasoning as the Analytics page.
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [cvMasterStatus, setCvMasterStatus] = useState<CvMasterStatusResponse | null>(null);
+  const [cvMasterModalOpen, setCvMasterModalOpen] = useState(false);
 
   useEffect(() => {
     getSettings()
       .then(setSettings)
       .catch(() => setLoadError(true));
+    getCvMasterStatus()
+      .then(setCvMasterStatus)
+      .catch(() => setCvMasterStatus(null));
   }, []);
 
   if (loadError) {
@@ -32,18 +39,30 @@ export default function SettingsPage() {
     return null;
   }
 
+  const chips: PageHeaderChip[] = cvMasterStatus
+    ? [
+        {
+          label: "CV Master",
+          value: cvMasterStatus.filled
+            ? `OK (${cvMasterStatus.content_words} words)`
+            : (cvMasterStatus.reason ?? "Not filled"),
+          tone: cvMasterStatus.filled ? "success" : "warning",
+          onClick: () => setCvMasterModalOpen(true),
+        },
+      ]
+    : [];
+
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-medium text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Read-only — edit ~/.applyr/applyr.toml to change these.
-        </p>
-      </header>
+      <PageHeader
+        title="Settings"
+        description="Read-only — edit ~/.applyr/applyr.toml to change these."
+        chips={chips}
+      />
 
       <ThresholdsCard thresholdApply={settings.threshold_apply} thresholdMaybe={settings.threshold_maybe} />
       <WeightsCard weights={settings.weights} />
-      <CvMasterStatusBadge status={settings.cv_master_status} message={settings.cv_master_message} />
+      <CvMasterModal open={cvMasterModalOpen} onOpenChange={setCvMasterModalOpen} />
     </div>
   );
 }
