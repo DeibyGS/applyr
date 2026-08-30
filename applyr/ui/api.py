@@ -31,6 +31,7 @@ from applyr.db import (
     get_conn,
 )
 from applyr.intake import create_intake, get_intake, list_intake
+from applyr.ui import jobs as pipeline_jobs
 
 router = APIRouter()
 
@@ -42,6 +43,25 @@ _event_subscribers: set[asyncio.Queue] = set()
 
 # Enriched event subscribers (Phase 1: granular agent events)
 _enriched_event_subscribers: set[asyncio.Queue] = set()
+
+# Async intake pipeline (ADR-014). Set by `POST /api/intake` and the retry
+# endpoint right after a job becomes claimable, so the in-process worker
+# (server.py wires this same Event into `pipeline_worker.run_worker`) reacts
+# immediately instead of waiting for its next poll tick.
+_worker_wake_event: asyncio.Event = asyncio.Event()
+
+
+def _broadcast_enriched(event: dict) -> None:
+    """Fan `event` out to every connected `/api/events/enriched` client.
+
+    Shared by every producer of enriched events — external ones arriving via
+    `POST /api/internal/agent-event`/`/api/agent-response`, and the
+    in-process pipeline worker (server.py passes this function straight to
+    `pipeline_worker.run_worker` as its `on_event` callback, no HTTP hop
+    needed since the worker runs in this same process).
+    """
+    for queue in list(_enriched_event_subscribers):
+        queue.put_nowait(event)
 
 # Core offer columns for the list view — matches the spec's "core fields"
 # scope for GET /api/jobs. The full row (all columns) is only returned by
@@ -75,6 +95,12 @@ class AgentResponse(BaseModel):
     agent_id: str
     message: str
     correlation_id: str | None = None
+
+
+class JobStateEvent(BaseModel):
+    intake_id: int
+    state: str
+    error_message: str | None = None
 
 
 class PipelineStageConfig(BaseModel):
@@ -182,14 +208,32 @@ def get_cv_master_content_route() -> dict:
 
 @router.post("/api/intake", status_code=201)
 def post_intake(body: IntakeCreate) -> dict:
+    """Creates the `ui_intake` row and its paired `ui_jobs` row (ADR-014) in
+    one transaction, then wakes the worker. Idempotent: a resubmit of the
+    same `raw_text` within `intake.IDEMPOTENCY_WINDOW_SECONDS` returns the
+    existing pending row's job instead of creating a second one — the worker
+    is still woken in that case, harmlessly, in case it was somehow missed."""
     if not body.raw_text or not body.raw_text.strip():
         raise HTTPException(status_code=422, detail="raw_text must not be empty")
-    return create_intake(body.raw_text, body.source_note)
+    conn = get_conn()
+    try:
+        intake_row = create_intake(body.raw_text, body.source_note, conn=conn)
+        job_row = pipeline_jobs.get_job_by_intake(intake_row["id"])
+        if job_row is None:
+            job_row = pipeline_jobs.create_job(intake_row["id"], conn)
+        conn.commit()
+    finally:
+        conn.close()
+    _worker_wake_event.set()
+    return {**intake_row, "job": job_row}
 
 
 @router.get("/api/intake")
 def get_intake_list(status: str | None = Query(default=None)) -> list[dict]:
-    return list_intake(status=status)
+    rows = list_intake(status=status)
+    for row in rows:
+        row["job"] = pipeline_jobs.get_job_by_intake(row["id"])
+    return rows
 
 
 @router.get("/api/intake/{intake_id}")
@@ -197,7 +241,58 @@ def get_intake_one(intake_id: int) -> dict:
     row = get_intake(intake_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"No intake row with id {intake_id}")
+    row["job"] = pipeline_jobs.get_job_by_intake(intake_id)
     return row
+
+
+@router.post("/api/intake/{intake_id}/retry")
+def post_intake_retry(intake_id: int) -> dict:
+    """Manually resets a `failed` job back to `queued` (ADR-014 — retries are
+    never automatic). 404 if there's no job for `intake_id`, 409 if the job
+    exists but isn't `failed`."""
+    existing = pipeline_jobs.get_job_by_intake(intake_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"No job for intake_id {intake_id}")
+    if existing["state"] != "failed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job for intake_id {intake_id} is '{existing['state']}', not 'failed'",
+        )
+    job_row = pipeline_jobs.retry_job(intake_id)
+    _worker_wake_event.set()
+    return job_row
+
+
+@router.post("/api/internal/job-state", status_code=204)
+async def post_job_state(body: JobStateEvent) -> None:
+    """Internal-only — called by the CLI's `notify_job_state()` (ADR-014)
+    when an attended agent's `applyr add --intake-id` completes. Only
+    `applyr add --intake-id` drives a job past `pending_agent`; nothing in
+    this backend does it automatically. Not part of the CLI's `--json`
+    compatibility surface — free to change, same treatment as
+    `/api/internal/pipeline-stage`."""
+    if body.state not in ("ready", "failed"):
+        raise HTTPException(
+            status_code=422, detail=f"invalid job state for this endpoint: {body.state}"
+        )
+    existing = pipeline_jobs.get_job_by_intake(body.intake_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"No job for intake_id {body.intake_id}")
+    job_row = pipeline_jobs.update_job_state(
+        body.intake_id,
+        body.state,
+        failed_step="pending_agent" if body.state == "failed" else None,
+        error_message=body.error_message,
+    )
+    _broadcast_enriched(
+        {
+            "type": "job.state_changed",
+            "intake_id": body.intake_id,
+            "job_id": job_row["id"],
+            "state": body.state,
+            "received_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
 
 @router.get("/api/jobs")
@@ -353,8 +448,7 @@ async def post_agent_event(body: AgentEvent) -> None:
     event = body.model_dump()
     event["received_at"] = datetime.now(timezone.utc).isoformat()
 
-    for queue in list(_enriched_event_subscribers):
-        queue.put_nowait(event)
+    _broadcast_enriched(event)
 
 
 @router.post("/api/agent-response", status_code=204)
@@ -387,8 +481,7 @@ async def post_agent_response(body: AgentResponse) -> None:
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    for queue in list(_enriched_event_subscribers):
-        queue.put_nowait(event)
+    _broadcast_enriched(event)
 
 
 @router.get("/api/events")

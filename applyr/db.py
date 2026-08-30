@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # Applyr World Phase 2 (ADR-013). Defined here, ahead of MIGRATIONS/SCHEMA_SQL
 # below, so both can derive their CHECK clause from this single tuple instead
@@ -20,6 +20,15 @@ SCHEMA_VERSION = 13
 VALID_PIPELINE_STAGES = ("matching", "cv", "ats", "application")
 _PIPELINE_STAGE_CHECK_SQL = "CHECK (pipeline_stage IS NULL OR pipeline_stage IN ({}))".format(
     ", ".join(f"'{stage}'" for stage in VALID_PIPELINE_STAGES)
+)
+
+# Async intake pipeline (ADR-014, docs/adr/014-*.md). `ui_jobs.state` is
+# written directly by SQL in `applyr/ui/pipeline_worker.py`, same reasoning
+# as pipeline_stage above — a DB-level CHECK is the only guard against a
+# typo'd literal there.
+VALID_JOB_STATES = ("queued", "structuring", "deduping", "duplicate", "pending_agent", "ready", "failed")
+_JOB_STATE_CHECK_SQL = "CHECK (state IN ({}))".format(
+    ", ".join(f"'{state}'" for state in VALID_JOB_STATES)
 )
 
 # Migration registry: maps (from_version, to_version) -> list of SQL statements
@@ -182,6 +191,25 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         "CREATE INDEX IF NOT EXISTS idx_agent_responses_agent_id ON agent_responses(agent_id)",
         "CREATE INDEX IF NOT EXISTS idx_agent_responses_processed ON agent_responses(processed)",
     ],
+    # Async intake pipeline (ADR-014): replaces the SSE-keyword-triggered
+    # `autopilot.py` daemon with a persisted job per intake row. `intake_id`
+    # is UNIQUE — one job per intake row, 1:1, cascades on intake deletion.
+    (13, 14): [
+        f"""CREATE TABLE IF NOT EXISTS ui_jobs (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            intake_id             INTEGER NOT NULL UNIQUE REFERENCES ui_intake(id) ON DELETE CASCADE,
+            state                 TEXT    NOT NULL DEFAULT 'queued' {_JOB_STATE_CHECK_SQL},
+            structured_data       TEXT,
+            extraction_method     TEXT,
+            duplicate_of_offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL,
+            failed_step           TEXT,
+            error_message         TEXT,
+            retry_count           INTEGER NOT NULL DEFAULT 0,
+            created_at            TEXT    DEFAULT CURRENT_TIMESTAMP,
+            updated_at            TEXT    DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_ui_jobs_state ON ui_jobs(state)",
+    ],
 }
 
 SCHEMA_SQL = f"""\
@@ -282,12 +310,29 @@ CREATE TABLE IF NOT EXISTS agent_responses (
 
 CREATE INDEX IF NOT EXISTS idx_agent_responses_agent_id ON agent_responses(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_responses_processed ON agent_responses(processed);
+
+CREATE TABLE IF NOT EXISTS ui_jobs (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    intake_id             INTEGER NOT NULL UNIQUE REFERENCES ui_intake(id) ON DELETE CASCADE,
+    state                 TEXT    NOT NULL DEFAULT 'queued' {_JOB_STATE_CHECK_SQL},
+    structured_data       TEXT,
+    extraction_method     TEXT,
+    duplicate_of_offer_id INTEGER REFERENCES offers(id) ON DELETE SET NULL,
+    failed_step           TEXT,
+    error_message         TEXT,
+    retry_count           INTEGER NOT NULL DEFAULT 0,
+    created_at            TEXT    DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ui_jobs_state ON ui_jobs(state);
 """
 
 VALID_STATUSES = ("pending", "applied", "waiting", "in_process", "rejected", "discarded", "offer")
 VALID_INTAKE_STATUSES = ("pending", "promoted")
-# VALID_PIPELINE_STAGES is defined near the top of this file, ahead of
-# MIGRATIONS/SCHEMA_SQL, which derive their CHECK clause from it.
+# VALID_PIPELINE_STAGES and VALID_JOB_STATES are defined near the top of this
+# file, ahead of MIGRATIONS/SCHEMA_SQL, which derive their CHECK clause from
+# them.
 VALID_CHANNELS = ("linkedin_easy", "linkedin_direct", "email", "portal", "referral", "other")
 VALID_WORK_MODES = ("remote", "hybrid", "onsite")
 VALID_SENIORITY = ("trainee", "entry_level", "junior", "mid", "senior", "lead", "director")

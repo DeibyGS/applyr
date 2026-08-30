@@ -33,6 +33,53 @@ class TestCreateIntake:
 
 
 @pytest.mark.unit
+class TestCreateIntakeIdempotency:
+    """ADR-014: a double 'Enviar' click must not create two intake/job pairs."""
+
+    def test_same_text_within_window_returns_existing_row(self, tmp_db):
+        first = create_intake("dup text", db_path=tmp_db)
+        second = create_intake("dup text", db_path=tmp_db)
+        assert first["id"] == second["id"]
+
+    def test_different_text_creates_a_new_row(self, tmp_db):
+        first = create_intake("text a", db_path=tmp_db)
+        second = create_intake("text b", db_path=tmp_db)
+        assert first["id"] != second["id"]
+
+    def test_promoted_row_does_not_shadow_a_new_submission(self, tmp_db):
+        # The idempotency guard only matches status='pending' — once a row
+        # is promoted, resubmitting the same text is a legitimate new offer.
+        first = create_intake("reused text", db_path=tmp_db)
+        conn = get_conn(tmp_db)
+        try:
+            conn.execute("INSERT INTO offers (title, company) VALUES ('Dev', 'Acme')")
+            mark_intake_promoted(first["id"], offer_id=1, conn=conn)
+            conn.commit()
+        finally:
+            conn.close()
+        second = create_intake("reused text", db_path=tmp_db)
+        assert second["id"] != first["id"]
+        assert second["status"] == "pending"
+
+    def test_accepts_an_external_connection_without_committing(self, tmp_db):
+        conn = get_conn(tmp_db)
+        try:
+            row = create_intake("shared-transaction text", conn=conn)
+            # Not committed yet — invisible on a separate connection.
+            other_conn = get_conn(tmp_db)
+            try:
+                assert other_conn.execute(
+                    "SELECT COUNT(*) as n FROM ui_intake WHERE id = ?", (row["id"],)
+                ).fetchone()["n"] == 0
+            finally:
+                other_conn.close()
+            conn.commit()
+        finally:
+            conn.close()
+        assert get_intake(row["id"], db_path=tmp_db) is not None
+
+
+@pytest.mark.unit
 class TestListIntake:
 
     def test_lists_newest_first(self, tmp_db):

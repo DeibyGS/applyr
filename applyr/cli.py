@@ -70,7 +70,7 @@ Commands:
   doctor [--json]               Check configuration and database health (exit 1 if unhealthy)
   ui [--port P] [--backend-only]  Start the Visual UI (backend + frontend on 127.0.0.1)
                                   --backend-only skips the Vite frontend (needs: pip install applyr[ui])
-  autopilot                     Watch for UI responses and process automatically (needs: applyr ui running)
+                                  the async intake pipeline worker (ADR-014) starts automatically with it
   version                       Show version
   help                          Show this help
 
@@ -404,15 +404,6 @@ def main():
             run(port=port, start_frontend=not backend_only)
         except ImportError:
             die("The Visual UI dashboard needs extra dependencies that "
-                "aren't installed.", code="missing_dependency",
-                text="  Install them with: pip install applyr[ui]")
-
-    elif cmd == "autopilot":
-        from applyr.ui.autopilot import run_autopilot
-        try:
-            run_autopilot()
-        except ImportError:
-            die("The autopilot needs extra dependencies that "
                 "aren't installed.", code="missing_dependency",
                 text="  Install them with: pip install applyr[ui]")
 

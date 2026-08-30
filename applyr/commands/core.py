@@ -50,6 +50,7 @@ from applyr.ui_events import (
     notify_agent_output,
     notify_handoff_started,
     notify_handoff_completed,
+    notify_job_state,
 )
 from applyr.scoring import calculate_score
 from applyr.commands._helpers import (_bar, _today, _truncate, _classify_topic, _derive_confidence,
@@ -772,12 +773,23 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False, intake_id: int
                 # Same connection, no commit yet: die() exits before the
                 # commit below runs, so SQLite rolls back the offer/topics
                 # insert above along with the failed promotion — add either
-                # fully succeeds or leaves nothing behind.
+                # fully succeeds or leaves nothing behind. The job-state
+                # notification (ADR-014) must fire before die() exits the
+                # process — best-effort, never affects this command's own
+                # exit code or output either way.
+                notify_job_state(intake_id, "failed", error_message=str(exc))
                 die(f"Error: {exc}", code="invalid_intake_id", details={"intake_id": intake_id})
 
         conn.commit()
     finally:
         conn.close()
+
+    # ADR-014: the paired ui_jobs row only reaches "ready" once the linkage
+    # above is actually committed — after conn.close(), not inside the try
+    # block, so a best-effort network hiccup here can never roll back a
+    # successful `add`.
+    if intake_id is not None:
+        notify_job_state(intake_id, "ready")
 
     # --- Compute derived values shared by both output modes ---------------
     topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", ""),
