@@ -297,6 +297,42 @@ def _check_cv_output_privacy(config: dict) -> dict:
                  "or point [cv] output_dir elsewhere in applyr.toml.")
 
 
+def _check_agent_responses(config: dict) -> dict:  # pylint: disable=unused-argument
+    """Check for pending user-to-agent responses from the Visual UI.
+    Displays them and marks them processed so the AI agent can act on them."""
+    db_path = Path(config["general"]["db_path"])
+    if not db_path.exists():
+        return _ok("Responses", "OK (no pending responses)")
+    try:
+        conn = get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, agent_id, message, created_at "
+                "FROM agent_responses WHERE processed = 0 "
+                "ORDER BY created_at ASC"
+            ).fetchall()
+            if rows:
+                conn.execute(
+                    "UPDATE agent_responses SET processed = 1 WHERE processed = 0"
+                )
+                conn.commit()
+        finally:
+            conn.close()
+    except Exception:  # pylint: disable=broad-except
+        # Table may not exist yet on older schemas — not blocking.
+        return _ok("Responses", "OK (no pending responses)")
+
+    if not rows:
+        return _ok("Responses", "OK (no pending responses)")
+
+    print()
+    print("  PENDING USER RESPONSES:")
+    for row in rows:
+        print(f"    [{row['agent_id']}] {row['message']}  (sent {row['created_at']})")
+    print()
+    return _ok("Responses", f"{len(rows)} pending response(s) delivered")
+
+
 def cmd_doctor(as_json: bool = False) -> None:
     """Check applyr configuration, database, and environment health.
 
@@ -315,6 +351,7 @@ def cmd_doctor(as_json: bool = False) -> None:
         _check_chrome(config),
         _check_weights(config),
         _check_cv_output_privacy(config),
+        _check_agent_responses(config),
     ]
     issues = [c for c in checks if c["status"] == "issue"]
 

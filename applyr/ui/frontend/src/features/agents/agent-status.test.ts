@@ -141,12 +141,13 @@ describe("deriveAgentStatuses", () => {
       agentId: "cv",
       state: "working",
       count: 2,
+      pipelineStage: "cv",
       items: [
         { offerId: 1, company: "Acme", title: "Backend Dev", compatibilityPct: 80, createdAt: "2026-08-23 10:00:00" },
         { offerId: 2, company: "Acme", title: "Backend Dev", compatibilityPct: 80, createdAt: "2026-08-23 10:00:00" },
       ],
     });
-    expect(ats).toMatchObject({ state: "working", count: 1, items: [{ offerId: 3 }] });
-    expect(application).toMatchObject({ state: "working", count: 1, items: [{ offerId: 4 }] });
+    expect(ats).toMatchObject({ state: "working", count: 1, pipelineStage: "ats", items: [{ offerId: 3 }] });
+    expect(application).toMatchObject({ state: "working", count: 1, pipelineStage: "application", items: [{ offerId: 4 }] });
   });
 });

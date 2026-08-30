@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Applyr World Phase 2 (ADR-013). Defined here, ahead of MIGRATIONS/SCHEMA_SQL
 # below, so both can derive their CHECK clause from this single tuple instead
@@ -169,6 +169,19 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         f"ALTER TABLE offers ADD COLUMN pipeline_stage TEXT {_PIPELINE_STAGE_CHECK_SQL}",
         "ALTER TABLE offers ADD COLUMN pipeline_stage_at TEXT",
     ],
+    # Agent responses: user-to-agent messages from the Visual UI. The AI agent
+    # reads pending responses via `applyr doctor` and marks them processed.
+    (12, 13): [
+        """CREATE TABLE IF NOT EXISTS agent_responses (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id    TEXT    NOT NULL,
+            message     TEXT    NOT NULL CHECK (length(trim(message)) > 0),
+            processed   INTEGER DEFAULT 0,
+            created_at  TEXT    DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_agent_responses_agent_id ON agent_responses(agent_id)",
+        "CREATE INDEX IF NOT EXISTS idx_agent_responses_processed ON agent_responses(processed)",
+    ],
 }
 
 SCHEMA_SQL = f"""\
@@ -258,6 +271,17 @@ CREATE TABLE IF NOT EXISTS ui_intake (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ui_intake_status ON ui_intake(status);
+
+CREATE TABLE IF NOT EXISTS agent_responses (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id    TEXT    NOT NULL,
+    message     TEXT    NOT NULL CHECK (length(trim(message)) > 0),
+    processed   INTEGER DEFAULT 0,
+    created_at  TEXT    DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_responses_agent_id ON agent_responses(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_responses_processed ON agent_responses(processed);
 """
 
 VALID_STATUSES = ("pending", "applied", "waiting", "in_process", "rejected", "discarded", "offer")

@@ -71,6 +71,12 @@ class AgentEvent(BaseModel):
     payload: dict | None = None
 
 
+class AgentResponse(BaseModel):
+    agent_id: str
+    message: str
+    correlation_id: str | None = None
+
+
 class PipelineStageConfig(BaseModel):
     id: str
     name: str
@@ -333,6 +339,7 @@ async def post_agent_event(body: AgentEvent) -> None:
         "handoff.walking",
         "handoff.completed",
         "pipeline.stage",
+        "user.response",
     }
     if body.type not in valid_types:
         raise HTTPException(status_code=422, detail=f"invalid event type: {body.type}")
@@ -345,6 +352,40 @@ async def post_agent_event(body: AgentEvent) -> None:
     # Stamp receipt time if not provided
     event = body.model_dump()
     event["received_at"] = datetime.now(timezone.utc).isoformat()
+
+    for queue in list(_enriched_event_subscribers):
+        queue.put_nowait(event)
+
+
+@router.post("/api/agent-response", status_code=204)
+async def post_agent_response(body: AgentResponse) -> None:
+    """User-to-agent response endpoint. Persists the response in agent_responses
+    and broadcasts a user.response event to all connected SSE clients so the
+    frontend live transcript shows it immediately."""
+    valid_agents = {"recruiter", "matching", "cv", "ats", "application"}
+    if body.agent_id not in valid_agents:
+        raise HTTPException(status_code=422, detail=f"invalid agent_id: {body.agent_id}")
+
+    # Persist to DB so the CLI can read it via `applyr doctor`
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO agent_responses (agent_id, message) VALUES (?, ?)",
+            (body.agent_id, body.message),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Broadcast SSE so the frontend live transcript shows it immediately
+    event = {
+        "type": "user.response",
+        "agent_id": body.agent_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "correlation_id": body.correlation_id or str(uuid.uuid4()),
+        "payload": {"message": body.message},
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    }
 
     for queue in list(_enriched_event_subscribers):
         queue.put_nowait(event)

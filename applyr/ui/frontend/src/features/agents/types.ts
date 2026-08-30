@@ -1,5 +1,8 @@
 export type AgentId = "recruiter" | "matching" | "cv" | "ats" | "application";
 
+/** Pipeline stages in order — used for progress bar calculation. */
+export type PipelineStage = "matching" | "cv" | "ats" | "application";
+
 /** A pending intake row, shaped for the Recruiter queue modal — not clickable,
  * no offer exists yet to navigate to. */
 export type IntakeQueueItem = {
@@ -25,8 +28,11 @@ export type JobQueueItem = {
 // `items` carries the FULL backlog behind each "working" state, not just the
 // single most-recent one the collapsed card already summarizes — the agent
 // queue modal reads it to show what else is waiting.
+//
+// `pipelineStage` is the highest stage reached by the most recent offer in
+// the queue — used by AgentCard to render the progress bar.
 export type AgentStatus =
-  | { agentId: "recruiter"; state: "working"; pendingCount: number; items: IntakeQueueItem[] }
+  | { agentId: "recruiter"; state: "working"; pendingCount: number; items: IntakeQueueItem[]; pipelineStage?: PipelineStage }
   | { agentId: "recruiter"; state: "idle" }
   | {
       agentId: "matching";
@@ -34,7 +40,8 @@ export type AgentStatus =
       company: string;
       compatibilityPct: number;
       items: JobQueueItem[];
+      pipelineStage?: PipelineStage;
     }
   | { agentId: "matching"; state: "idle" }
-  | { agentId: "cv" | "ats" | "application"; state: "working"; count: number; items: JobQueueItem[] }
+  | { agentId: "cv" | "ats" | "application"; state: "working"; count: number; items: JobQueueItem[]; pipelineStage?: PipelineStage }
   | { agentId: "cv" | "ats" | "application"; state: "idle" };

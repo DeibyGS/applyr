@@ -1,6 +1,6 @@
 import type { IntakeRow } from "@/api/intake";
 import type { JobSummary } from "@/api/jobs";
-import type { AgentStatus, IntakeQueueItem, JobQueueItem } from "./types";
+import type { AgentStatus, IntakeQueueItem, JobQueueItem, PipelineStage } from "./types";
 
 const INTAKE_PREVIEW_MAX_CHARS = 120;
 
@@ -27,9 +27,15 @@ function toJobQueueItem(job: JobSummary): JobQueueItem {
 }
 
 function pipelineZoneStatus(agentId: "cv" | "ats" | "application", jobs: JobSummary[]): AgentStatus {
-  const zoneJobs = jobs.filter((job) => job.pipeline_stage === agentId).sort(byCreatedAtDesc);
+  const zoneJobs = jobs
+    .filter((job) => {
+      if (job.pipeline_stage !== agentId) return false;
+      if (agentId === "application" && (job.status === "applied" || job.status === "rejected")) return false;
+      return true;
+    })
+    .sort(byCreatedAtDesc);
   return zoneJobs.length > 0
-    ? { agentId, state: "working", count: zoneJobs.length, items: zoneJobs.map(toJobQueueItem) }
+    ? { agentId, state: "working", count: zoneJobs.length, items: zoneJobs.map(toJobQueueItem), pipelineStage: agentId as PipelineStage }
     : { agentId, state: "idle" };
 }
 
@@ -56,6 +62,7 @@ export function deriveAgentStatuses(intake: IntakeRow[], jobs: JobSummary[]): Ag
           state: "working",
           pendingCount: pendingIntake.length,
           items: pendingIntake.map(toIntakeQueueItem),
+          pipelineStage: undefined,
         }
       : { agentId: "recruiter", state: "idle" };
 
@@ -66,6 +73,7 @@ export function deriveAgentStatuses(intake: IntakeRow[], jobs: JobSummary[]): Ag
         company: mostRecentPendingJob.company,
         compatibilityPct: mostRecentPendingJob.compatibility_pct,
         items: pendingJobs.map(toJobQueueItem),
+        pipelineStage: mostRecentPendingJob.pipeline_stage ?? undefined,
       }
     : { agentId: "matching", state: "idle" };
 

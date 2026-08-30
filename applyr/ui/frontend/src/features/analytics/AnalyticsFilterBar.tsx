@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { ListFilter } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ActiveFilterChips, FilterSelect, SegmentedControl } from "@/components/ui/filter-bar";
+import { ActiveFilterChips, FilterGroup, FilterSelect, SegmentedControl } from "@/components/ui/filter-bar";
 import { formatStatusLabel } from "@/features/jobs/group-by-status";
 import {
   DEFAULT_ANALYTICS_FILTERS,
@@ -12,8 +12,6 @@ import {
   type DateRangePreset,
 } from "./analytics-filters";
 
-// Mirrors applyr's real VALID_* enums (applyr/db.py) — hardcoded per the
-// same precedent as features/jobs/group-by-status.ts's OFFER_STATUSES.
 const WORK_MODES = ["remote", "hybrid", "onsite"] as const;
 const CHANNELS = ["linkedin_easy", "linkedin_direct", "email", "portal", "referral", "other"] as const;
 const SENIORITY_LEVELS = ["trainee", "entry_level", "junior", "mid", "senior", "lead", "director"] as const;
@@ -36,8 +34,6 @@ const DATE_RANGE_OPTIONS: { value: DateRangePreset; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
-// Converts enum-like arrays to filter options with "All" fallback + formatted labels.
-// Avoids repeating the .map(x => ({ value: x, label: formatStatusLabel(x) })) pattern.
 const toFilterOptions = <T extends string>(items: readonly T[]): { value: T | "all"; label: string }[] => [
   { value: "all", label: "All" },
   ...items.map((item) => ({ value: item, label: formatStatusLabel(item) })),
@@ -74,8 +70,6 @@ export function AnalyticsFilterBar({ filters, onFiltersChange }: AnalyticsFilter
           </Button>
         </PopoverPrimitive.Trigger>
 
-        {/* Chips substitute for the panel while it's closed — once it's open,
-            the controls inside already show every active value. */}
         {!open && hasActiveFilters(filters) && (
           <ActiveFilterChips
             chips={chips}
@@ -92,24 +86,24 @@ export function AnalyticsFilterBar({ filters, onFiltersChange }: AnalyticsFilter
           className="z-50 w-max rounded-xl border border-border bg-card p-4 text-card-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
         >
           <div className="flex flex-wrap items-end gap-6">
-            {/* Cluster A: when + where you worked. Tight gap-3 signals these two
-                belong together; the gap-6 above and the divider below separate
-                this cluster from Cluster B (refactoring-ui: proximity implies
-                relationship, not color or decoration). */}
             <div className="flex flex-wrap items-end gap-3">
-              <SegmentedControl
-                aria-label="Date range"
-                value={filters.dateRange}
-                onChange={(dateRange) => onFiltersChange({ ...filters, dateRange })}
-                options={DATE_RANGE_OPTIONS}
-              />
+              <FilterGroup label="Date range">
+                <SegmentedControl
+                  aria-label="Date range"
+                  value={filters.dateRange}
+                  onChange={(dateRange) => onFiltersChange({ ...filters, dateRange })}
+                  options={DATE_RANGE_OPTIONS}
+                />
+              </FilterGroup>
 
-              <SegmentedControl
-                aria-label="Work mode"
-                value={filters.workMode ?? "all"}
-                onChange={(mode) => onFiltersChange({ ...filters, workMode: mode === "all" ? null : mode })}
-                options={toFilterOptions(WORK_MODES)}
-              />
+              <FilterGroup label="Work mode">
+                <SegmentedControl
+                  aria-label="Work mode"
+                  value={filters.workMode ?? "all"}
+                  onChange={(mode) => onFiltersChange({ ...filters, workMode: mode === "all" ? null : mode })}
+                  options={toFilterOptions(WORK_MODES)}
+                />
+              </FilterGroup>
             </div>
 
             <div className="flex flex-wrap items-end gap-3 border-l border-border pl-6">
