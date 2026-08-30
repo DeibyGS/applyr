@@ -185,6 +185,7 @@ class TestConstants:
             "agent.started", "agent.command", "agent.output", "agent.completed",
             "agent.failed", "agent.waiting", "agent.blocked", "agent.receiving",
             "handoff.started", "handoff.walking", "handoff.completed", "pipeline.stage",
+            "user.response",
         }
         assert VALID_EVENT_TYPES == expected
 

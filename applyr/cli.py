@@ -68,7 +68,9 @@ Commands:
   cv compare <v1> <v2>          Compare two CV versions (ATS, keywords)
   response-rate [--json]        Application response rate and trends
   doctor [--json]               Check configuration and database health (exit 1 if unhealthy)
-  ui [--port P]                 Start the Visual UI backend on 127.0.0.1 (needs: pip install applyr[ui])
+  ui [--port P] [--backend-only]  Start the Visual UI (backend + frontend on 127.0.0.1)
+                                  --backend-only skips the Vite frontend (needs: pip install applyr[ui])
+  autopilot                     Watch for UI responses and process automatically (needs: applyr ui running)
   version                       Show version
   help                          Show this help
 
@@ -393,14 +395,24 @@ def main():
         # specs/visual-ui/spec.md and docs/visual-ui/AGENTS.md.
         port_raw = _get_flag(args, "--port")
         port = _safe_int(port_raw, "--port") if port_raw is not None else 8000
+        backend_only = _has_flag(args, "--backend-only")
         # `applyr.ui.server` has no top-level fastapi/uvicorn import (so this
         # import always succeeds), but calling run() does — that's where the
         # ImportError we're guarding against actually happens.
         from applyr.ui.server import run
         try:
-            run(port=port)
+            run(port=port, start_frontend=not backend_only)
         except ImportError:
             die("The Visual UI dashboard needs extra dependencies that "
+                "aren't installed.", code="missing_dependency",
+                text="  Install them with: pip install applyr[ui]")
+
+    elif cmd == "autopilot":
+        from applyr.ui.autopilot import run_autopilot
+        try:
+            run_autopilot()
+        except ImportError:
+            die("The autopilot needs extra dependencies that "
                 "aren't installed.", code="missing_dependency",
                 text="  Install them with: pip install applyr[ui]")
 

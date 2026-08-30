@@ -55,6 +55,7 @@ VALID_EVENT_TYPES = {
     "handoff.walking",
     "handoff.completed",
     "pipeline.stage",
+    "user.response",
 }
 
 

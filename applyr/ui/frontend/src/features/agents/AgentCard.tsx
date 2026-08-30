@@ -1,16 +1,23 @@
 import { useState } from "react";
-import { Cloud } from "lucide-react";
+import { Cloud, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AGENT_CONFIG } from "./agent-config";
 import { AgentQueueModal } from "./AgentQueueModal";
 import { BADGE_COPY } from "./badge-copy";
-import type { AgentStatus } from "./types";
+import type { AgentStatus, PipelineStage } from "./types";
 
 const PIPELINE_ZONE_LABELS: Record<"cv" | "ats" | "application", string> = {
   cv: "CV",
   ats: "ATS",
   application: "application",
+};
+
+const STAGE_PROGRESS: Record<PipelineStage, number> = {
+  matching: 20,
+  cv: 40,
+  ats: 60,
+  application: 80,
 };
 
 function taskText(status: AgentStatus): string | null {
@@ -31,18 +38,39 @@ function taskText(status: AgentStatus): string | null {
   return null;
 }
 
+function progressPercent(status: AgentStatus): number {
+  if (status.state === "idle") return 0;
+  if (status.agentId === "recruiter") return 10;
+  if (status.pipelineStage) return STAGE_PROGRESS[status.pipelineStage];
+  return 0;
+}
+
+function ProgressBar({ percent }: { percent: number }) {
+  if (percent <= 0) return null;
+  return (
+    <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+      <div
+        className="h-full rounded-full bg-success transition-all duration-500"
+        style={{ width: `${percent}%` }}
+      />
+    </div>
+  );
+}
+
 type AgentCardProps = {
   status: AgentStatus;
   variant?: "compact" | "detailed";
+  waiting?: boolean;
 };
 
-export function AgentCard({ status, variant = "compact" }: AgentCardProps) {
+export function AgentCard({ status, variant = "compact", waiting = false }: AgentCardProps) {
   const [queueOpen, setQueueOpen] = useState(false);
   const config = AGENT_CONFIG[status.agentId];
   const task = taskText(status);
   const detailed = variant === "detailed";
   const working = status.state === "working";
   const badgeText = working ? BADGE_COPY[status.agentId].working : BADGE_COPY[status.agentId].idle;
+  const progress = progressPercent(status);
 
   return (
     <Card
@@ -52,14 +80,21 @@ export function AgentCard({ status, variant = "compact" }: AgentCardProps) {
     >
       {working && (
         <>
-          <button
-            type="button"
-            aria-label={`${config.name} queue — ${status.items.length} item${status.items.length === 1 ? "" : "s"}`}
-            onClick={() => setQueueOpen(true)}
-            className="absolute top-2 right-2 animate-pulse rounded-full p-2 text-muted-foreground transition-all hover:scale-110 hover:animate-none hover:bg-muted hover:text-foreground"
-          >
-            <Cloud className="size-6" />
-          </button>
+          <div className="absolute top-2 right-2 flex items-center gap-1">
+            {waiting && (
+              <span className="animate-pulse rounded-full p-1 text-warning" title="Agent needs input">
+                <AlertTriangle className="size-4" />
+              </span>
+            )}
+            <button
+              type="button"
+              aria-label={`${config.name} queue — ${status.items.length} item${status.items.length === 1 ? "" : "s"}`}
+              onClick={() => setQueueOpen(true)}
+              className="animate-pulse rounded-full p-2 text-muted-foreground transition-all hover:scale-110 hover:animate-none hover:bg-muted hover:text-foreground"
+            >
+              <Cloud className="size-6" />
+            </button>
+          </div>
           <AgentQueueModal
             agentId={status.agentId}
             agentName={config.name}
@@ -89,6 +124,8 @@ export function AgentCard({ status, variant = "compact" }: AgentCardProps) {
       ) : (
         <p className="min-h-8 text-xs text-muted-foreground">{task ?? config.role}</p>
       )}
+
+      <ProgressBar percent={progress} />
     </Card>
   );
 }

@@ -189,6 +189,13 @@ export interface PipelineStageEvent extends BaseApplyrEvent {
   };
 }
 
+export interface UserResponseEvent extends BaseApplyrEvent {
+  type: "user.response";
+  payload: {
+    message: string;
+  };
+}
+
 export type ApplyrEvent =
   | AgentStartedEvent
   | AgentCommandEvent
@@ -201,7 +208,8 @@ export type ApplyrEvent =
   | HandoffStartedEvent
   | HandoffWalkingEvent
   | HandoffCompletedEvent
-  | PipelineStageEvent;
+  | PipelineStageEvent
+  | UserResponseEvent;
 
 // Type guards
 export function isAgentEvent(event: ApplyrEvent): event is

@@ -20,7 +20,7 @@ class TestUiCommand:
 
         run_cli(["ui"])
 
-        assert calls == [{"port": 8000}]
+        assert calls == [{"port": 8000, "start_frontend": True}]
 
     def test_respects_port_flag(self, tmp_db, run_cli, monkeypatch):
         calls = []
@@ -29,7 +29,7 @@ class TestUiCommand:
 
         run_cli(["ui", "--port", "9999"])
 
-        assert calls == [{"port": 9999}]
+        assert calls == [{"port": 9999, "start_frontend": True}]
 
     def test_no_host_override_is_exposed(self, tmp_db, run_cli, monkeypatch):
         """Security NFR: binding beyond loopback would expose an
