@@ -1,11 +1,10 @@
 import { NavLink } from "react-router";
-import { Building2, Briefcase, CalendarCheck, Archive, BarChart3, Settings } from "lucide-react";
+import { Building2, Briefcase, CalendarCheck, BarChart3, Settings } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/office", label: "Office", icon: Building2 },
   { to: "/offers", label: "Offers", icon: Briefcase },
   { to: "/interviews", label: "Interviews", icon: CalendarCheck },
-  { to: "/archive", label: "Archive", icon: Archive },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
 ];

@@ -22,3 +22,17 @@ export const BAND_CLASS: Record<ScoreBand, string> = {
   warning: "bg-warning text-background",
   danger: "bg-danger text-background",
 };
+
+/** Text-only variant for score numbers shown directly on a card surface. */
+export const BAND_TEXT_CLASS: Record<ScoreBand, string> = {
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-danger",
+};
+
+/** Left accent-bar variant, used to make a card's band scannable at a glance. */
+export const BAND_BORDER_CLASS: Record<ScoreBand, string> = {
+  success: "border-l-success",
+  warning: "border-l-warning",
+  danger: "border-l-danger",
+};

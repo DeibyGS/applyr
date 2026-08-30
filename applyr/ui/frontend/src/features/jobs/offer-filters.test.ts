@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { JobSummary } from "@/api/jobs";
-import { DEFAULT_FILTERS, filterJobs, nextSortState, sortJobs } from "./offer-filters";
+import {
+  DEFAULT_FILTERS,
+  describeActiveFilters,
+  filterJobs,
+  hasActiveFilters,
+  nextSortState,
+  sortJobs,
+} from "./offer-filters";
 
 function makeJob(overrides: Partial<JobSummary> = {}): JobSummary {
   return {
@@ -79,6 +86,38 @@ describe("sortJobs", () => {
     const jobs = [older, newer];
     sortJobs(jobs, "score", "desc");
     expect(jobs.map((j) => j.id)).toEqual([1, 2]);
+  });
+});
+
+describe("hasActiveFilters", () => {
+  it("is false for the default filters", () => {
+    expect(hasActiveFilters(DEFAULT_FILTERS)).toBe(false);
+  });
+
+  it("is true when any single filter is set", () => {
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, status: "applied" })).toBe(true);
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, workMode: "remote" })).toBe(true);
+    expect(hasActiveFilters({ ...DEFAULT_FILTERS, minScore: 10 })).toBe(true);
+  });
+});
+
+describe("describeActiveFilters", () => {
+  const formatStatus = (status: string) => status.toUpperCase();
+
+  it("returns no chips for the default filters", () => {
+    expect(describeActiveFilters(DEFAULT_FILTERS, formatStatus)).toEqual([]);
+  });
+
+  it("returns one chip per active filter, formatted", () => {
+    const chips = describeActiveFilters(
+      { status: "applied", workMode: "remote", minScore: 60 },
+      formatStatus
+    );
+    expect(chips).toEqual([
+      { key: "status", label: "Status: APPLIED" },
+      { key: "workMode", label: "Work mode: remote" },
+      { key: "minScore", label: "Min score: 60%" },
+    ]);
   });
 });
 

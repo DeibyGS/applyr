@@ -25,6 +25,18 @@ export function formatStatusLabel(status: string): string {
     .join(" ");
 }
 
+/**
+ * Status badge accent — deliberately restrained. "offer" is the one status
+ * that deserves --highlight (reserved for high-value moments, see
+ * index.css); rejected/discarded are muted since they're a closed loop, not
+ * something to draw the eye to. Everything else stays neutral.
+ */
+export function statusAccentClass(status: string): string {
+  if (status === "offer") return "border-highlight/40 bg-highlight/10 text-highlight";
+  if (status === "rejected" || status === "discarded") return "border-border text-muted-foreground/70";
+  return "border-border text-foreground";
+}
+
 export function groupByStatus(jobs: JobSummary[]): Record<OfferStatus, JobSummary[]> {
   const grouped = Object.fromEntries(
     OFFER_STATUSES.map((status) => [status, [] as JobSummary[]])

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { JobList } from "@/features/jobs/JobList";
-import { JobDetail } from "@/features/jobs/JobDetail";
+import { JobDetailModal } from "@/features/jobs/JobDetailModal";
 import { KanbanBoard } from "@/features/jobs/KanbanBoard";
 import { OffersToolbar, type OffersView } from "@/features/jobs/OffersToolbar";
 import {
   DEFAULT_FILTERS,
   filterJobs,
+  hasActiveFilters,
   nextSortState,
   sortJobs,
   type SortDirection,
@@ -37,12 +38,8 @@ export default function OffersPage() {
     setSortDirection(next.direction);
   }
 
-  if (selectedJob) {
-    return <JobDetail job={selectedJob} thresholds={thresholds} onBack={() => setSelectedJobId(null)} />;
-  }
-
   const visibleJobs = sortJobs(filterJobs(jobs, filters), sortField, sortDirection);
-  const hasActiveFilters = filters.status !== null || filters.workMode !== null || filters.minScore > 0;
+  const filtersActive = hasActiveFilters(filters);
 
   return (
     <div className="flex flex-col gap-8">
@@ -62,14 +59,21 @@ export default function OffersPage() {
       />
 
       {view === "kanban" ? (
-        <KanbanBoard jobs={visibleJobs} thresholds={thresholds} onSelect={setSelectedJobId} />
+        <KanbanBoard jobs={visibleJobs} thresholds={thresholds} onSelect={setSelectedJobId} filtersActive={filtersActive} />
       ) : visibleJobs.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          {hasActiveFilters ? "No offers match these filters." : "No jobs yet."}
+          {filtersActive ? "No offers match these filters." : "No jobs yet."}
         </p>
       ) : (
         <JobList jobs={visibleJobs} thresholds={thresholds} onSelect={setSelectedJobId} />
       )}
+
+      <JobDetailModal
+        job={selectedJob}
+        thresholds={thresholds}
+        open={selectedJobId !== null}
+        onOpenChange={(open) => !open && setSelectedJobId(null)}
+      />
     </div>
   );
 }

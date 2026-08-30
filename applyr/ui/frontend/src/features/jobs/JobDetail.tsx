@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { JobDetail as JobDetailType } from "@/api/jobs";
 import type { Thresholds } from "@/api/config";
 import { getScoreBand, BAND_CLASS } from "./score-color";
+import { ScoreBreakdown } from "./ScoreBreakdown";
 
 type JobDetailProps = {
   job: JobDetailType;
@@ -36,24 +37,7 @@ export function JobDetail({ job, thresholds, onBack }: JobDetailProps) {
         {job.location && <span>{job.location}</span>}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <h3 className="font-display text-sm font-medium text-foreground">Score breakdown</h3>
-        {job.topics.length === 0 && (
-          <p className="text-sm text-muted-foreground">No scored topics for this offer.</p>
-        )}
-        {job.topics.map((topic) => (
-          <div key={topic.topic} className="flex flex-col gap-1 border-b border-border pb-2 last:border-0">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium text-foreground capitalize">{topic.topic.replace("_", " ")}</span>
-              <span className="text-muted-foreground">
-                {topic.score}
-                {topic.confidence ? ` · ${topic.confidence} confidence` : ""}
-              </span>
-            </div>
-            {topic.detail && <p className="text-xs text-muted-foreground">{topic.detail}</p>}
-          </div>
-        ))}
-      </div>
+      <ScoreBreakdown topics={job.topics} />
     </Card>
   );
 }
