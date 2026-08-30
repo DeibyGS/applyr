@@ -146,14 +146,54 @@ def process_one_job(
     return job
 
 
+def _fail_job_safely(
+    job: dict, exc: Exception, *, on_event: EventCallback | None, db_path: str | None
+) -> None:
+    """Last-resort handler so one bad job can never kill `run_worker`'s loop.
+
+    Marks the job `failed` (recorded, retriable via `POST
+    /api/intake/{id}/retry`) instead of leaving it stuck at whatever state it
+    was mid-transition through — `failed` is not one of the states
+    `process_pending_jobs` reclaims, so this also stops the same job from
+    being retried forever on every poll tick.
+    """
+    intake_id = job["intake_id"]
+    try:
+        # Re-fetch rather than trust the caller's `job` dict: that's the
+        # pre-claim snapshot (e.g. "queued"), but `process_one_job` may have
+        # already committed "structuring" or "deduping" before raising —
+        # the DB's current value is the real last-completed step.
+        current = jobs.get_job_by_intake(intake_id, db_path=db_path)
+        failed_step = current["state"] if current is not None else job["state"]
+        updated = jobs.update_job_state(
+            intake_id, "failed", failed_step=failed_step, error_message=str(exc)[:500],
+            db_path=db_path,
+        )
+        _emit(on_event, updated, "failed")
+    except Exception:
+        # The job row itself may already be gone (paired intake row deleted
+        # mid-processing) or the DB may be unreachable — this function's
+        # entire contract is "never raise a second exception back into the
+        # worker loop", so a failure here is swallowed, same reasoning as
+        # every best-effort notifier in applyr/ui_events.py.
+        pass
+
+
 def process_pending_jobs(*, on_event: EventCallback | None = None, db_path: str | None = None) -> int:
-    """Process every claimable job — `queued` (normal case) and
-    `structuring` (a job a previous worker process was interrupted on,
+    """Process every claimable job — `queued` (normal case), `structuring`
+    and `deduping` (a job a previous worker process was interrupted on,
     reprocessed from scratch: `process_one_job` is a pure function of
-    `raw_text`, safe to re-run). Returns how many jobs were processed."""
-    claimable = jobs.list_jobs_by_state("queued", "structuring", db_path=db_path)
+    `raw_text`, safe to re-run). Returns how many jobs were processed.
+
+    A single job's exception never stops the batch — `_fail_job_safely`
+    marks that one job `failed` and processing continues with the rest.
+    """
+    claimable = jobs.list_jobs_by_state("queued", "structuring", "deduping", db_path=db_path)
     for job in claimable:
-        process_one_job(job, on_event=on_event, db_path=db_path)
+        try:
+            process_one_job(job, on_event=on_event, db_path=db_path)
+        except Exception as exc:  # noqa: BLE001 — see _fail_job_safely's docstring
+            _fail_job_safely(job, exc, on_event=on_event, db_path=db_path)
     return len(claimable)
 
 
