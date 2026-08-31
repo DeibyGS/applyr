@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # CHECK is the only thing guarding against a typo'd literal there. One
 # source of truth for the constraint still matters even so.
@@ -182,6 +182,16 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         "ALTER TABLE offers ADD COLUMN job_description TEXT",
         "ALTER TABLE offers ADD COLUMN cv_evidence_used TEXT",
     ],
+    # CV Tailoring Plan: structured contract connecting Matcher → Recruiter →
+    # Writer. evidence_map tracks keyword→evidence_status per offer.
+    # cv_iteration/cv_iteration_history enable iterative feedback loops.
+    # All existing rows get NULL (no honest way to invent a plan that never ran).
+    (13, 14): [
+        "ALTER TABLE offers ADD COLUMN cv_tailoring_plan TEXT",
+        "ALTER TABLE offers ADD COLUMN evidence_map TEXT",
+        "ALTER TABLE offers ADD COLUMN cv_iteration INTEGER DEFAULT 0",
+        "ALTER TABLE offers ADD COLUMN cv_iteration_history TEXT",
+    ],
 }
 
 SCHEMA_SQL = f"""\
@@ -234,7 +244,12 @@ CREATE TABLE IF NOT EXISTS offers (
     pipeline_stage_at TEXT,
     -- Evidence-Based CV Engine (specs/evidence-based-cv-engine)
     job_description   TEXT,
-    cv_evidence_used  TEXT
+    cv_evidence_used  TEXT,
+    -- CV Tailoring Plan (feat/oc-tailoring-plan)
+    cv_tailoring_plan TEXT,
+    evidence_map      TEXT,
+    cv_iteration      INTEGER DEFAULT 0,
+    cv_iteration_history TEXT
 );
 
 CREATE TABLE IF NOT EXISTS offer_topics (

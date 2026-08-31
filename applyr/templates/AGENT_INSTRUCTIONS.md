@@ -11,6 +11,15 @@
 5. **Every CV must pass review** — never deliver a CV without running `applyr cv review`.
 6. **The Recruiter is blind** — when running `applyr cv review-blind`, do NOT reveal the Matcher's compatibility score.
 7. **Every CV must pass verify** — never deliver a CV without running `applyr cv verify`. Unlike `cv review`, its result is deterministic and final on exit — no LLM judgment call, no prompt to execute.
+8. **Evidence beats keywords** — a keyword without evidence has lower value than a real experience well explained.
+
+## Agent Roles
+
+For detailed instructions per role, see:
+- **Matcher**: `applyr/templates/agents/matcher.md` — evaluate candidate-job fit
+- **Recruiter**: `applyr/templates/agents/recruiter.md` — blind CV evaluation
+- **CV Architect**: `applyr/templates/agents/architect.md` — create tailoring strategy
+- **Fact Checker**: `applyr/templates/agents/fact_checker.md` — verify claims against cv-master.md
 
 ## Privacy
 
@@ -235,16 +244,72 @@ applyr gaps save <id> '{"gaps": [{"topic": "tech_stack", "gap_detail": "Missing 
 Valid topics: `tech_stack`, `projects`, `experience`, `education`, `english`, `cultural_fit`
 Valid severity: `low`, `medium`, `high`
 
+### Step 5.5 — CV Tailoring Plan (automatic)
+
+When `applyr cv generate <id>` runs, it automatically:
+1. Evaluates evidence strength for each topic against cv-master.md
+2. Builds a `CV_TAILORING_PLAN` with evidence map, priorities, and forbidden claims
+3. Saves the plan to the offer record in the database
+4. Injects the plan as context in the CV skeleton's YAML frontmatter
+
+This auto-generated plan is the **raw data**. The Architect (Step 5.7) turns it into a **strategic plan**.
+
+### Step 5.7 — CV Architect (tailoring strategy)
+
+**This step runs after the Recruiter (Step 5) and before CV generation (Step 6).**
+
+Read the Architect role instructions at `applyr/templates/agents/architect.md`, then produce a detailed tailoring strategy combining:
+
+1. **Matcher output** (Step 3): fit assessment, per-topic scores, evidence map
+2. **Recruiter output** (Step 5): keyword gaps, evidence weaknesses, priority actions
+3. **Auto-generated plan** (Step 5.5): evidence map from `applyr show <id> --json`
+
+Your output must include:
+- Per-requirement evidence classification (STRONG/WEAK/MISSING)
+- Priority levels (P0-P3) for each requirement
+- Forbidden claims (what the CV must NOT say)
+- Summary strategy (positioning, must_include, avoid)
+- Experience strategy (which jobs to highlight, what to emphasize/deemphasize)
+- Skills strategy (core/secondary/omit)
+- Quality constraints (max_pages, evidence_density_target)
+
+Save the strategy to a file the CV Writer will read:
+```
+~/Documents/applyr/cv/cv-<company>-plan.md
+```
+
+**Do NOT fill the CV yourself.** You plan. The Writer executes.
+
 ### Step 6 — Generate and review CV
 
-Only when the user confirms they want to apply:
+**STOP — before proceeding, confirm with the user:**
+
+```
+¿Quieres que genere el CV para esta oferta?
+- Oferta: [title] @ [company]
+- Compatibilidad: [score]%
+- Recluta principal: [top strength]
+- Gap principal: [top weakness]
+```
+
+Wait for explicit confirmation. If the user says no, update status to `discarded` and stop.
+
+Once confirmed:
 
 ```bash
 applyr update <id> applied --canal <channel>
 applyr cv generate <id>
 ```
 
-Fill all `[PLACEHOLDER]` values from cv-master.md following ATS rules (see below). Apply the Recruiter's recommendations from Step 5. Then:
+This generates the CV skeleton with the auto-generated tailoring plan in YAML frontmatter.
+
+**Now as the CV Writer:** read the Architect's strategy from Step 5.7 (`cv-<company>-plan.md`), then fill all `[PLACEHOLDER]` values from cv-master.md following ATS rules (see below) AND the Architect's plan. The plan tells you:
+- Which experiences to highlight and what to emphasize in each
+- Which skills go in core vs secondary vs omit
+- What the summary should communicate
+- Forbidden claims to avoid
+
+Then:
 
 ```bash
 applyr cv review <path-to-html>
@@ -335,7 +400,7 @@ derived value here — `UNKNOWN` means you skipped confidence entirely, it does 
 ```
 User: "Here's a Python backend job at Acme Corp [paste]"
 
-Agent (Matcher):
+Agent (Matcher — Step 3):
 1. cat ~/Documents/applyr/cv-master.md
 2. applyr search --company "Acme"     → no duplicates
 3. Evaluate topics against cv-master
@@ -347,24 +412,40 @@ Agent (Matcher):
    STRENGTHS: Python expert, 3 relevant projects
    GAPS: Missing AWS (tech_stack -20%)
    RECOMMENDATION: APPLY
-   NEXT ACTION: Run blind recruiter evaluation?
+   NEXT ACTION: ¿Quieres que ejecute el evaluation a ciegas del Reclutador?
 
 User: "yes"
 
-Agent (Recruiter — blind):
+Agent (Recruiter — blind, Step 5):
 6. applyr cv review-blind 42
    → Execute the review prompt
    → ATS COMPATIBILITY SCORE: 74/100 → CLOSE_MATCH
    → Recommendations: highlight Python API experience, add LangChain project
 
-Agent (Matcher — apply recommendations):
-7. Apply Recruiter's recommendations to CV
-8. applyr cv review cv-acme-backend.md
-   → READY TO SEND (ATS compatibility: 87/100)
-9. applyr cv verify cv-acme-backend.md
-   → PASS, 14/14 claims grounded in cv-master.md
-10. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
-11. Deliver CV with score and recommendations
+Agent (CV Architect — Step 5.7):
+7. Read Matcher output + Recruiter output + auto-plan
+8. Produce cv-acme-plan.md:
+   - P0: Python, FastAPI, LLMs (STRONG)
+   - P1: React, Docker, PostgreSQL (WEAK)
+   - Forbidden: "production Kubernetes experience"
+   - Summary: position as AI/backend engineer
+   - Experience: emphasize Mercanza microservices
+
+User: "Sí, genera el CV"
+
+Agent (CV Writer — Step 6):
+9. applyr update 42 applied
+10. applyr cv generate 42  → skeleton + auto-plan in YAML
+11. Read cv-acme-plan.md (Architect strategy)
+12. Fill skeleton from cv-master.md following the plan
+13. applyr cv review cv-acme-backend.md
+    → READY TO SEND (ATS compatibility: 87/100)
+
+Agent (Fact Checker — Step 6b):
+14. applyr cv verify --json cv-acme-backend.md
+    → PASS, 14/14 claims grounded, evidence_density: 0.92
+15. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
+16. Deliver CV with score and recommendations
 ```
 
 ## Command reference
@@ -393,6 +474,8 @@ Agent (Matcher — apply recommendations):
 | Review CV | `applyr cv review <file>` |
 | Blind recruiter evaluation | `applyr cv review-blind <id>` |
 | Verify CV claims are grounded | `applyr cv verify <file>` |
+| Get tailoring plan (JSON) | `applyr show <id> --json` (fields: `cv_tailoring_plan`, `evidence_map`) |
+| CV verify with structured output | `applyr cv verify --json` (includes `status`, `issues`, `evidence_density`) |
 | Discover commands | `applyr --help` |
 
 ## Error recovery

@@ -14,7 +14,7 @@ applyr is the storage layer; your AI coding agent is the brain. Paste a job offe
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![CI](https://github.com/DeibyGS/applyr/actions/workflows/python-package.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
 [![Lint](https://github.com/DeibyGS/applyr/actions/workflows/pylint.yml/badge.svg)](https://github.com/DeibyGS/applyr/actions)
-[![tests](https://img.shields.io/badge/tests-715%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
+[![tests](https://img.shields.io/badge/tests-828%20passed-brightgreen)](https://github.com/DeibyGS/applyr)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-purple)](CONTRIBUTING.md)
 
 [Features](#features) •
@@ -56,15 +56,25 @@ applyr:  82% compatibility (>= 80% threshold_apply)
          |  (you confirm)
          v
 
-Agent: generates tailored CV from cv-master.md
-       runs applyr cv ats-check (ATS compatibility score: 87/100)
-       runs applyr cv bullet-optimize (quality: A)
-       runs applyr cv cover-letter (tailored letter)
-       runs applyr cv verify (every claim grounded in cv-master.md — PASS)
+Agent: blind recruiter evaluation (applyr cv review-blind)
+       generates CV with tailoring plan (applyr cv generate)
+       └─ plan auto-created: evidence map, priorities, forbidden claims
+       applies plan to fill CV skeleton from cv-master.md
+       verifies every claim (applyr cv verify) — PASS
+       checks ATS compatibility (applyr cv ats-check)
        delivers PDF ready to send
 ```
 
 applyr is the **storage layer**. Your AI agent is the **brain**.
+
+The CV tailoring pipeline flows through structured roles:
+
+```
+Matcher  →  Recruiter  →  CV Architect  →  CV Writer  →  Fact Checker  →  Final
+(fit)       (quality)      (plan)          (execute)      (verify)
+```
+
+Each role reads the previous output — no information is lost between steps.
 
 ---
 
@@ -75,8 +85,9 @@ applyr is the **storage layer**. Your AI agent is the **brain**.
 - **"Why you match"** — Executive summary of strengths and weaknesses
 - **Weighted scoring** — 6 configurable topics (tech stack 35%, experience 35%, projects 15%, education 5%, english 5%, cultural fit 5%), with a per-offer `weights_used` snapshot so `rescore` and future rebalances never corrupt historical scores
 - **Score breakdown** — Weighted contribution per topic so you understand why 78%
-- **CV tailoring hints** — What to emphasize, what to de-emphasize in your CV, grounded in a deterministic parse of your `cv-master.md` (no fuzzy matching)
-- **Claim-grounding gate** — `cv verify` checks every technology, metric, and employer name in a generated CV against your `cv-master.md`, deterministically — no LLM call, exit 0 (PASS) or 1 (BLOCKED, lists unsupported claims)
+- **CV tailoring plan** — automatic evidence map per requirement (STRONG/WEAK/MISSING), priorities (P0-P3), forbidden claims, and section strategy — generated on `cv generate`, saved to DB
+- **Claim-grounding gate** — `cv verify` checks every technology, metric, and employer name in a generated CV against your `cv-master.md`, deterministically — no LLM call, exit 0 (PASS) or 1 (BLOCKED, lists unsupported claims). JSON output includes evidence density metric and Fact Checker-compatible issue format
+- **Agent role instructions** — dedicated `.md` files per role (Matcher, Recruiter, CV Architect, Fact Checker) in `applyr/templates/agents/`, referenced from the main agent instructions
 - **Duplicate detection** — same company+title? applyr catches it before you waste time
 - **ATS-safe CVs** — locked single-column CSS, standard fonts, no images. Your agent fills content, never touches structure
 - **ATS compatibility check** — validates CV against ATS rules (headers, formatting, keywords)
@@ -316,9 +327,10 @@ cultural_fit = 5
 applyr/
   cli.py                 # Entry point
   config.py              # TOML config
-  db.py                  # SQLite schema (offers: 32 columns, 6 tables)
-  scoring.py             # Weighted scoring engine
+  db.py                  # SQLite schema (offers: 36 columns, 6 tables)
+  scoring.py             # Weighted scoring engine + CV_TAILORING_PLAN builder
   cv.py                  # Markdown CV + Chrome PDF + recruiter review
+  evidence.py            # Deterministic claim parsing (parse_evidence, is_evidenced)
   ats.py                 # ATS compatibility checking + keyword matching
   analytics.py           # CV comparison + response rate tracking
   md_render.py           # Narrow markdown → ATS-HTML converter
@@ -327,11 +339,17 @@ applyr/
     analytics.py         # stats, gaps, trends, pipeline, compare, plan, salary
     workflow.py          # export, doctor
   templates/
-    AGENT_INSTRUCTIONS.md
+    AGENT_INSTRUCTIONS.md  # Main agent dispatcher (references agent roles)
+    agents/
+      matcher.md         # Matcher role: evaluates offer fit
+      recruiter.md       # Recruiter role: blind CV evaluation
+      architect.md       # CV Architect role: builds tailoring plan
+      fact_checker.md    # Fact Checker role: verifies claims
     ats_rules.json       # ATS validation rules
     bullet_patterns.json # Bullet optimization patterns
     cover_letter.md      # Cover letter template
 tests/
+  test_tailoring.py      # Evidence evaluation + tailoring plan tests
   test_cli_routing.py    # CLI router coverage
   test_cv.py             # CV pipeline tests
   test_ats.py            # ATS compatibility tests
@@ -352,7 +370,7 @@ tests/
 git clone https://github.com/DeibyGS/applyr.git
 cd applyr
 pip install -e ".[dev]"
-pytest                             # 715 tests, ~5s
+pytest                             # 828 tests, ~5s
 ```
 
 ---
@@ -384,9 +402,9 @@ applyr was designed to work **for** AI agents — it made sense to build it *wit
 | | |
 |---|---|
 | PRs | 42 (all human-reviewed) |
-| Tests | 576 (cli, cv, ats, analytics, bullets, cover_letter, md_render, db, scoring, config, validators) |
+| Tests | 828 (cli, cv, ats, analytics, bullets, cover_letter, md_render, db, scoring, config, validators, tailoring) |
 | Commands | 27 + 5 aliases |
-| Schema | 32 columns, 6 tables, migration system |
+| Schema | 36 columns, 6 tables, 13 migrations |
 | Models | Claude Opus 4.6, DeepSeek V4 Flash |
 
 _Measured with [ClaudeStat](https://github.com/DeibyGS/claudestat)._

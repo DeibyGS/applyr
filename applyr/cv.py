@@ -1,5 +1,6 @@
 """CV system — markdown-first generation and Chrome headless PDF export."""
 
+import json
 import os
 import re
 import subprocess
@@ -11,6 +12,7 @@ from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, PROT
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
 from applyr.evidence import is_evidenced, parse_evidence
+from applyr.scoring import build_tailoring_plan, tailoring_plan_to_json
 
 
 def _die_chrome(message: str, result) -> None:
@@ -434,7 +436,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
 
     frontmatter = "---\n" + "\n".join(context_lines) + "\n---"
 
-    # Get tailoring hints
+    # Get tailoring hints and build tailoring plan
     topics_dict = {}
     # Load topics from database
     from applyr.db import get_conn
@@ -452,6 +454,29 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
         row["tech_stack"], topics_dict, cv_master_text
     )
     tailoring_hints = _format_tailoring_hints(highlight, de_emphasize, not_included)
+
+    # Build CV tailoring plan for structured context
+    offer_dict = {
+        "title": row["title"],
+        "company": row["company"] or "",
+        "tech_stack": row["tech_stack"] or "",
+        "seniority_level": row["seniority_level"] or "",
+        "role_category": row["role_category"] or "",
+    }
+    tailoring_plan = build_tailoring_plan(offer_dict, topics_dict, cv_master_text)
+    plan_json = tailoring_plan_to_json(tailoring_plan)
+
+    # Save tailoring plan and evidence map to DB
+    evidence_map_json = json.dumps(tailoring_plan.get("evidence_map", {}), ensure_ascii=False)
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE offers SET cv_tailoring_plan = ?, evidence_map = ? WHERE id = ?",
+            (plan_json, evidence_map_json, offer_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
     # Same evidenced list as the TAILOR comment above — the per-section
     # instructions below used to interpolate row["tech_stack"] raw, telling
@@ -1100,6 +1125,11 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
     unsupported = [r for r in results if not r["supported"]]
     passed = not unsupported
 
+    # Calculate evidence density
+    total_claims = len(results)
+    supported_claims = total_claims - len(unsupported)
+    evidence_density = supported_claims / total_claims if total_claims > 0 else 1.0
+
     if passed:
         conn = get_conn()
         try:
@@ -1112,11 +1142,35 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
             conn.close()
 
     if as_json:
+        # Map issue types for Fact Checker compatibility
+        issues = []
+        for r in unsupported:
+            issue_type = {
+                "technology": "invented_technology",
+                "metric": "invented_metric",
+                "employer_or_title": "unsupported_claim",
+            }.get(r["category"], "unsupported_claim")
+            issues.append({
+                "severity": "P0",
+                "type": issue_type,
+                "claim": r["claim"],
+                "evidence": None,
+                "section": r["category"],
+                "action": "remove",
+            })
+
         payload = {
+            "status": "PASS" if passed else "FAIL",
             "passed": passed,
             "offer_id": offer_id,
             "claims": results,
             "unsupported": unsupported,
+            "issues": issues,
+            "evidence_density": {
+                "supported_claims": supported_claims,
+                "total_major_claims": total_claims,
+                "density": round(evidence_density, 2),
+            },
         }
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
