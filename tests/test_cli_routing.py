@@ -291,6 +291,84 @@ class TestCommandDispatch:
         assert code == 0
         assert "Deprecation" in err
 
+    def test_setup_agent_stale_injected_block_warns_without_force(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """A project's own CLAUDE.md/AGENTS.md never had staleness detection —
+        `setup-agent` silently skipped forever once a block existed, so real
+        projects stayed on whatever instructions they got at first setup no
+        matter how many applyr releases shipped since. A stamped-but-old block
+        must now be flagged, not silently treated as already up to date."""
+        from applyr.agent_instructions import STAMP_PREFIX, STAMP_SUFFIX
+
+        monkeypatch.chdir(tmp_path)
+        agents = tmp_path / "AGENTS.md"
+        agents.write_text(f"## My Project\n\n{STAMP_PREFIX} 0.1.0 {STAMP_SUFFIX}\nold agent instructions\n")
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode"])
+
+        assert code == 0
+        assert "0.1.0" in err
+        assert "--force" in err
+        assert agents.read_text() == f"## My Project\n\n{STAMP_PREFIX} 0.1.0 {STAMP_SUFFIX}\nold agent instructions\n", \
+            "must not touch the file without --force"
+
+    def test_setup_agent_force_refreshes_a_stale_injected_block(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """--force replaces the stale block in place — it must not just append
+        another copy behind it, or every applyr upgrade a user ever --force'd
+        through would leave one more stale block permanently in their file."""
+        from applyr import __version__
+        from applyr.agent_instructions import INJECT_SEPARATOR, STAMP_PREFIX, STAMP_SUFFIX
+
+        monkeypatch.chdir(tmp_path)
+        agents = tmp_path / "AGENTS.md"
+        agents.write_text(f"## My Project{INJECT_SEPARATOR}{STAMP_PREFIX} 0.1.0 {STAMP_SUFFIX}\nold agent instructions\n")
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode", "--force"])
+
+        assert code == 0
+        content = agents.read_text()
+        assert content.startswith("## My Project"), "existing project content must survive"
+        assert f"{STAMP_PREFIX} {__version__} {STAMP_SUFFIX}" in content
+        assert "old agent instructions" not in content, "the stale block must be replaced, not kept alongside the new one"
+        assert content.count(STAMP_PREFIX) == 1, "must not accumulate multiple stamped blocks"
+
+    def test_setup_agent_force_does_not_accumulate_blocks_across_repeated_upgrades(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """Simulates a user running --force across two applyr releases (v2.0.0
+        then v3.0.0): the file must end up with exactly one stamped block,
+        never one per upgrade."""
+        from applyr.agent_instructions import STAMP_PREFIX
+
+        monkeypatch.chdir(tmp_path)
+        agents = tmp_path / "AGENTS.md"
+        agents.write_text(f"## My Project\n\n{STAMP_PREFIX} 0.1.0 -->\nvery old instructions\n")
+
+        monkeypatch.setattr("applyr.commands.core.__version__", "2.0.0")
+        monkeypatch.setattr("applyr.agent_instructions.__version__", "2.0.0")
+        _run(run_cli, capsys, ["setup-agent", "--agent", "opencode", "--force"])
+
+        monkeypatch.setattr("applyr.commands.core.__version__", "3.0.0")
+        monkeypatch.setattr("applyr.agent_instructions.__version__", "3.0.0")
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode", "--force"])
+
+        assert code == 0
+        content = agents.read_text()
+        assert content.count(STAMP_PREFIX) == 1, "must not leave one stale block per upgrade"
+        assert f"{STAMP_PREFIX} 3.0.0" in content
+        assert content.startswith("## My Project")
+
+    def test_setup_agent_legacy_unstamped_block_warns_without_force(self, run_cli, capsys, tmp_db, tmp_path, monkeypatch):
+        """Blocks written before version stamping have no stamp to compare —
+        surface that explicitly instead of assuming they're current forever."""
+        monkeypatch.chdir(tmp_path)
+        agents = tmp_path / "AGENTS.md"
+        original = "## My Project\n\napplyr agent instructions (pre-stamp era)\n"
+        agents.write_text(original)
+
+        out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "opencode"])
+
+        assert code == 0
+        assert "--force" in err
+        assert agents.read_text() == original
+
 
 # ── AC-2.3: Global flags ─────────────────────────────────────────────────────
 

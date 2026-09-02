@@ -8,10 +8,14 @@ from pathlib import Path
 from applyr import __version__
 from applyr.agent_instructions import (
     FALLBACK,
+    INJECT_SEPARATOR,
+    find_stamped_version,
     is_stale,
+    is_stale_version,
     packaged_instructions,
     stamp,
     stamped_version,
+    strip_stamped_block,
 )
 from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, load_config
 from applyr.constants import (
@@ -437,7 +441,7 @@ def _warn_if_profile_empty() -> None:
              "applyr refuses to build a CV on nothing.")
 
 
-def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
+def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool = False) -> None:
     """Write applyr agent instructions into the project or user-global AI config file."""
     cwd = Path.cwd()
     instructions = _get_agent_instructions()
@@ -507,12 +511,41 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False) -> None:
     # If file exists, append (don't overwrite user content)
     if target.exists():
         existing = target.read_text()
-        if "applyr" in existing.lower() and "agent instructions" in existing.lower():
-            print(f"  {display} already contains applyr instructions — skipped.")
+        existing_lower = existing.lower()
+        existing_version = find_stamped_version(existing)
+        has_legacy_block = existing_version is None and (
+            "applyr" in existing_lower and "agent instructions" in existing_lower
+        )
+        had_applyr_content = existing_version is not None or has_legacy_block
+
+        if existing_version is not None and not is_stale_version(existing_version):
+            print(f"  {display} already contains up-to-date applyr instructions "
+                  f"(v{existing_version}) — skipped.")
             return
-        separator = "\n\n---\n\n"
-        target.write_text(existing.rstrip() + separator + instructions)
-        print(f"  Appended applyr instructions to {display}")
+        if had_applyr_content and not force:
+            if existing_version is not None:
+                warn(f"  {display} has applyr instructions from v{existing_version}; "
+                     f"the installed package is v{__version__}.")
+            else:
+                warn(f"  {display} already contains applyr instructions, written "
+                     "before version stamping — staleness can't be checked.")
+            global_flag = " --global" if global_ else ""
+            warn(f"  Run 'applyr setup-agent --agent {agent}{global_flag} --force' "
+                 "to refresh the instructions.")
+            return
+
+        if existing_version is not None:
+            # A stamped block was already found and confirmed stale above —
+            # replace it in place rather than appending another copy after
+            # it, or repeated --force runs across releases would leave one
+            # stale block behind per upgrade.
+            head = strip_stamped_block(existing)
+            target.write_text(f"{head}{INJECT_SEPARATOR}{instructions}" if head else instructions)
+            print(f"  Refreshed applyr instructions in {display}")
+        else:
+            target.write_text(existing.rstrip() + INJECT_SEPARATOR + instructions)
+            verb = "Appended updated" if has_legacy_block else "Appended"
+            print(f"  {verb} applyr instructions to {display}")
     else:
         target.write_text(instructions)
         print(f"  Created {display} with applyr instructions")

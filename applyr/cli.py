@@ -43,7 +43,7 @@ Usage: applyr <command> [options]
 
 Commands:
   init                          Set up ~/.applyr/ (config, database) and starter cv-master.md
-  setup-agent [--agent NAME] [--global]  Configure AI agent (--global writes user-wide config)
+  setup-agent [--agent NAME] [--global] [--force]  Configure AI agent (--force refreshes stale instructions)
   add '<json>' [--force]        Register a new job offer (--force skips duplicate check)
   list [--status S] [--sort F]  List offers (--sort: score|date|company|status|id)
   pipeline [--min-score N]      View offers grouped by status
@@ -187,7 +187,8 @@ def main():
     elif cmd == "setup-agent":
         agent = _get_flag(args, "--agent")
         global_ = _has_flag(args, "--global")
-        cmd_setup_agent(agent=agent, global_=global_)
+        force = _has_flag(args, "--force")
+        cmd_setup_agent(agent=agent, global_=global_, force=force)
 
     elif cmd == "add":
         # Extract --force before positional parsing, so it can appear anywhere
