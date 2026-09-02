@@ -1,5 +1,5 @@
 """Adversarial-informed fixes for the async intake pipeline (ADR-014),
-following /code-review medium findings on PR #116:
+following /code-review medium findings on PR #116 and PR #117:
 
 1. `run_worker`'s loop must survive a single job raising — the old code had
    no try/except, so one bad job silently killed the entire in-process
@@ -11,7 +11,10 @@ following /code-review medium findings on PR #116:
    pending" before either committed.
 4. Any `die()` inside `cmd_add --intake-id`, not just the intake-linkage
    failure, must notify the paired job as `failed` — otherwise it's stuck
-   at `pending_agent` forever with no retry path.
+   at `pending_agent` forever with no retry path. A second review pass
+   found the first version of this fix too narrow (only `SystemExit`) and
+   its "harmless double-notify" claim wrong (it overwrote a specific error
+   message with a generic one) — both fixed here too.
 """
 
 import sqlite3
@@ -173,6 +176,62 @@ class TestCliNotifiesJobFailureOnAnyDieOnAddIntakeId:
         assert called_intake_id == intake_row["id"]
         assert called_state == "failed"
         assert kwargs.get("error_message")
+
+    def test_non_systemexit_exception_still_notifies_failed(self, tmp_db, run_cli, capsys, monkeypatch):
+        # /code-review finding: the first version of this wrapper only
+        # caught SystemExit, so a genuinely unexpected exception (not a
+        # die() call) inside cmd_add slipped past it, leaving the job stuck
+        # at pending_agent with nothing ever notified.
+        intake_row, _ = _make_intake_and_job(tmp_db)
+        calls = []
+        monkeypatch.setattr(
+            "applyr.cli.notify_job_state",
+            lambda intake_id, state, **kwargs: calls.append((intake_id, state, kwargs)),
+        )
+        monkeypatch.setattr(
+            "applyr.cli.cmd_add",
+            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("unexpected bug, not a die()")),
+        )
+
+        with pytest.raises(RuntimeError):
+            run_cli(["add", '{"title": "Dev", "company": "Acme"}', "--intake-id", str(intake_row["id"])])
+        capsys.readouterr()
+
+        assert len(calls) == 1
+        assert calls[0][:2] == (intake_row["id"], "failed")
+
+    def test_does_not_overwrite_an_already_failed_jobs_specific_message(
+        self, tmp_db, run_cli, capsys, monkeypatch
+    ):
+        # /code-review finding: the "double-notify is harmless" claim was
+        # wrong — it silently replaced cmd_add's specific error message
+        # with this wrapper's generic one. The wrapper must skip notifying
+        # when the job is already `failed` (cmd_add's own linkage-failure
+        # path already recorded the real reason).
+        intake_row, _ = _make_intake_and_job(tmp_db)
+        pipeline_jobs.update_job_state(
+            intake_row["id"], "failed", failed_step="pending_agent",
+            error_message="No ui_intake row with id 999 (the real, specific reason)",
+            db_path=tmp_db,
+        )
+        calls = []
+        monkeypatch.setattr(
+            "applyr.cli.notify_job_state",
+            lambda intake_id, state, **kwargs: calls.append((intake_id, state, kwargs)),
+        )
+        monkeypatch.setattr(
+            "applyr.cli.cmd_add",
+            lambda *a, **kw: (_ for _ in ()).throw(SystemExit(1)),
+        )
+
+        with pytest.raises(SystemExit):
+            run_cli(["add", '{"title": "Dev", "company": "Acme"}', "--intake-id", str(intake_row["id"])])
+        capsys.readouterr()
+
+        assert calls == [], "must not overwrite the already-recorded specific failure"
+        # The specific message from before is still intact.
+        job = pipeline_jobs.get_job_by_intake(intake_row["id"], db_path=tmp_db)
+        assert "the real, specific reason" in job["error_message"]
 
     def test_success_path_does_not_notify_failed(self, tmp_db, run_cli, capsys, monkeypatch):
         intake_row, _ = _make_intake_and_job(tmp_db)
