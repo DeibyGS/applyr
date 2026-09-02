@@ -109,6 +109,34 @@ def _has_flag(args: list[str], flag: str) -> bool:
     return flag in args
 
 
+def _notify_intake_add_failure(intake_id: int) -> None:
+    """ADR-014 safety net for `add --intake-id`: notify the paired ui_jobs
+    row as failed, but skip it if `cmd_add`'s own linkage-failure path
+    already notified with a specific error message — overwriting that with
+    this function's generic one would lose the real diagnostic and
+    double-broadcast the SSE event for nothing.
+
+    Lazy import: `applyr.ui.jobs` lives inside the `applyr.ui` package,
+    which `applyr/ui/__init__.py` forbids importing at module level from
+    `applyr.cli` (FastAPI/uvicorn are only installed with the `[ui]`
+    extra) — a local import inside this rarely-hit branch is the
+    established pattern for exactly this situation (see the `ui` command's
+    own `from applyr.ui.server import run` elsewhere in this file).
+    """
+    try:
+        from applyr.ui.jobs import get_job_by_intake
+
+        current = get_job_by_intake(intake_id)
+        if current is not None and current["state"] == "failed":
+            return
+    except Exception:
+        pass  # best-effort — fall through and notify anyway
+    notify_job_state(
+        intake_id, "failed",
+        error_message="applyr add failed — see stderr for details",
+    )
+
+
 _GETTING_STARTED = f"""\
 applyr v{__version__} — CLI job application tracker for AI coding agents
 
@@ -241,24 +269,21 @@ def main():
         else:
             raw = sys.stdin.read()
         if intake_id is not None:
-            # ADR-014 safety net: cmd_add can die() from many validation
+            # ADR-014 safety net: cmd_add can fail from many validation
             # paths (bad JSON, missing title, a CLI-side duplicate block,
             # invalid confidence/compatibility_pct...), not just the
-            # intake-linkage step near the end. Any of those, uncaught,
-            # would leave the paired ui_jobs row stuck at pending_agent
-            # forever — no retry path exists for that state. This generic
-            # catch covers every path uniformly; cmd_add's own linkage-
-            # failure branch also notifies with a more specific error
-            # message for that one case, so this fires twice there — a
-            # harmless, idempotent, deliberately cheap redundancy rather
-            # than tracking exactly which die() already notified.
+            # intake-linkage step near the end — and not always via die()
+            # (SystemExit): a genuinely unexpected exception is just as
+            # capable of leaving the paired ui_jobs row stuck at
+            # pending_agent forever, with no retry path reachable from that
+            # state. `(SystemExit, Exception)` covers both; a bare `raise`
+            # preserves the original exception exactly. KeyboardInterrupt is
+            # deliberately not caught here — Ctrl-C should interrupt
+            # immediately, not wait on a best-effort HTTP POST first.
             try:
                 cmd_add(raw, force=force, as_json=as_json, intake_id=intake_id)
-            except SystemExit:
-                notify_job_state(
-                    intake_id, "failed",
-                    error_message="applyr add failed — see stderr for details",
-                )
+            except (SystemExit, Exception):
+                _notify_intake_add_failure(intake_id)
                 raise
         else:
             cmd_add(raw, force=force, as_json=as_json, intake_id=intake_id)
