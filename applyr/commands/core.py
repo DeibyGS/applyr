@@ -1011,6 +1011,7 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
         return
 
     ctx = get_terminal_context()
+    config = load_config()
 
     # Header
     print(f"\n{'=' * min(60, ctx.width)}")
@@ -1112,6 +1113,27 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
     if row["notes"]:
         _print_section_header("Notes")
         print(f"  {row['notes']}")
+
+    # Topic scores — dropped by an earlier output-style refactor (ported to
+    # _print_section_header/_print_kv along with every other section here)
+    # that stopped short of this last block; restored 2026-09-02.
+    topics_dicts = [dict(t) for t in topics]
+    if topics_dicts:
+        _print_section_header("Scoring Topics")
+        for t in topics_dicts:
+            label = TOPIC_LABELS.get(t["topic"], t["topic"])
+            bar = _bar(t["score"])
+            suffix = _topic_display_suffix(t["detail"], t["confidence"])
+            print(f"  {label:<18} {t['score']:>3}%  {bar} {suffix}")
+
+        _show_match_breakdown(topics_dicts, TOPIC_LABELS)
+        _show_score_breakdown(topics_dicts, config.get("weights", {}))
+
+    # Recommendation
+    recommendation, icon = _get_recommendation(row["compatibility_pct"], config)
+    rec_label_text = _get_recommendation_label(recommendation)
+    print(f"\n  >> {icon} {rec_label_text} (score {row['compatibility_pct']}%)")
+    print(f"     CONFIDENCE: {_derive_confidence(topics_dicts).upper()}")
 
     print()
 
