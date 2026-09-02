@@ -345,3 +345,15 @@ class TestParseTechStack:
     def test_whitespace(self):
         result = _parse_tech_stack("  Python  ,  FastAPI  ")
         assert result == ["Python", "FastAPI"]
+
+    def test_slash_separated_alternatives_are_split(self):
+        result = _parse_tech_stack("React/Vue/Next.js, Node.js/Python/Go")
+        assert result == ["React", "Vue", "Next.js", "Node.js", "Python", "Go"]
+
+    def test_slash_inside_parenthetical_stays_intact(self):
+        result = _parse_tech_stack("low-code/no-code (n8n/Make/Zapier), Python")
+        assert result == ["low-code/no-code (n8n/Make/Zapier)", "Python"]
+
+    def test_known_slash_compounds_stay_intact(self):
+        result = _parse_tech_stack("CI/CD, TCP/IP, UI/UX, Python")
+        assert result == ["CI/CD", "TCP/IP", "UI/UX", "Python"]
