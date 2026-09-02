@@ -39,11 +39,28 @@ def calculate_score(topics: dict) -> int:
     return round(weighted_sum / total_weight)
 
 
+# Slash-joined names that are ONE conventional term, not alternatives — splitting
+# them on "/" would produce meaningless halves ("CI" + "CD", "TCP" + "IP") that risk
+# false-positive evidence matches if either half happens to appear elsewhere in
+# cv-master.md out of context (found via /code-review: "IP" or "CD" alone are common
+# enough short tokens to collide with unrelated text).
+_SLASH_COMPOUND_TERMS = frozenset({"ci/cd", "tcp/ip", "i/o", "a/b testing", "ui/ux"})
+
+
 def _parse_tech_stack(raw: str) -> list[str]:
     """Parse comma-separated tech stack respecting parenthetical groupings.
 
     'Python, JavaScript, LLMs (agentes, prompting, function calling), REST APIs'
     → ['Python', 'JavaScript', 'LLMs (agentes, prompting, function calling)', 'REST APIs']
+
+    Each comma segment is then split again on top-level '/' — job postings commonly
+    phrase alternatives that way ('React/Vue/Next.js', 'Node.js/Python/Go'). Without
+    this second split, the compound string is checked against cv-master.md verbatim,
+    which never matches even when the candidate has some (or all) of the listed
+    technologies individually — confirmed live: a profile with React, Next.js and
+    Python was scored "missing" on all three because the offer listed them joined by
+    '/', not because the evidence wasn't there. Known conventional compounds
+    (_SLASH_COMPOUND_TERMS) are exempted from this second split.
 
     Deduplicates while preserving order.
     """
@@ -52,6 +69,22 @@ def _parse_tech_stack(raw: str) -> list[str]:
     skills = []
     depth = 0
     current: list[str] = []
+
+    def flush_comma_segment() -> None:
+        segment = "".join(current).strip()
+        if not segment:
+            return
+        # A parenthetical grouping ("low-code/no-code (n8n/Make/Zapier)") marks the
+        # whole segment as one named concept with examples, not slash-separated
+        # alternatives — leave it intact rather than splitting on "/".
+        if "(" in segment or segment.lower() in _SLASH_COMPOUND_TERMS:
+            skills.append(segment)
+            return
+        for part in segment.split("/"):
+            token = part.strip()
+            if token:
+                skills.append(token)
+
     for char in raw:
         if char == "(":
             depth += 1
@@ -60,15 +93,11 @@ def _parse_tech_stack(raw: str) -> list[str]:
             depth -= 1
             current.append(char)
         elif char == "," and depth == 0:
-            token = "".join(current).strip()
-            if token:
-                skills.append(token)
+            flush_comma_segment()
             current = []
         else:
             current.append(char)
-    token = "".join(current).strip()
-    if token:
-        skills.append(token)
+    flush_comma_segment()
     return list(dict.fromkeys(skills))
 
 

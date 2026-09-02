@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "applyr"
-version = "1.13.0"
+version = "1.13.1"
 description = "CLI job application tracker designed for AI coding agents"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -74,4 +74,4 @@ fail_under = 75
 include = ["applyr*"]
 
 [tool.setuptools.package-data]
-applyr = ["templates/*"]
+applyr = ["templates/**/*"]
