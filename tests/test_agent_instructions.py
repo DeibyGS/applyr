@@ -10,11 +10,15 @@ import pytest
 
 from applyr import __version__
 from applyr.agent_instructions import (
+    INJECT_SEPARATOR,
     STAMP_PREFIX,
+    find_stamped_version,
     is_stale,
+    is_stale_version,
     packaged_instructions,
     stamp,
     stamped_version,
+    strip_stamped_block,
 )
 
 
@@ -73,6 +77,61 @@ class TestStaleness:
     def test_malformed_stamp_reads_as_stale(self, first_line):
         # Unparseable means unknown, and unknown must not be treated as current.
         assert is_stale(f"{first_line}\nbody")
+
+
+class TestFindStampedVersion:
+    """setup-agent injects instructions after whatever content a target file
+    (CLAUDE.md, AGENTS.md, .cursorrules) already has, so the stamp is never on
+    line 1 there — unlike the canonical ~/.applyr/AGENT_INSTRUCTIONS.md copy."""
+
+    def test_finds_stamp_after_other_content(self):
+        text = f"# My project\n\nsome rules\n\n{stamp('body')}"
+        assert find_stamped_version(text) == __version__
+
+    def test_returns_none_when_no_stamp_present(self):
+        assert find_stamped_version("# My project\n\nno applyr instructions here\n") is None
+
+    def test_returns_the_last_stamp_when_more_than_one(self):
+        text = f"{STAMP_PREFIX} 0.1.0 -->\nold block\n\n---\n\n{STAMP_PREFIX} 9.9.9 -->\nnew block\n"
+        assert find_stamped_version(text) == "9.9.9"
+
+
+class TestStripStampedBlock:
+    """Used by --force to replace a stale injected block in place instead of
+    appending a new copy behind it every time."""
+
+    def test_strips_the_block_and_its_separator(self):
+        text = f"# My project{INJECT_SEPARATOR}{stamp('old body')}"
+        assert strip_stamped_block(text) == "# My project"
+
+    def test_returns_text_unchanged_when_no_stamp_present(self):
+        text = "# My project\n\nno applyr instructions here\n"
+        assert strip_stamped_block(text) == text
+
+    def test_strips_only_the_last_block_when_more_than_one(self):
+        text = (
+            f"# My project{INJECT_SEPARATOR}{STAMP_PREFIX} 0.1.0 -->\nfirst"
+            f"{INJECT_SEPARATOR}{STAMP_PREFIX} 0.2.0 -->\nsecond"
+        )
+        assert strip_stamped_block(text) == f"# My project{INJECT_SEPARATOR}{STAMP_PREFIX} 0.1.0 -->\nfirst"
+
+    def test_handles_a_stamp_with_no_preceding_content(self):
+        assert strip_stamped_block(stamp("body")) == ""
+
+
+class TestIsStaleVersion:
+
+    def test_none_is_stale(self):
+        assert is_stale_version(None)
+
+    def test_older_version_is_stale(self):
+        assert is_stale_version("0.1.0")
+
+    def test_current_version_is_not_stale(self):
+        assert not is_stale_version(__version__)
+
+    def test_newer_version_is_not_stale(self):
+        assert not is_stale_version("99.0.0")
 
 
 class TestInit:
