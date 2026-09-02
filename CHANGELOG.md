@@ -4,6 +4,28 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.13.2] — 2026-09-02
+
+### Fixed
+
+- **`applyr setup-agent` permanently skipped re-injecting instructions into a target
+  project's CLAUDE.md/AGENTS.md/.cursorrules once that file already had any applyr
+  content** — a fuzzy substring check had no staleness detection at all, so every applyr
+  upgrade since a user's first `setup-agent` run silently left their project's copy frozen
+  at whatever version it started with. Confirmed live: this repo's own root `CLAUDE.md`
+  was stuck at the `v1.5.3` stamp while the installed package had moved to `v1.13.1`,
+  missing several major workflow revisions (the CV Architect/Writer/Fact Checker pipeline,
+  `cv verify`). Fixed by generalizing the existing version-stamp mechanism to detect a
+  stamp anywhere in an arbitrary target file, not just on line 1 of the canonical
+  `~/.applyr/AGENT_INSTRUCTIONS.md` copy.
+
+### Added
+
+- **`applyr setup-agent --force`** refreshes a stale or legacy (pre-stamping) instructions
+  block already injected into a project's AI config file. Replaces the stale block in
+  place rather than appending a new copy behind it, so repeated `--force` runs across
+  releases never accumulate more than one block.
+
 ## [1.12.2] — 2026-08-27
 
 ### Fixed
