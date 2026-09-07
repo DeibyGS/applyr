@@ -4,6 +4,24 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`applyr init`'s own `--help` line pointed `cv-master.md` at the wrong directory.**
+  `cv_master` has defaulted to `~/Documents/applyr/cv-master.md` since `cv_master`/
+  `output_dir` moved outside the dotfile config directory (so generated CVs and the
+  hand-edited profile show up in a normal file browser), but the one-line command
+  summary in `applyr --help` still said "starter cv-master.md" under `~/.applyr/` —
+  the actual file `init` creates was never there. An agent or user going by that line
+  (or by older docs/memory that said the same) could hand-create a second
+  `cv-master.md` at the stale path and keep editing it indefinitely: nothing in
+  `applyr` ever reads that path once config points elsewhere, and `doctor` only
+  checked the configured path, so it reported healthy while a maintained-looking
+  file sat right next to it doing nothing. Fixed the help text, and `doctor`'s CV
+  Master check now reports a non-blocking note when a second `cv-master.md` exists
+  at the legacy `~/.applyr/` default and differs from the one actually configured.
+
 ## [1.13.2] — 2026-09-02
 
 ### Fixed

@@ -120,6 +120,31 @@ class TestDoctorSummaryDoesNotContradictItself:
         assert "All checks passed." in out
 
 
+class TestStrayCvMaster:
+    """cv_master defaults outside APPLYR_DIR (see config.py) so it shows up in
+    a normal file browser. A file hand-created at the old in-dotfile default —
+    from stale docs, muscle memory, or an agent guessing — is never read again
+    by anything, and nothing else ever inspects that path to say so."""
+
+    def test_unused_file_at_legacy_path_is_a_note_not_an_issue(
+        self, doctor_home, tmp_path, capsys
+    ):
+        real_cv_master = tmp_path / "real" / "cv-master.md"
+        real_cv_master.parent.mkdir(parents=True)
+        real_cv_master.write_text("# CV Master\n\n" + "Real experience. " * 200)
+        (doctor_home / "applyr.toml").write_text(
+            f'[general]\nthreshold = 65\n[cv]\ncv_master = "{real_cv_master}"\n'
+        )
+        # Legacy default location — never read by get_cv_master_path() once
+        # config points elsewhere, but still sitting on disk.
+        (doctor_home / "cv-master.md").write_text("# stale copy, not the real one\n")
+
+        assert _run() == 0
+        out = capsys.readouterr().out
+        assert "unused cv-master.md also exists" in out
+        assert "note(s) to review" in out
+
+
 class TestDoctorSchemaForwardCompat:
     """A newer schema than the installed applyr is forward-compat, not an
     error — the report must say so plainly instead of reading like a bug."""

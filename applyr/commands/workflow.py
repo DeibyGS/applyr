@@ -227,6 +227,19 @@ def _check_cv_master() -> dict:
         return _issue("CV Master",
                       f"WARNING — {report.reason}",
                       f"Edit {cv_master} with your professional profile.")
+    # cv_master used to default inside APPLYR_DIR; a user or agent going by
+    # memory/old docs can still hand-create one there even though config now
+    # points elsewhere — edits to it are silently ignored, with nothing else
+    # in the codebase ever looking at that path again to say so.
+    stray = APPLYR_DIR / "cv-master.md"
+    if stray.exists() and stray.resolve() != cv_master.resolve():
+        return _note(
+            "CV Master",
+            f"OK ({cv_master}, {report.content_words} words) — but an unused "
+            f"cv-master.md also exists at {stray}",
+            f"applyr only reads {cv_master}. Edits to {stray} have no effect — "
+            "delete it or merge its content into the real file.",
+        )
     return _ok("CV Master", f"OK ({cv_master}, {report.content_words} words of content)")
 
 
