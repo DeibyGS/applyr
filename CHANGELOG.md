@@ -4,6 +4,29 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Evidence Graph parser behind `cv verify` silently discarded any cv-master.md
+  content written as a free-flowing paragraph instead of `-` bullets.** WORK
+  EXPERIENCE/PROJECTS/EDUCATION entries fell through to a "stray prose" branch that
+  only confirmed the entry existed — the actual sentence, and every metric or
+  technology named only in it, never became a checkable claim. This is not a rare
+  format: writing a project as "**Name** / Stack: ... / a paragraph describing it" is
+  at least as common as bullet lists, and `cv verify`'s whole value proposition is
+  being the deterministic, no-LLM-judgment gate — silently under-covering its own
+  claim graph while still reporting PASS/density numbers undermines exactly that.
+  Confirmed live: `83.67%` (a real test-coverage figure) was reported unsupported by
+  `cv verify` despite being right there in cv-master.md, because it only ever
+  appeared in prose. A second, unrelated project's metric passed purely by accident —
+  a stray colon earlier in the same wrapped line briefly triggered the (unrelated)
+  "labeled line" parser before the line wrapped and dropped the rest. Fixed by
+  buffering consecutive prose lines per entry and flushing them as one joined claim
+  (so a metric split across a soft line-wrap doesn't fragment in two), while still
+  skipping markdown horizontal rules (`---`) between entries so they don't get folded
+  into a neighboring paragraph's claim text.
+
 ## [1.13.3] — 2026-09-08
 
 ### Fixed

@@ -63,6 +63,9 @@ _ENTRY_SECTIONS = {"experience", "project", "education", "certification"}
 _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _BOLD_TITLE_RE = re.compile(r"^\*\*(.+?)\*\*")
 _BULLET_RE = re.compile(r"^[-*]\s+(.+)$")
+# A markdown horizontal rule ("---", "***", "___") between entries — not
+# prose, must not be folded into a paragraph claim.
+_HR_RE = re.compile(r"^[-*_]{3,}$")
 # "### Job Title" on its own line, with the employer/entry details on a
 # following (possibly bold) line — real-world cv-master.md files commonly
 # split title and employer this way rather than combining them in one
@@ -213,6 +216,19 @@ def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
     # becomes one "Title — Employer" context, matching how the single-line
     # "**Title — Employer**" form already reads.
     pending_heading: str | None = None
+    # Free-flowing paragraph lines for the entry currently being parsed —
+    # cv-master.md's PROJECTS entries are commonly written this way (a
+    # description paragraph, no bullets), and were previously dropped
+    # entirely as "stray prose", taking every metric/technology named only
+    # in that prose down with them. Joined with spaces and flushed as one
+    # claim per entry so a soft line-wrap mid-sentence (e.g. a percentage
+    # split across two physical lines) can't fragment a real fact in two.
+    prose_buffer: list[str] = []
+
+    def flush_prose() -> None:
+        if prose_buffer:
+            add_claim(" ".join(prose_buffer))
+            prose_buffer.clear()
 
     def flush_empty_entry() -> None:
         # An entry that produced zero claims (e.g. an EDUCATION entry that's
@@ -232,6 +248,7 @@ def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
 
     def start_entry(label: str, merge_pending: bool = True) -> None:
         nonlocal entry_context, entry_num, claim_num, pending_heading
+        flush_prose()
         flush_empty_entry()
         entry_num += 1
         claim_num = 0
@@ -294,12 +311,17 @@ def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
             add_claim(bullet_match.group(1).strip())
             continue
 
-        # Stray prose: not a claim itself, but still confirms a pending
-        # "### Title"-only entry so later lines in this block (e.g. a plain
-        # "Stack:" line further down) attach to it.
+        if _HR_RE.match(line):
+            continue
+
+        # Prose describing the current entry (no bullet/label structure) —
+        # also confirms a pending "### Title"-only entry so later lines in
+        # this block (e.g. a plain "Stack:" line further down) attach to it.
         ensure_started()
+        prose_buffer.append(line)
 
     ensure_started()  # a trailing lone "### Title" with nothing after it
+    flush_prose()
     flush_empty_entry()  # the section's last entry, if it produced nothing
     return claims
 

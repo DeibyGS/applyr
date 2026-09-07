@@ -80,9 +80,9 @@ class TestParseEntrySections:
     def test_entry_with_no_bullets_or_labels_still_produces_a_claim(self):
         # EDUCATION entries are often just "**Degree**" + a plain
         # institution/dates prose line, with no bullets and no "Stack:"-like
-        # labeled line. Without a fallback claim, entry_context would attach
-        # to nothing — invisible to any later check (e.g. cv.py's
-        # employer/title verification) even though it's a real fact.
+        # labeled line. Without capturing that prose line, entry_context
+        # would attach to nothing — invisible to any later check (e.g.
+        # cv.py's employer/title verification) even though it's a real fact.
         # Confirmed live against a real cv-master.md: "Máster en AI
         # Engineer" was silently unmatchable until this fix.
         profile = (
@@ -96,9 +96,11 @@ class TestParseEntrySections:
         contexts = {c.entry_context for c in claims}
         assert "Grado Superior — DAM" in contexts
         assert "Máster en AI Engineer" in contexts
-        # The synthetic claim's own text is the entry title itself.
+        # The institution/dates prose line is captured as the claim text —
+        # more informative than the synthetic title-only fallback this used
+        # to fall back to before prose lines were captured at all.
         master_claim = next(c for c in claims if c.entry_context == "Máster en AI Engineer")
-        assert master_claim.text == "Máster en AI Engineer"
+        assert master_claim.text == "The Power · Madrid · 08/2026 – en curso"
 
     def test_bullet_before_any_bold_title_gets_null_context(self):
         # CERTIFICATIONS in the sample has no bold-title entries at all.
@@ -142,7 +144,10 @@ class TestParserTolerance:
         assert all(c.section != "certification" for c in claims)
         assert len(claims) == 1
 
-    def test_stray_prose_line_is_ignored_not_crash(self):
+    def test_leading_prose_before_any_entry_is_captured_unattributed(self):
+        # Prose appearing before the first "**Title**" has no entry to
+        # attach to yet — captured anyway (entry_context=None) rather than
+        # discarded, so it's still checkable, just not tied to one entry.
         profile = (
             "## WORK EXPERIENCE\n\n"
             "Some leftover prose that matches no pattern.\n"
@@ -150,8 +155,11 @@ class TestParserTolerance:
             "- Built APIs\n"
         )
         claims = parse_evidence(profile)
-        assert len(claims) == 1
-        assert claims[0].text == "Built APIs"
+        assert len(claims) == 2
+        assert claims[0].text == "Some leftover prose that matches no pattern."
+        assert claims[0].entry_context is None
+        assert claims[1].text == "Built APIs"
+        assert claims[1].entry_context == "Backend Developer — Acme"
 
     def test_leftover_template_ellipsis_line_is_ignored(self):
         profile = "## TECHNICAL SKILLS\n...\nPython, FastAPI\n"
@@ -256,6 +264,49 @@ class TestRealWorldStructureVariants:
             assert is_evidenced(term, claims), f"{term} should be evidenced"
         assert is_evidenced("Kubernetes", claims) is False
 
+    def test_project_paragraph_prose_is_evidenced_not_dropped(self):
+        # PROJECTS entries are commonly a "### Name" + description paragraph,
+        # no bullets at all — confirmed live: 83.67% written this way in a
+        # real cv-master.md was reported as unsupported by `cv verify` even
+        # though it was right there, because prose was previously discarded.
+        profile = (
+            "## PROJECTS\n\n"
+            "### EvolutFit\n"
+            "Stack: Node.js, React Native\n"
+            "Tracking app with a Node.js backend shared by web and mobile.\n"
+            "55 tests with Vitest, 83.67% line coverage (80% threshold in CI).\n"
+        )
+        claims = parse_evidence(profile)
+        assert is_evidenced("83.67%", claims)
+
+    def test_paragraph_split_across_a_line_wrap_is_joined_before_matching(self):
+        # A metric can fall right at a soft line-wrap in the source
+        # markdown — the two physical lines must be joined into one claim,
+        # not left as two fragments neither of which contains the full
+        # metric.
+        profile = (
+            "## PROJECTS\n\n"
+            "**ClaudeStat**\n"
+            "Monitors +450 agent sessions a month, 58M+ tokens with 99% of\n"
+            "cache-hit rate.\n"
+        )
+        claims = parse_evidence(profile)
+        assert is_evidenced("99%", claims)
+        assert is_evidenced("cache-hit", claims)
+
+    def test_horizontal_rule_between_entries_is_not_folded_into_prose(self):
+        profile = (
+            "## PROJECTS\n\n"
+            "**ProjectA**\n"
+            "Some description of project A.\n"
+            "\n"
+            "---\n"
+            "\n"
+            "**ProjectB**\n"
+            "Some description of project B.\n"
+        )
+        claims = parse_evidence(profile)
+        assert not any("---" in c.text for c in claims)
 
 TABLE_CERTIFICATIONS_PROFILE = """\
 ## WORK EXPERIENCE
