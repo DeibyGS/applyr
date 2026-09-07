@@ -42,7 +42,7 @@ applyr v{__version__} — CLI job application tracker for AI coding agents
 Usage: applyr <command> [options]
 
 Commands:
-  init                          Set up ~/.applyr/ (config, database) and starter cv-master.md
+  init                          Set up ~/.applyr/ (config, database) and cv-master.md (default: ~/Documents/applyr/)
   setup-agent [--agent NAME] [--global] [--force]  Configure AI agent (--force refreshes stale instructions)
   add '<json>' [--force]        Register a new job offer (--force skips duplicate check)
   list [--status S] [--sort F]  List offers (--sort: score|date|company|status|id)
