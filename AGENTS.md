@@ -152,6 +152,15 @@ needs a PyPI token that isn't stored here. Requires a one-time trusted publisher
 registered on pypi.org (project owner, not automated) — see `.claude/CLAUDE.md`
 Versioning section for the exact values.
 
+**Release flow — use the dedicated command, not the generic git flow.** In Claude Code,
+run `/git-applyr release` (project-scoped command, `.claude/commands/git-applyr.md`) for
+the full version bump → CHANGELOG → tag → publish sequence — never the general-purpose
+`/git` skill for that, it only handles regular commit/push/pr/merge. In OpenCode or any
+tool without that command, follow the same steps by hand: bump `pyproject.toml` +
+`applyr/__init__.py` to the same version, add a `CHANGELOG.md` entry, PR + merge to
+`main`, `git tag vX.Y.Z`, then `gh release create vX.Y.Z` — the tag alone does not
+publish anything, only the GitHub Release does.
+
 ## Environment Variables
 
 | Variable | Required | Description |
