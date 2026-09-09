@@ -4,6 +4,19 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.13.5] — 2026-09-09
+
+### Fixed
+
+- **Step 7 of `AGENT_INSTRUCTIONS.md` told the agent to present the `cv pdf` command
+  instead of running it**, which in practice meant an agent that had already generated,
+  reviewed, and grounding-verified (`cv verify` PASS) a CV would still stop to ask
+  "generate the PDF now, or move to another offer?" — friction at the very last step of
+  the pipeline, after every real confirmation gate (Step 4's apply/skip decision, Step
+  6's generate-confirmation) had already passed. Step 7 now runs `applyr cv pdf
+  <path-to-file>` immediately on reaching PASS and delivers the resulting PDF, with an
+  explicit instruction not to ask again.
+
 ## [1.13.4] — 2026-09-08
 
 ### Fixed
