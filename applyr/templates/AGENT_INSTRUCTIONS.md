@@ -359,12 +359,25 @@ without re-parsing anything.
 
 ### Step 7 — Deliver
 
+Once `cv verify` reaches PASS, generate the PDF immediately:
+
+```bash
+applyr cv pdf <path-to-file>
+```
+
+**Do not ask "should I generate the PDF now?" or "do you want the PDF or should we
+review another offer first?" before running this.** Reaching a verified, READY TO SEND
+CV is already the user's signal they want the deliverable — the real confirmation gates
+already happened earlier (Step 4's apply/skip decision, Step 6's generate-confirmation).
+Asking again at this last step, after every prior gate already passed, is friction with
+no safety value — the user is waiting for a file to send, not a question to answer.
+
 Present the final CV with:
 1. ATS compatibility score from last review
 2. `cv verify` result (PASS, with claim count)
 3. Changes made during iterations (if any)
 4. Remaining recommendations
-5. PDF generation command: `applyr cv pdf <path-to-html>`
+5. The generated PDF, delivered to the user
 
 ## Agent response format
 
