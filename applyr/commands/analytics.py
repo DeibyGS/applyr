@@ -206,7 +206,22 @@ def cmd_stats(as_json: bool = False) -> None:
     try:
         total = conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0]
         if total == 0:
-            print("No offers in the database yet.")
+            # Same early-return bug `followups` had: `stats --json` on an empty
+            # database printed a sentence, so the agent's first call on a fresh
+            # install hit a JSONDecodeError. Emit the normal payload, zeroed.
+            if as_json:
+                calibration, _ = _score_calibration(conn)
+                print(json.dumps({
+                    "total": 0, "pending": 0, "discarded": 0,
+                    "avg_compatibility_pct": 0.0,
+                    "avg_compatibility_pct_excluded_unknown_weights": 0,
+                    "funnel": {"applied": 0, "responded": 0, "interview": 0, "offer": 0},
+                    "channels": {}, "work_modes": {},
+                    "score_calibration": calibration,
+                    "excluded_unknown_weights": 0,
+                }, indent=2))
+            else:
+                print("No offers in the database yet.")
             return
 
         discarded = conn.execute("SELECT COUNT(*) FROM offers WHERE status = 'discarded'").fetchone()[0]
