@@ -4,6 +4,15 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `applyr summary` (text and `--json`) now includes the all-time score calibration —
+  outcome rates per APPLY / MAYBE / LOW MATCH band — using the same data and minimum
+  sample as `stats`, so the two can never disagree. `--json` adds `score_calibration`,
+  `score_calibration_excluded_unknown_weights` and `calibration_min_sample`.
+
 ## [1.18.0] — 2026-09-24
 
 ### Added
