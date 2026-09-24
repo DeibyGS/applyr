@@ -76,7 +76,9 @@ dependency.
   `.github/copilot-instructions.md`, `.windsurfrules` and `.clinerules` respectively,
   creating parent directories when needed.
 - `[MUST]` AC-14: `--agent cursor` SHALL write `.cursor/rules/applyr.mdc` with its
-  `alwaysApply` frontmatter.
+  `alwaysApply` frontmatter. (Clarified during implementation: when `.cursor/rules` is
+  an old single *file*, it is appended to as before — a directory cannot be created
+  over it, and existing behavior already covered it.)
 - `[MUST]` AC-15: IF a project `.cursorrules` exists THEN `--agent cursor` SHALL warn
   that Cursor is phasing it out and leave it untouched.
 - `[MUST]` AC-16: `--global --agent cursor` SHALL exit with `invalid_value` and explain

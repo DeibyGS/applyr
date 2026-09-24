@@ -22,9 +22,22 @@ text before and after it.
 
 ```bash
 applyr setup-agent                # Auto-detect
-applyr setup-agent --agent claude # Specify: claude | cursor | opencode | generic
+applyr setup-agent --agent claude # Specify an agent (table below)
 applyr setup-agent --force        # Refresh a stale block in place
 ```
+
+| `--agent` | Project file | `--global` |
+|-----------|--------------|------------|
+| `claude` | `CLAUDE.md` (or an existing `.claude/CLAUDE.md`) | `~/.claude/CLAUDE.md` |
+| `cursor` | `.cursor/rules/applyr.mdc` (`alwaysApply` frontmatter) | — (use Cursor's settings) |
+| `gemini` | `GEMINI.md` | `~/.gemini/GEMINI.md` |
+| `copilot` | `.github/copilot-instructions.md` | — |
+| `windsurf` | `.windsurfrules` | — |
+| `cline` | `.clinerules` | — |
+| `opencode` | `AGENTS.md` | `~/.config/opencode/AGENTS.md` |
+| `generic` | `AGENTS.md` | — |
+
+A legacy `.cursorrules` is detected and warned about but never modified.
 
 ### `applyr add '<json>'`
 

@@ -19,10 +19,10 @@ Each PR is opened only after the previous one is merged to `main` (lesson from #
 - [x] T8 — Wheel ships `AGENT_CORE.md`; docs + CHANGELOG (Changed) [S] — Depends on: T4–T7
 
 ## PR 3 — New and corrected targets
-- [ ] T9 — Gemini / Copilot / Windsurf / Cline targets + detection [M] — implements AC-13, AC-18 — Depends on: PR 2
-- [ ] T10 — Cursor `.mdc` always, `.cursorrules` warning, `--global cursor` error [S] — implements AC-14, AC-15, AC-16 — Depends on: PR 2
-- [ ] T11 — `--global` table: claude, claude-skill (reserved), gemini, opencode [S] — implements AC-17 — Depends on: T9
-- [ ] T12 — Docs + CHANGELOG [S] — Depends on: T9–T11
+- [x] T9 — Gemini / Copilot / Windsurf / Cline targets + detection [M] — implements AC-13, AC-18 — Depends on: PR 2
+- [x] T10 — Cursor `.mdc` always, `.cursorrules` warning, `--global cursor` error [S] — implements AC-14, AC-15, AC-16 — Depends on: PR 2
+- [x] T11 — `--global` table: claude, gemini, opencode (claude-skill joins in PR 4) [S] — implements AC-17 — Depends on: T9
+- [x] T12 — Docs + CHANGELOG [S] — Depends on: T9–T11
 
 ## PR 4 — Claude Code skill
 - [ ] T13 — `claude-skill` target: frontmatter + stamped core, whole-file write, never auto-detected [M] — implements AC-19, AC-20, AC-21 — Depends on: PR 3
