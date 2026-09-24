@@ -290,9 +290,6 @@ def cmd_stats(as_json: bool = False) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
-    def _pct(num, denom):
-        return f"{round(num / denom * 100)}%" if denom else "—"
-
     print("\n--- Stats ---\n")
     print(f"  Total offers    : {total}")
     print(f"  Pending         : {pending}")
@@ -321,28 +318,42 @@ def cmd_stats(as_json: bool = False) -> None:
         print(f"    Max : {sal[1]:,}")
         print(f"    Avg : {round(sal[2]):,}")
 
-    if any(b["total"] for b in calibration.values()) or excluded_unknown_weights:
-        print(f"\n  Score Calibration (does a higher score predict a better outcome?):")
-        for key in ("apply", "maybe", "low_match"):
-            band = calibration[key]
-            if band["total"] == 0:
-                continue
-            if band["total"] < CALIBRATION_MIN_SAMPLE:
-                print(f"    {band['label']:<10} {band['total']} applied — not enough data yet (need {CALIBRATION_MIN_SAMPLE}+)")
-            else:
-                print(
-                    f"    {band['label']:<10} {band['total']:>3} applied  "
-                    f"{_pct(band['responded'], band['total'])} responded  "
-                    f"{_pct(band['interview'], band['total'])} interview  "
-                    f"{_pct(band['offer'], band['total'])} offer"
-                )
-        if excluded_unknown_weights:
-            print(
-                f"    {excluded_unknown_weights} offer(s) excluded from calibration "
-                "(scored before weight tracking or via manual override)"
-            )
+    _print_calibration(calibration, excluded_unknown_weights)
 
     print()
+
+
+def _pct(num: int, denom: int) -> str:
+    return f"{round(num / denom * 100)}%" if denom else "—"
+
+
+def _print_calibration(calibration: dict, excluded_unknown_weights: int, scope: str = "") -> None:
+    """Per-band outcome rates — shared by `stats` and `summary` so they never disagree.
+
+    A band under CALIBRATION_MIN_SAMPLE prints "not enough data" instead of a
+    rate: 1 response out of 2 is not evidence that a score band predicts anything.
+    """
+    if not any(b["total"] for b in calibration.values()) and not excluded_unknown_weights:
+        return
+    print(f"\n  Score Calibration{scope} (does a higher score predict a better outcome?):")
+    for key in ("apply", "maybe", "low_match"):
+        band = calibration[key]
+        if band["total"] == 0:
+            continue
+        if band["total"] < CALIBRATION_MIN_SAMPLE:
+            print(f"    {band['label']:<10} {band['total']} applied — not enough data yet (need {CALIBRATION_MIN_SAMPLE}+)")
+        else:
+            print(
+                f"    {band['label']:<10} {band['total']:>3} applied  "
+                f"{_pct(band['responded'], band['total'])} responded  "
+                f"{_pct(band['interview'], band['total'])} interview  "
+                f"{_pct(band['offer'], band['total'])} offer"
+            )
+    if excluded_unknown_weights:
+        print(
+            f"    {excluded_unknown_weights} offer(s) excluded from calibration "
+            "(scored before weight tracking or via manual override)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -653,6 +664,10 @@ def cmd_summary(as_json: bool = False) -> None:
             (week_start, week_end),
         ).fetchall()
         work_modes = {r["work_mode"]: r["cnt"] for r in modes_rows}
+
+        # All-time, not weekly: a week's handful of outcomes says nothing about
+        # whether the score predicts them (audit Phase 5.3).
+        calibration, calibration_excluded = _score_calibration(conn)
     finally:
         conn.close()
 
@@ -673,6 +688,9 @@ def cmd_summary(as_json: bool = False) -> None:
             "top_skill_gap": top_gap,
             "channels": channels_used,
             "work_modes": work_modes,
+            "score_calibration": calibration,
+            "score_calibration_excluded_unknown_weights": calibration_excluded,
+            "calibration_min_sample": CALIBRATION_MIN_SAMPLE,
         }
         print(json.dumps(payload, indent=2))
     else:
@@ -688,6 +706,7 @@ def cmd_summary(as_json: bool = False) -> None:
         if work_modes:
             wm_str = ", ".join(f"{k}: {v}" for k, v in work_modes.items())
             print(f"  Work modes           : {wm_str}")
+        _print_calibration(calibration, calibration_excluded, scope=" — all time")
         print()
 
 
