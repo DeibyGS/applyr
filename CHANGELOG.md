@@ -4,7 +4,7 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.17.0] — 2026-09-24
 
 ### Added
 
@@ -25,6 +25,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
+- **`setup-agent` injects a compact core block (~80 lines) instead of the full
+  565-line instructions.** The core keeps the rules an agent must never skip: never
+  invent, `applyr next`, `cv verify`, and the points where it must stop for the user.
+  The rest is read on demand with `applyr guide`. Existing blocks change only when you
+  refresh them with `applyr setup-agent --agent <name> --force`. The full document
+  still lives in the package and in `~/.applyr/AGENT_INSTRUCTIONS.md`.
 - **`setup-agent --agent cursor` always writes `.cursor/rules/applyr.mdc`**, with
   `alwaysApply` frontmatter, even when detection found a legacy `.cursorrules`. That
   file now only gets a warning and is never modified. An old single-file
@@ -32,12 +38,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **`setup-agent --global --agent cursor` is refused** and points to Cursor's settings.
   It used to write `~/.cursorrules`, a file Cursor never reads, so global Cursor setup
   silently did nothing.
-- **`setup-agent` injects a compact core block (~80 lines) instead of the full
-  565-line instructions.** The core keeps the rules an agent must never skip: never
-  invent, `applyr next`, `cv verify`, and the points where it must stop for the user.
-  The rest is read on demand with `applyr guide`. Existing blocks change only when you
-  refresh them with `applyr setup-agent --agent <name> --force`. The full document
-  still lives in the package and in `~/.applyr/AGENT_INSTRUCTIONS.md`.
 
 ### Fixed
 
