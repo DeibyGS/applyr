@@ -211,3 +211,43 @@ class TestMatchKeywords:
         keywords = ["python", "react"]
         report = match_keywords(cv, keywords)
         assert report.match_rate == 100.0
+
+    @pytest.mark.parametrize("keyword", ["go", "java", "r"])
+    def test_short_keyword_inside_another_word_is_not_a_match(self, keyword):
+        report = match_keywords("Google Cloud and JavaScript for React", [keyword])
+        assert report.match_rate == 0.0
+
+    def test_symbol_suffixed_terms_still_match(self):
+        report = match_keywords("C++ and Node.js services", ["c++", "node.js"])
+        assert report.match_rate == 100.0
+
+    def test_alias_counts_as_the_keyword(self):
+        report = match_keywords("Deployed on Amazon Web Services with JS", ["aws", "javascript"])
+        assert report.match_rate == 100.0
+
+    def test_work_mode_in_title_is_not_a_keyword(self):
+        assert "remote" not in extract_keywords({"title": "Python Developer (Remote)"})
+
+    def test_accents_are_ignored_both_ways(self):
+        report = match_keywords("Gestión de proyectos y automatizacion", ["gestion", "automatización"])
+        assert report.match_rate == 100.0
+        assert "Gestión" in report.matched[0].context
+
+    def test_trailing_version_digit_still_matches(self):
+        report = match_keywords("HTML5, CSS3 and Java8", ["html", "css", "java"])
+        assert report.match_rate == 100.0
+
+    def test_bracketed_tech_stack_item_stays_whole(self):
+        keywords = extract_keywords({"tech_stack": "Python, GenAI tools (ChatGPT, Copilot)"})
+        assert "genai tools (chatgpt, copilot)" in keywords
+
+    @pytest.mark.parametrize("keyword", ["c", "r"])
+    def test_one_letter_keyword_does_not_match_language_levels(self, keyword):
+        assert match_keywords("English (C1), German R2", [keyword]).match_rate == 0.0
+
+    def test_context_is_not_shifted_by_length_changing_characters(self):
+        import unicodedata
+        text = unicodedata.normalize("NFD", "Gestión… ACME™ ") + "x" * 40 + " Python"
+        report = match_keywords(text, ["python"])
+        assert report.matched[0].context.endswith("Python...")
+

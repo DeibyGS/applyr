@@ -7,6 +7,7 @@ rules. Unsupported syntax causes die() with a stable error code.
 See docs/adr/008-md-first-cv-pipeline.md for the rationale.
 """
 
+import html
 import re
 from pathlib import Path
 
@@ -24,11 +25,19 @@ _INLINE_TAGS = {
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _ITALIC_RE = re.compile(r"\*(.+?)\*")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_FRONTMATTER_RE = re.compile(r"---\r?\n.*?\r?\n---[ \t]*(?:\r?\n|$)", re.DOTALL)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _INLINE_RE = re.compile(
     r"(?P<strong>\*\*(.+?)\*\*)"
     r"|(?P<em>\*(.+?)\*)"
     r"|(?P<link>\[([^\]]+)\]\(([^)]+)\))"
 )
+
+
+def _escape_text(value: str) -> str:
+    """Escape CV text for HTML: "List<T>", "R&D" or a stray "<br>" used to
+    reach Chrome as markup — dropped text or broken layout in the PDF."""
+    return html.escape(value, quote=False)
 
 
 def _convert_inline(text: str) -> str:
@@ -37,18 +46,18 @@ def _convert_inline(text: str) -> str:
     pos = 0
     for m in _INLINE_RE.finditer(text):
         # Add text before match
-        result.append(text[pos:m.start()])
+        result.append(_escape_text(text[pos:m.start()]))
 
         if m.group("strong"):
-            result.append(f"<strong>{m.group(2)}</strong>")
+            result.append(f"<strong>{_escape_text(m.group(2))}</strong>")
         elif m.group("em"):
-            result.append(f"<em>{m.group(4)}</em>")
+            result.append(f"<em>{_escape_text(m.group(4))}</em>")
         elif m.group("link"):
-            result.append(f'<a href="{m.group(7)}">{m.group(6)}</a>')
+            result.append(f'<a href="{html.escape(m.group(7))}">{_escape_text(m.group(6))}</a>')
 
         pos = m.end()
 
-    result.append(text[pos:])
+    result.append(_escape_text(text[pos:]))
     return "".join(result)
 
 
@@ -171,10 +180,15 @@ def render_markdown_file_to_html(md_path: str) -> str:
     """
     content = read_text_or_die(Path(md_path))
 
-    # Strip YAML frontmatter
-    if content.startswith("---"):
-        end = content.find("---", 3)
-        if end != -1:
-            content = content[end + 3:].lstrip("\n")
+    # Strip YAML frontmatter. The closing fence is a line of its own —
+    # `find("---", 3)` stopped at a "---" inside a frontmatter value.
+    frontmatter = _FRONTMATTER_RE.match(content)
+    if frontmatter:
+        content = content[frontmatter.end():].lstrip("\n")
+
+    # `cv generate`'s TAILOR/LANGUAGE scaffold comments are not CV content.
+    # They used to pass through as raw HTML comments; now that text is
+    # escaped they would print as visible text, so they go before rendering.
+    content = _HTML_COMMENT_RE.sub("", content)
 
     return render_markdown_to_html(content)

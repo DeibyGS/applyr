@@ -5,7 +5,9 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
+from applyr.constants import PROTECTED_FACT_ALIASES
 from applyr.errors import error
+from applyr.evidence import fold_accents, split_tokens
 
 # Punctuation that wraps a title word rather than being part of it — parens,
 # brackets, quotes (straight and curly). Deliberately NOT string.punctuation:
@@ -210,7 +212,8 @@ def extract_keywords(offer_data: dict) -> list[str]:
     # From tech_stack
     tech_stack = offer_data.get("tech_stack", "")
     if tech_stack:
-        for kw in tech_stack.split(","):
+        # Bracket-aware: "GenAI tools (ChatGPT, Copilot)" is one keyword.
+        for kw in split_tokens(tech_stack):
             kw = kw.strip().lower()
             if kw:
                 keywords.add(kw)
@@ -219,13 +222,60 @@ def extract_keywords(offer_data: dict) -> list[str]:
     title = offer_data.get("title", "")
     if title:
         # Common words to skip
-        skip_words = {"developer", "engineer", "senior", "junior", "mid", "full", "stack", "the", "and", "or"}
+        # Work-mode words describe the job, not a skill the CV should contain.
+        skip_words = {"developer", "engineer", "senior", "junior", "mid", "full", "stack", "the", "and", "or",
+                      "remote", "remoto", "hybrid", "hibrido", "híbrido", "onsite", "presencial"}
         for word in title.split():
             word_lower = word.lower().strip(_TITLE_WRAPPING_PUNCTUATION)
             if word_lower not in skip_words and len(word_lower) > 2:
                 keywords.add(word_lower)
 
     return sorted(keywords)
+
+
+# Lowercased spelling -> every spelling of the same term ("js" -> JavaScript).
+_KEYWORD_FORMS: dict[str, list[str]] = {}
+for _canonical, _aliases in PROTECTED_FACT_ALIASES.items():
+    _forms = [_canonical, *_aliases]
+    for _form in _forms:
+        _KEYWORD_FORMS[_form.lower()] = _forms
+
+
+def _find_keyword(cv_content: str, keyword: str) -> tuple[int, int] | None:
+    """First whole-term occurrence of `keyword` (or an alias) in the CV.
+
+    A plain substring test reported "go" found in "Google", "java" in
+    "JavaScript" and "r" in almost anything — a 100% match rate for a CV
+    that mentions none of them. The lookarounds require the term to stand
+    alone, while still allowing symbol-suffixed terms like "C++" or "Node.js"
+    (same boundary rule as evidence.is_evidenced). Accents are folded on
+    both sides: an offer asking for "gestion" matches a CV that writes
+    "gestión". Returns (start, end) offsets into the ORIGINAL text: folding
+    can change length ("…" -> "...", "™" -> "TM", NFD input shrinks), so the
+    match is mapped back through `_fold_with_offsets`.
+    """
+    folded_cv, offsets = _fold_with_offsets(cv_content)
+    for form in _KEYWORD_FORMS.get(keyword.lower(), [keyword]):
+        # A trailing version digit still counts ("HTML" in "HTML5", "CSS" in
+        # "CSS3"); a trailing letter does not ("Java" in "JavaScript"). Not
+        # for 1-2 letter terms: "C" would match "English (C1)", "R" "R2".
+        tail = r'(?![A-Za-z])' if len(form) >= 3 else r'(?![A-Za-z0-9])'
+        pattern = rf'(?<![A-Za-z0-9]){re.escape(fold_accents(form))}{tail}'
+        hit = re.search(pattern, folded_cv, re.IGNORECASE)
+        if hit:
+            return offsets[hit.start()], offsets[hit.end() - 1] + 1
+    return None
+
+
+def _fold_with_offsets(text: str) -> tuple[str, list[int]]:
+    """Accent-folded text plus, per folded character, its index in `text`."""
+    folded: list[str] = []
+    offsets: list[int] = []
+    for index, char in enumerate(text):
+        piece = fold_accents(char)
+        folded.append(piece)
+        offsets.extend([index] * len(piece))
+    return "".join(folded), offsets
 
 
 def match_keywords(cv_content: str, keywords: list[str]) -> KeywordReport:
@@ -238,17 +288,14 @@ def match_keywords(cv_content: str, keywords: list[str]) -> KeywordReport:
     Returns:
         KeywordReport with matched, missing, and extra keywords
     """
-    cv_lower = cv_content.lower()
     matched = []
     missing = []
 
     for kw in keywords:
-        kw_lower = kw.lower()
-        if kw_lower in cv_lower:
-            # Find context
-            idx = cv_lower.find(kw_lower)
-            start = max(0, idx - 30)
-            end = min(len(cv_content), idx + len(kw) + 30)
+        hit = _find_keyword(cv_content, kw)
+        if hit:
+            start = max(0, hit[0] - 30)
+            end = min(len(cv_content), hit[1] + 30)
             context = cv_content[start:end].replace('\n', ' ').strip()
             matched.append(KeywordMatch(keyword=kw, found=True, context=f"...{context}..."))
         else:
