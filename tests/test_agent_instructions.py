@@ -120,8 +120,11 @@ class TestSplitStampedBlock:
         assert split_stamped_block(text).head == text
 
     def test_older_blocks_are_dropped_keeping_text_between_them(self):
+        # Built outside the f-string: a backslash inside an f-string expression is a
+        # SyntaxError before Python 3.12, and CI still runs 3.11.
+        older = with_end_marker(f"{STAMP_PREFIX} 0.1.0 -->\nfirst")
         text = (
-            f"# My project{INJECT_SEPARATOR}{with_end_marker(f'{STAMP_PREFIX} 0.1.0 -->\nfirst')}"
+            f"# My project{INJECT_SEPARATOR}{older}"
             f"\n\nbetween{INJECT_SEPARATOR}{STAMP_PREFIX} 0.2.0 -->\nsecond"
         )
         assert split_stamped_block(text).head == f"# My project{INJECT_SEPARATOR}between"
