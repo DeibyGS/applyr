@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from applyr.constants import CV_REVIEW_MAX_ITERATIONS, CV_REVIEW_MINOR_MIN, CV_REVIEW_READY_MIN
 from applyr.errors import die
+from applyr.eligibility import block_reason, load_stored
 from applyr.scoring import recommendation_for
 
 # Statuses past the point where there is a next pipeline step to take.
@@ -142,9 +143,14 @@ def derive_next(
                      "Ask the user whether to apply. If yes, run 'applyr cv review-blind "
                      f"{offer_id}', execute its prompt, then record the score.",
                      needs_user_confirmation=True)
-        if recommendation_for(offer["compatibility_pct"] or 0, config) == "low_match":
+        eligibility = load_stored(offer.get("eligibility_result"))
+        if recommendation_for(offer["compatibility_pct"] or 0, config, eligibility) == "low_match":
+            # ADR-017: a knocked-out offer names the requirement it failed.
+            reason = block_reason(eligibility)
+            label = f"LOW MATCH (failed requirement: {reason})" if reason else "LOW MATCH"
+            notes = "Failed eligibility requirement" if reason else "Below threshold"
             step["warnings"].append(
-                f"LOW MATCH — suggest archiving: applyr update {offer_id} discarded --notes \"Below threshold\"")
+                f"{label} — suggest archiving: applyr update {offer_id} discarded --notes \"{notes}\"")
         return step
 
     if cv_path is None or cv_mtime is None:
