@@ -11,7 +11,7 @@ from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, PROTECTED_FACT_ALIASES
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
-from applyr.evidence import is_evidenced, parse_evidence
+from applyr.evidence import fold_accents, is_evidenced, parse_evidence
 from applyr.scoring import build_tailoring_plan, tailoring_plan_to_json
 
 
@@ -775,8 +775,11 @@ def _strip_frontmatter(md: str) -> str:
     """
     if not md.startswith("---"):
         return md
-    end = md.find("---", 3)
-    return md[end + 3:].lstrip("\n") if end != -1 else md
+    # The closing fence is a line of its own. `md.find("---", 3)` stopped at
+    # the first "---" anywhere — an offer summary containing one ended the
+    # frontmatter early and leaked offer metadata into the checked CV text.
+    match = re.match(r'---\r?\n.*?\r?\n---[ \t]*(?:\r?\n|$)', md, re.DOTALL)
+    return md[match.end():].lstrip("\n") if match else md
 
 
 def _strip_html_comments(text: str) -> str:
@@ -792,10 +795,12 @@ def _strip_html_comments(text: str) -> str:
     return re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
 
 
-def _parse_markdown_for_review(md: str) -> str:
+def _parse_markdown_for_review(md: str, max_chars: int | None = _MAX_CV_TEXT_CHARS) -> str:
     """Parse markdown content for CV review, extracting readable text.
 
     Strips YAML frontmatter and HTML comments, converts markdown to plain text.
+    `max_chars` caps prompt size for the review commands; `cv verify` passes
+    None, because a claim past the cap would otherwise never be checked.
     """
     md = _strip_frontmatter(md)
     text = _strip_html_comments(md)
@@ -818,7 +823,7 @@ def _parse_markdown_for_review(md: str) -> str:
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = text.strip()
 
-    return text[:_MAX_CV_TEXT_CHARS]
+    return text[:max_chars] if max_chars else text
 
 
 def _extract_offer_context_from_md(md: str) -> str:
@@ -907,10 +912,34 @@ Be specific. Reference exact lines from the CV. Do not be vague."""
 # just "5x" (the leading "2." was left outside the match entirely), so a
 # fabricated "2.5x" could pass by coincidentally substring-colliding with an
 # unrelated real "15x"/"25x" elsewhere — confirmed live via /code-review.
-_METRIC_RE = re.compile(r'\$\d[\d,]*(?:\.\d+)?|\d+(?:\.\d+)?%|\d+(?:\.\d+)?x\b', re.IGNORECASE)
+#
+# Widened after the 2026-09 audit: "10,000 users", "3M requests", "5+ years",
+# "35 % faster", "€40K" and "3×" all slipped through the old pattern (only
+# `$N`, `N%`, `Nx`), while the review rubric pushes for a number in 70% of
+# bullets — so the checker missed exactly the numbers it was asking for.
+# Every number must start a token — `(?<![\w.])` — or "ES6+" read as "6+" and
+# "v2.5x" as "2.5x" (the first found on a real CV). A "+N" followed by more
+# digits — after a space, ")" "-" or "." — is a phone number, not a metric.
+_METRIC_RE = re.compile(
+    r'[$€£]\s?\d+(?:[.,]\d+)*(?:[kmb](?![a-z0-9]))?'              # money: $40K, € 1.200
+    r'|(?<![\w.])(?:'
+    r'\d+(?:[.,]\d+)?\s?%'                                        # 42%, 35 %, 2,5%
+    r'|\d+(?:[.,]\d+)?\s?(?:x\b|×)'                               # 2.5x, 3×
+    r'|\d+(?:[.,]\d+)?[kmb](?![a-z0-9])\+?'                        # 3M, 3.4K, 58M+
+    r'|\d{1,3}(?:[.,]\d{3})+\+?'                                   # 10,000 / 28.600
+    r'|\d+\+'                                                       # 158+, 5+
+    r')'
+    r'|(?<![\w.])\+\d+(?![\s)\-.]*\d)',                              # +450, not (+34) 674
+    re.IGNORECASE,
+)
 # The CV skeleton's per-entry headings ("### [Job Title] - [Company], ...",
 # "### [Project Name]") — see cmd_cv_generate's template below.
 _ENTRY_HEADING_RE = re.compile(r'^###\s+(.+)$', re.MULTILINE)
+# A `[...]` left in the CV body: the skeleton's own placeholders ("[FULL
+# NAME]", "[Achievement with measurable impact]") or one an agent invented.
+# Markdown links (`[text](url)`) are excluded. Nothing checked for these
+# before, so an unfilled skeleton passed verify and was rendered to PDF.
+_PLACEHOLDER_RE = re.compile(r'\[[^\[\]]{2,300}\](?!\()')
 # Legacy .html CVs (ADR-008: .md is the primary format, .html stays
 # read-compatible) render the same entries as "<h3>...</h3>" — confirmed
 # via /code-review that applying the markdown-only regex above to raw .html
@@ -942,6 +971,9 @@ _HEADING_STOPWORDS = frozenset({
     "administrador", "administradora", "tecnico", "técnico",
     "de", "la", "el", "en", "un", "una", "y", "o", "a",
 })
+
+
+_FOLDED_HEADING_STOPWORDS = frozenset(fold_accents(w) for w in _HEADING_STOPWORDS)
 
 
 def _extract_offer_id_from_md(md: str) -> int | None:
@@ -989,10 +1021,30 @@ def _extract_tech_claims(cv_text: str, vocabulary: set[str]) -> list[str]:
     (e.g. "C++") never gets when followed by a space — the lookaround only
     requires the surrounding characters not be alphanumeric, which covers
     both plain words and symbol-suffixed terms. Same fix as evidence.is_evidenced."""
+    folded_cv = fold_accents(cv_text)
     return [
         term for term in vocabulary
-        if re.search(rf'(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])', cv_text, re.IGNORECASE)
+        if re.search(rf'(?<![A-Za-z0-9]){re.escape(fold_accents(term))}(?![A-Za-z0-9])', folded_cv, re.IGNORECASE)
     ]
+
+
+def _metric_variants(metric: str) -> set[str]:
+    """Equivalent spellings of one metric, for matching against cv-master.md.
+
+    The CV and the profile legitimately format the same number differently —
+    "35 %" vs "35%", "450+" vs "+450", "10,000" vs "10.000" (Spanish thousands
+    separator). Only formatting is varied, never the digits, so a different
+    number can still never match.
+    """
+    compact = re.sub(r'\s', '', metric)
+    swapped = compact.translate(str.maketrans(".,", ",."))
+    variants = {metric, compact, swapped}
+    for form in (compact, swapped):
+        if form.endswith("+"):
+            variants.add("+" + form[:-1])
+        elif form.startswith("+"):
+            variants.add(form[1:] + "+")
+    return variants
 
 
 def _extract_significant_words(text: str) -> set[str]:
@@ -1003,10 +1055,17 @@ def _extract_significant_words(text: str) -> set[str]:
     Used by _check_employer_claim to find meaningful overlap between
     heading and evidence context.
     """
-    return {
-        w.strip(",.") for w in text.lower().split()
-        if len(w.strip(",.")) >= 2 and w.strip(",.") not in _HEADING_STOPWORDS
-    }
+    # Tokenize on anything that isn't part of a word, so brackets and dashes
+    # never stick to a word: `split()` + strip(",.") kept "(acme)" and
+    # "calling)" whole, and a real "Engineer (Acme), Remote" heading failed
+    # to match its own cv-master entry. Accents are folded for the same
+    # reason `is_evidenced` folds them (Híbrido vs Hibrido).
+    words = re.findall(r'[a-z0-9][a-z0-9+#]*(?:\.[a-z0-9]+)*', fold_accents(text.lower()))
+    return {w for w in words if len(w) >= 2 and w not in _FOLDED_HEADING_STOPWORDS}
+
+
+# "Title - Company, Location" — the dash forms the skeleton and agents use.
+_HEADING_PART_SPLIT_RE = re.compile(r'\s+[-–—|]\s+')
 
 
 def _check_employer_claim(heading: str, claims: list) -> bool:
@@ -1048,6 +1107,31 @@ def _check_employer_claim(heading: str, claims: list) -> bool:
     format too, not just the GFM-table format this release added support
     for.
     """
+    # "Title - Company, Location": the employer is the protected fact. Any
+    # shared word used to be enough, so "Head of AI - Globex, Remote" passed
+    # on "AI" alone against an unrelated "AI Engineer — Acme" entry. When the
+    # heading names a company, that company must be what matches. The title
+    # itself stays loosely checked — tailoring a title is legitimate.
+    parts = _HEADING_PART_SPLIT_RE.split(heading, maxsplit=1)
+    if len(parts) == 2:
+        # "Project Name - short description" uses the same dash. The project
+        # name is then the protected fact: every one of its significant words
+        # must sit in ONE project entry, so "ElectroCycle - Comparison site"
+        # passes while "Head of AI" still can't borrow "AI" from anywhere.
+        # Compared with the project's NAME (its context up to the first
+        # dash), not its whole context: that includes the stack, and "Vite
+        # Developer - Globex" then passed on a project described as "Vite SPA".
+        name_words = _extract_significant_words(parts[0])
+        if name_words and any(
+            name_words <= _extract_significant_words(_HEADING_PART_SPLIT_RE.split(claim.entry_context)[0])
+            for claim in claims
+            if claim.section == "project" and claim.entry_context
+        ):
+            return True
+        company = parts[1].split(",")[0]
+        company_words = _extract_significant_words(company)
+        if company_words:
+            heading = company
     heading_words = _extract_significant_words(heading)
     if not heading_words:
         return False  # nothing significant to compare — don't assume evidenced
@@ -1080,7 +1164,7 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
     content = read_text_or_die(cv_path)
 
     if cv_path.suffix == ".md":
-        cv_text = _parse_markdown_for_review(content)
+        cv_text = _parse_markdown_for_review(content, max_chars=None)
     else:
         cv_text = _strip_html_tags(content)
 
@@ -1109,7 +1193,11 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
     for term in _extract_tech_claims(cv_text, vocabulary):
         results.append({"category": "technology", "claim": term, "supported": is_evidenced(term, claims)})
     for metric in _METRIC_RE.findall(cv_text):
-        results.append({"category": "metric", "claim": metric, "supported": is_evidenced(metric, claims)})
+        supported = any(is_evidenced(form, claims) for form in _metric_variants(metric))
+        results.append({"category": "metric", "claim": metric, "supported": supported})
+    body = _strip_frontmatter(no_comments) if cv_path.suffix == ".md" else _strip_html_tags(no_comments)
+    for placeholder in _PLACEHOLDER_RE.findall(body):
+        results.append({"category": "placeholder", "claim": placeholder, "supported": False})
     heading_re = _ENTRY_HEADING_RE if cv_path.suffix == ".md" else _ENTRY_HEADING_HTML_RE
     for heading in heading_re.findall(no_comments):
         heading = re.sub(r'<[^>]+>', ' ', heading)
@@ -1149,6 +1237,7 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
                 "technology": "invented_technology",
                 "metric": "invented_metric",
                 "employer_or_title": "unsupported_claim",
+                "placeholder": "unfilled_placeholder",
             }.get(r["category"], "unsupported_claim")
             issues.append({
                 "severity": "P0",

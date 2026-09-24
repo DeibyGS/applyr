@@ -15,9 +15,11 @@ schema.
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from applyr.constants import PROTECTED_FACT_ALIASES
+from applyr.cv_master import strip_template_guidance
 
 # cv-master-template.md's `## SECTION` names, mapped to a canonical claim
 # section. CONTACT / PROFESSIONAL SUMMARY / ADDITIONAL are intentionally
@@ -91,7 +93,44 @@ def _split_table_row(inner: str) -> list[str]:
     return [cell.replace(r"\|", "|").strip() for cell in _UNESCAPED_PIPE_RE.split(inner)]
 # Real profiles separate tech/skill tokens with commas, middle dots, or
 # markdown table pipes depending on section — accept all three.
-_TOKEN_SPLIT_RE = re.compile(r"[,·|]")
+_TOKEN_SEPARATORS = frozenset(",·|")
+
+
+def split_tokens(line: str) -> list[str]:
+    """Split a skills/stack line on `,` `·` `|`, but never inside brackets.
+
+    A plain regex split cut "LLM APIs (tool use, function calling)" into
+    "LLM APIs (tool use" and "function calling)" — two claims with stray
+    brackets that then failed to match the CV's own wording, a false BLOCKED
+    on a fact the profile really states (hit live 3 times, 2026-09-11).
+    """
+    tokens: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for char in line:
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        if char in _TOKEN_SEPARATORS and depth == 0:
+            tokens.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    tokens.append("".join(current))
+    return tokens
+
+
+def fold_accents(text: str) -> str:
+    """"Gestión" -> "Gestion": drop combining marks after NFKD decomposition.
+
+    cv-master.md is often written in Spanish while an offer (or the agent's
+    CV) spells the same word without the tilde — an exact match treated those
+    as different facts. Folding is not fuzzy matching (ADR-011): it only
+    erases diacritics, never letters, so no new word can be produced.
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 # Reverse index (any spelling, lowercased) -> canonical key in
 # PROTECTED_FACT_ALIASES, built once at import time.
@@ -126,6 +165,9 @@ def parse_evidence(profile_text: str) -> list[EvidenceClaim]:
     match no known pattern (stray prose, a leftover "..." template guidance
     line) are ignored rather than raising.
     """
+    # Template guidance ("Cut API latency by 42%") is not the candidate's
+    # history — left in place, its example numbers verified fabricated metrics.
+    profile_text = strip_template_guidance(profile_text)
     claims: list[EvidenceClaim] = []
     headings = list(_HEADING_RE.finditer(profile_text))
     for i, match in enumerate(headings):
@@ -294,7 +336,7 @@ def _parse_entry_section(body: str, section: str) -> list[EvidenceClaim]:
         labeled_match = _LABELED_LINE_RE.match(line)
         if labeled_match:
             ensure_started()
-            for token in _TOKEN_SPLIT_RE.split(labeled_match.group(2)):
+            for token in split_tokens(labeled_match.group(2)):
                 token = token.strip()
                 if token:
                     add_claim(token)
@@ -352,7 +394,7 @@ def _parse_flat_section(body: str, section: str) -> list[EvidenceClaim]:
             _, _, rest = line.partition(":")
             if rest.strip():
                 line = rest
-        for token in _TOKEN_SPLIT_RE.split(line):
+        for token in split_tokens(line):
             token = token.strip()
             if not token:
                 continue
@@ -421,14 +463,13 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
     shows "Claude Code") still correctly fails: those aren't the same words
     in a different order, they're different words entirely.
     """
+    haystacks = [fold_accents(f"{claim.text} {claim.entry_context or ''}") for claim in claims]
     for form in _all_forms(term):
-        pattern = re.compile(rf'(?<![A-Za-z0-9]){re.escape(form)}(?![A-Za-z0-9])', re.IGNORECASE)
-        for claim in claims:
-            haystack = f"{claim.text} {claim.entry_context or ''}"
-            if pattern.search(haystack):
-                return True
+        pattern = re.compile(rf'(?<![A-Za-z0-9]){re.escape(fold_accents(form))}(?![A-Za-z0-9])', re.IGNORECASE)
+        if any(pattern.search(haystack) for haystack in haystacks):
+            return True
 
-    raw_words = term.split()
+    raw_words = fold_accents(term).split()
     if len(raw_words) >= 2:
         significant_words = [
             w for w in raw_words
@@ -450,8 +491,8 @@ def is_evidenced(term: str, claims: list[EvidenceClaim]) -> bool:
             # "Python" bullet under the same job wrongly credited a
             # fabricated "Kubernetes Python" claim, since neither word was
             # ever true of the SAME real fact.
-            units = {claim.text for claim in claims}
-            units.update(claim.entry_context for claim in claims if claim.entry_context)
+            units = {fold_accents(claim.text) for claim in claims}
+            units.update(fold_accents(claim.entry_context) for claim in claims if claim.entry_context)
             for unit in units:
                 if all(p.search(unit) for p in word_patterns):
                     return True
