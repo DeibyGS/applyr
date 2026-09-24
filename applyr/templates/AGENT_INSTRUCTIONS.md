@@ -15,11 +15,13 @@
 
 ## Agent Roles
 
-For detailed instructions per role, see:
-- **Matcher**: `applyr/templates/agents/matcher.md` — evaluate candidate-job fit
-- **Recruiter**: `applyr/templates/agents/recruiter.md` — blind CV evaluation
-- **CV Architect**: `applyr/templates/agents/architect.md` — create tailoring strategy
-- **Fact Checker**: `applyr/templates/agents/fact_checker.md` — verify claims against cv-master.md
+Each role's detailed instructions ship with the package — print them with `applyr role <name>`
+(`applyr role` lists them):
+- **Matcher** (`applyr role matcher`) — score candidate-job fit, register it with `add` (Step 3)
+- **Recruiter** (`applyr role recruiter`) — blind read of the profile against the offer (Step 5)
+- **CV Architect** (`applyr role architect`) — tailoring strategy (Step 5.7)
+- **CV Writer** (`applyr role writer`) — fill the CV skeleton from evidence (Step 6)
+- **Fact Checker** (`applyr role fact-checker`) — verify every claim against cv-master.md (Step 6b)
 
 ## Privacy
 
@@ -209,13 +211,14 @@ STOP here if the user decides not to apply.
 
 **This step runs for ALL three states (APPLY, MAYBE, LOW MATCH).** The Recruiter evaluates independently without knowing the Matcher's score.
 
-**Scope: this is a document-quality check, not a second fit score.** `cv review-blind`
-rubric-scores the *CV artifact* — keyword match, ATS format, evidence, clarity, length —
-the same axes `cv review` uses on a generated CV. It does not re-evaluate whether the
-*candidate* fits the *offer*; that judgment already happened in Step 3 (Matcher scoring
-via `add`'s topics). Treat the ATS COMPATIBILITY SCORE here as "would this document pass
-an ATS/recruiter skim" — a heuristic estimate, not a guarantee of any specific employer's
-ATS behavior — not as a second opinion on compatibility.
+**Scope: a recruiter's first read of the profile, not a second fit score.** No CV exists
+yet at this step: `cv review-blind` reads `cv-master.md` fresh and rubric-scores how it
+presents against this offer — keyword match, evidence, clarity — as a recruiter skimming it
+would. It does not re-evaluate whether the *candidate* fits the *offer*; that judgment
+already happened in Step 3 (Matcher scoring via `add`'s topics). Treat the ATS
+COMPATIBILITY SCORE here as a heuristic estimate that feeds the Architect's plan — not a
+guarantee of any specific employer's ATS behavior, and not a second opinion on
+compatibility.
 
 ```bash
 applyr cv review-blind <id>
@@ -258,7 +261,7 @@ This auto-generated plan is the **raw data**. The Architect (Step 5.7) turns it 
 
 **This step runs after the Recruiter (Step 5) and before CV generation (Step 6).**
 
-Read the Architect role instructions at `applyr/templates/agents/architect.md`, then produce a detailed tailoring strategy combining:
+Read the Architect role instructions with `applyr role architect`, then produce a detailed tailoring strategy combining:
 
 1. **Matcher output** (Step 3): fit assessment, per-topic scores, evidence map
 2. **Recruiter output** (Step 5): keyword gaps, evidence weaknesses, priority actions
@@ -282,14 +285,14 @@ Save the strategy to a file the CV Writer will read:
 
 ### Step 6 — Generate and review CV
 
-**STOP — before proceeding, confirm with the user:**
+**STOP — before proceeding, confirm with the user** (in the user's language):
 
 ```
-¿Quieres que genere el CV para esta oferta?
-- Oferta: [title] @ [company]
-- Compatibilidad: [score]%
-- Recluta principal: [top strength]
-- Gap principal: [top weakness]
+Generate the CV for this offer?
+- Offer: [title] @ [company]
+- Compatibility: [score]%
+- Top strength: [top strength]
+- Top gap: [top weakness]
 ```
 
 Wait for explicit confirmation. If the user says no, update status to `discarded` and stop.
@@ -297,13 +300,15 @@ Wait for explicit confirmation. If the user says no, update status to `discarded
 Once confirmed:
 
 ```bash
-applyr update <id> applied --canal <channel>
 applyr cv generate <id>
 ```
 
+Do **not** mark the offer `applied` yet — nothing has been sent. That happens in Step 7,
+once the user confirms the application actually went out.
+
 This generates the CV skeleton with the auto-generated tailoring plan in YAML frontmatter.
 
-**Now as the CV Writer:** read the Architect's strategy from Step 5.7 (`cv-<company>-plan.md`), then fill all `[PLACEHOLDER]` values from cv-master.md following ATS rules (see below) AND the Architect's plan. The plan tells you:
+**Now as the CV Writer** (`applyr role writer`): read the Architect's strategy from Step 5.7 (`cv-<company>-plan.md`), then fill all `[PLACEHOLDER]` values from cv-master.md following ATS rules (see below) AND the Architect's plan. The plan tells you:
 - Which experiences to highlight and what to emphasize in each
 - Which skills go in core vs secondary vs omit
 - What the summary should communicate
@@ -379,6 +384,13 @@ Present the final CV with:
 4. Remaining recommendations
 5. The generated PDF, delivered to the user
 
+When the user confirms the application was sent, record it — this is what starts the
+follow-up clock and feeds `stats`/`response-rate`:
+
+```bash
+applyr update <id> applied --canal <channel>
+```
+
 ## Agent response format
 
 When evaluating an offer, always respond in this structure:
@@ -395,9 +407,14 @@ GAPS:
 - [gap 1 — impact on score]
 - [gap 2 — impact on score]
 
-RECOMMENDATION: APPLY | SKIP
+RECOMMENDATION: APPLY | MAYBE | LOW MATCH
 NEXT ACTION: [what to do next]
 ```
+
+**Copy `RECOMMENDATION` from `applyr add`'s output** — the line leads with the state
+(`APPLY`, `MAYBE` or `LOW MATCH`). For an existing offer, `show`/`list`/`search`/
+`pipeline --json` carry it as `recommendation`: `apply` / `maybe` / `low_match`. Never
+recompute it from the thresholds yourself.
 
 **Don't invent `CONFIDENCE` — read it from `applyr add`'s output.** `add` prints a derived
 `CONFIDENCE: HIGH | MEDIUM | LOW | UNKNOWN` line (the weakest per-topic `confidence` you
@@ -425,7 +442,7 @@ Agent (Matcher — Step 3):
    STRENGTHS: Python expert, 3 relevant projects
    GAPS: Missing AWS (tech_stack -20%)
    RECOMMENDATION: APPLY
-   NEXT ACTION: ¿Quieres que ejecute el evaluation a ciegas del Reclutador?
+   NEXT ACTION: Run the blind Recruiter evaluation?
 
 User: "yes"
 
@@ -442,23 +459,26 @@ Agent (CV Architect — Step 5.7):
    - P1: React, Docker, PostgreSQL (WEAK)
    - Forbidden: "production Kubernetes experience"
    - Summary: position as AI/backend engineer
-   - Experience: emphasize Mercanza microservices
+   - Experience: emphasize the microservices role
 
-User: "Sí, genera el CV"
+User: "Yes, generate the CV"
 
 Agent (CV Writer — Step 6):
-9. applyr update 42 applied
-10. applyr cv generate 42  → skeleton + auto-plan in YAML
-11. Read cv-acme-plan.md (Architect strategy)
-12. Fill skeleton from cv-master.md following the plan
-13. applyr cv review cv-acme-backend.md
+9. applyr cv generate 42  → skeleton + auto-plan in YAML
+10. Read cv-acme-plan.md (Architect strategy)
+11. Fill skeleton from cv-master.md following the plan
+12. applyr cv review cv-acme-backend.md
     → READY TO SEND (ATS compatibility: 87/100)
 
 Agent (Fact Checker — Step 6b):
-14. applyr cv verify --json cv-acme-backend.md
+13. applyr cv verify --json cv-acme-backend.md
     → PASS, 14/14 claims grounded, evidence_density: 0.92
-15. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
-16. Deliver CV with score and recommendations
+14. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
+15. applyr cv pdf cv-acme-backend.md → deliver the PDF with score and recommendations
+
+User: "Sent it via LinkedIn"
+
+16. applyr update 42 applied --canal linkedin_easy
 ```
 
 ## Command reference
@@ -487,6 +507,7 @@ Agent (Fact Checker — Step 6b):
 | Review CV | `applyr cv review <file>` |
 | Blind recruiter evaluation | `applyr cv review-blind <id>` |
 | Verify CV claims are grounded | `applyr cv verify <file>` |
+| Instructions for one agent role | `applyr role <matcher\|recruiter\|architect\|writer\|fact-checker>` |
 | Get tailoring plan (JSON) | `applyr show <id> --json` (fields: `cv_tailoring_plan`, `evidence_map`) |
 | CV verify with structured output | `applyr cv verify --json` (includes `status`, `issues`, `evidence_density`) |
 | Discover commands | `applyr --help` |

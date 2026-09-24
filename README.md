@@ -4,7 +4,7 @@
 
 **Your AI agent's job application tracker — score offers, detect duplicates, generate ATS-safe CVs, all from the terminal.**
 
-applyr is the storage layer; your AI coding agent is the brain. Paste a job offer, get a weighted 0–100 compatibility score, an APPLY / SKIP recommendation, skill gaps, and a tailored ATS-safe CV — local, private, agent-native.
+applyr is the storage layer; your AI coding agent is the brain. Paste a job offer, get a weighted 0–100 compatibility score, an APPLY / MAYBE / LOW MATCH recommendation, skill gaps, and a tailored ATS-safe CV — local, private, agent-native.
 
 **Fast to start** — one command. **Local-first** — SQLite on your machine, no API keys, nothing leaves your system unless you opt in to the update check (`check_updates` in `applyr.toml`, off by default).
 
@@ -87,7 +87,7 @@ Each role reads the previous output — no information is lost between steps.
 - **Score breakdown** — Weighted contribution per topic so you understand why 78%
 - **CV tailoring plan** — automatic evidence map per requirement (STRONG/WEAK/MISSING), priorities (P0-P3), forbidden claims, and section strategy — generated on `cv generate`, saved to DB
 - **Claim-grounding gate** — `cv verify` checks every technology, metric, and employer name in a generated CV against your `cv-master.md`, deterministically — no LLM call, exit 0 (PASS) or 1 (BLOCKED, lists unsupported claims). JSON output includes evidence density metric and Fact Checker-compatible issue format
-- **Agent role instructions** — dedicated `.md` files per role (Matcher, Recruiter, CV Architect, Fact Checker) in `applyr/templates/agents/`, referenced from the main agent instructions
+- **Agent role instructions** — one file per role (Matcher, Recruiter, CV Architect, CV Writer, Fact Checker), shipped with the package and printed by `applyr role <name>`
 - **Duplicate detection** — same company+title? applyr catches it before you waste time
 - **ATS-safe CVs** — locked single-column CSS, standard fonts, no images. Your agent fills content, never touches structure
 - **ATS compatibility check** — validates CV against ATS rules (headers, formatting, keywords)

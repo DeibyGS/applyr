@@ -1,4 +1,4 @@
-"""CLI entry point — argparse setup, command routing, error handling."""
+"""CLI entry point — hand-written argument parsing, command routing, error handling."""
 
 import os
 import sys
@@ -22,6 +22,7 @@ from applyr.commands import (
     cmd_pipeline,
     cmd_plan,
     cmd_rescore,
+    cmd_role,
     cmd_salary,
     cmd_search,
     cmd_setup_agent,
@@ -51,8 +52,11 @@ Commands:
   update <id> <status> [opts]   Update offer status (--notes, --canal, --cv)
   delete <id>                   Delete an offer
   search <keyword> [--status S] Search by company/title/notes/tech_stack
+  search --company <name>       Exact company match (use before 'add' to spot duplicates)
   stats                         Conversion funnel and metrics
   gaps [--limit N]              Skill gap analysis
+  gaps save <id> '<json>'       Save learning gaps for an offer
+  gaps list | gaps stats        Browse saved learning gaps
   followups                     Pending/overdue follow-ups
   trends [--period week|month]  Application trends over time
   summary [--json]              Weekly summary (LLM-optimized)
@@ -63,10 +67,17 @@ Commands:
   export [--format csv|json|md] [--redact] [--redact-fields F1,F2]
                                  Export all data (--redact strips sensitive fields;
                                  --redact-fields replaces the default set, not adds to it)
+  cv generate <id>              Write a CV skeleton for an offer (then fill it from cv-master.md)
+  cv review <file>              Recruiter review prompt for a filled CV
+  cv review-blind <id>          Blind recruiter read of cv-master.md against the offer
+  cv verify <file>              Deterministic gate: every claim grounded in cv-master.md
+  cv pdf <file>                 Render the CV to PDF via Chrome
+  cv ats-check <file> | cv keywords <id> | cv cover-letter <id>
   cv stats [--min-sample N]     Compare CVs by response and interview rate
   cv compare <v1> <v2>          Compare two CV versions (ATS, keywords)
   response-rate [--json]        Application response rate and trends
   doctor [--json]               Check configuration and database health (exit 1 if unhealthy)
+  role [name]                   Print an agent role's instructions (matcher, recruiter, architect, writer, fact-checker)
   version                       Show version
   help                          Show this help
 
@@ -203,8 +214,8 @@ def main():
             print("       applyr add offer.json")
             print("       cat offer.json | applyr add -")
             print("  --force: add even if a duplicate offer is detected")
-            print("  Required: title")
-            print("  Optional: company, summary, date_received, date_applied,")
+            print("  Required: title, company")
+            print("  Optional: summary, date_received, date_applied,")
             print("            compatibility_pct, status, canal, work_mode,")
             print("            location, salary_min, salary_max, salary_period,")
             print("            seniority_level, role_category, tech_stack, cover_letter,")
@@ -371,6 +382,9 @@ def main():
     elif cmd == "doctor":
         cmd_doctor(as_json=as_json)
 
+    elif cmd == "role":
+        cmd_role(args[1] if len(args) >= 2 else None, as_json=as_json)
+
     elif cmd == "export":
         fmt = _get_flag(args, "--format") or "csv"
         if fmt not in ("csv", "json", "md", "markdown"):
@@ -387,13 +401,13 @@ def main():
             print("Usage:")
             print("  applyr cv generate <id> [--template ats] [--force]")
             print("                                            Generate CV for offer")
-            print("  applyr cv review <html-file>              Recruiter review prompt")
+            print("  applyr cv review <file>              Recruiter review prompt")
             print("  applyr cv review-blind <id>               Blind recruiter evaluation")
             print("  applyr cv verify <file>                   Deterministic claim-grounding gate")
-            print("  applyr cv pdf <html-file> [--output f.pdf] HTML to PDF via Chrome")
-            print("  applyr cv ats-check <html-file>           Check ATS compatibility")
+            print("  applyr cv pdf <file> [--output f.pdf]     CV (.md or .html) to PDF via Chrome")
+            print("  applyr cv ats-check <file>           Check ATS compatibility")
             print("  applyr cv keywords <id>                   Match keywords vs CV")
-            print("  applyr cv bullet-optimize <html-file>     Optimize bullet points")
+            print("  applyr cv bullet-optimize <file>     Optimize bullet points")
             print("  applyr cv cover-letter <id>               Generate cover letter")
             return
         subcmd = args[1]
@@ -410,7 +424,7 @@ def main():
             cmd_cv_generate(offer_id, template=template, force=_has_flag(args, "--force"))
         elif subcmd == "review":
             if len(args) < 3:
-                _usage("Usage: applyr cv review <html-file>")
+                _usage("Usage: applyr cv review <file>")
             cmd_cv_review(args[2], as_json=as_json)
         elif subcmd == "review-blind":
             usage = ("Usage: applyr cv review-blind <id>\n"
@@ -429,13 +443,13 @@ def main():
             cmd_cv_verify(args[2], as_json=as_json)
         elif subcmd == "pdf":
             if len(args) < 3:
-                _usage("Usage: applyr cv pdf <html-file> [--output file.pdf]")
+                _usage("Usage: applyr cv pdf <file> [--output file.pdf]")
             html_file = args[2]
             output = _get_flag(args, "--output")
             cmd_cv_pdf(html_file, output=output)
         elif subcmd == "ats-check":
             if len(args) < 3:
-                _usage("Usage: applyr cv ats-check <html-file>")
+                _usage("Usage: applyr cv ats-check <file>")
             cmd_cv_ats_check(args[2], as_json=as_json)
         elif subcmd == "keywords":
             if len(args) < 3:
@@ -444,7 +458,7 @@ def main():
             cmd_cv_keywords(offer_id, as_json=as_json)
         elif subcmd == "bullet-optimize":
             if len(args) < 3:
-                _usage("Usage: applyr cv bullet-optimize <html-file>")
+                _usage("Usage: applyr cv bullet-optimize <file>")
             cmd_cv_bullet_optimize(args[2], as_json=as_json)
         elif subcmd == "cover-letter":
             if len(args) < 3:
