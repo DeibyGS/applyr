@@ -4,7 +4,7 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.16.0] — 2026-09-24
 
 ### Added
 
@@ -14,7 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   the user ([ADR 015](docs/adr/015-cli-enforced-pipeline-gates.md)). It is read-only and
   derived from stored data on every call. A review or PDF older than the CV's last edit
   does not count. Before, the pipeline order existed only as prose in the agent
-  instructions.
+  instructions. Known limitation: a manual `compatibility_pct` of 0 with no topics reads
+  as unscored, because unscored offers are stored as 0 too.
 - **`--record <score>`** on `cv review-blind` and `cv review` stores the score of a
   prompt the agent executed. applyr derives the verdict itself and appends it to the
   offer's `cv_iteration_history`. These two steps used to leave no trace, so nothing
@@ -32,6 +33,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   by simply not running it.
 - `cv pdf --force` still renders an unverified CV, warns on stderr, and appends a dated
   `cv pdf --force: verify skipped (…)` line to the linked offer's notes.
+- Agent instructions document `applyr next`, `--record` and the `cv pdf` gate, and point
+  agents to `next` to find their place in the pipeline. Refresh an installed copy with
+  `applyr setup-agent --agent <name> --force`.
 
 ### Deprecated
 
