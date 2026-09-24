@@ -31,8 +31,10 @@ def main():
         # Optional: dates
         "date_received": "2026-08-01",
         "date_applied": "2026-08-02",
-        # Optional: scoring (usually set by agent)
+        # Optional: scoring. Prefer "topics" (see AGENT_INSTRUCTIONS.md); a hand-typed
+        # score must be marked "score_source": "manual" (ADR-015)
         "compatibility_pct": 82,
+        "score_source": "manual",
         # Optional: status
         "status": "applied",
         "canal": "linkedin",

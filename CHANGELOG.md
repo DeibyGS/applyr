@@ -4,6 +4,26 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **`cv pdf` refuses a CV that does not pass `cv verify`** ([ADR 015](docs/adr/015-cli-enforced-pipeline-gates.md)).
+  It re-runs the verify checks on the file as it is on disk, so an edit made after
+  verifying cannot slip through. On failure it exits 1 with the new error code
+  `verify_required` and lists the unsupported claims or leftover placeholders. A CV with
+  no embedded offer id cannot be verified, so it is refused too. Before, `cv pdf`
+  rendered anything, which made the one deterministic anti-hallucination check skippable
+  by simply not running it.
+- `cv pdf --force` still renders an unverified CV, warns on stderr, and appends a dated
+  `cv pdf --force: verify skipped (…)` line to the linked offer's notes.
+
+### Deprecated
+
+- `add` with a `compatibility_pct` but no `"score_source": "manual"` prints a warning. It
+  becomes an error in the next major version. `examples/`, `llms.txt` and
+  `docs/getting-started.md` now mark their manual scores.
+
 ## [1.15.0] — 2026-09-24
 
 ### Added

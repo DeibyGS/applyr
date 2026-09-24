@@ -810,6 +810,16 @@ class TestEdgeCases:
         # May fail if Chrome not available, but routing is tested
         assert code in (0, 1)
 
+    def test_cv_pdf_passes_force_through(self, run_cli, capsys, tmp_db, tmp_applyr, monkeypatch):
+        """--force must reach cmd_cv_pdf — the gate itself refuses the dummy file."""
+        import applyr.cli as cli_mod
+        seen = {}
+        monkeypatch.setattr(cli_mod, "cmd_cv_pdf", lambda f, output=None, force=False: seen.update(force=force))
+        dummy = tmp_applyr / "dummy.html"
+        dummy.write_text("<html><body>Test CV</body></html>")
+        _run(run_cli, capsys, ["cv", "pdf", str(dummy), "--force"])
+        assert seen == {"force": True}
+
 
 class TestResponseRateOutput:
     """`response-rate` is listed in `applyr help`, so silence reads as a broken

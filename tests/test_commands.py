@@ -932,3 +932,42 @@ class TestFollowupsEmptyJsonPayload:
 
         cmd_followups(as_json=False)
         assert "No pending follow-ups" in capsys.readouterr().out
+
+
+class TestScoreSource:
+    """ADR-015: a hand-typed compatibility_pct must be marked as manual."""
+
+    def test_bare_manual_score_warns_but_inserts(self, tmp_db, tmp_applyr, capsys):
+        _add(compatibility_pct=72)
+        assert "score_source" in capsys.readouterr().err
+        assert _row(tmp_applyr, 1)["compatibility_pct"] == 72
+
+    def test_marked_manual_score_is_silent(self, tmp_db, tmp_applyr, capsys):
+        _add(compatibility_pct=72, score_source="manual")
+        assert "score_source" not in capsys.readouterr().err
+        assert _row(tmp_applyr, 1)["compatibility_pct"] == 72
+
+    def test_manual_score_over_topics_still_warns(self, tmp_db, tmp_applyr, capsys):
+        _add(compatibility_pct=72, topics={"tech_stack": {"score": 50, "detail": "half"}})
+        assert "score_source" in capsys.readouterr().err
+
+    def test_topic_scored_offer_does_not_warn(self, tmp_db, tmp_applyr, capsys):
+        _add(topics={"tech_stack": {"score": 50, "detail": "half"}})
+        assert "score_source" not in capsys.readouterr().err
+
+    def test_unknown_score_source_is_rejected_before_insert(self, tmp_db, tmp_applyr, capsys):
+        from applyr.errors import set_json_mode
+        set_json_mode(True)
+        try:
+            with pytest.raises(SystemExit):
+                _add(compatibility_pct=72, score_source="rubric")
+        finally:
+            set_json_mode(False)
+        err = json.loads(capsys.readouterr().err.strip().splitlines()[-1])["error"]
+        assert err["code"] == "invalid_value"
+        assert err["details"]["field"] == "score_source"
+        conn = sqlite3.connect(tmp_applyr / "jobs.db")
+        try:
+            assert conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0] == 0
+        finally:
+            conn.close()
