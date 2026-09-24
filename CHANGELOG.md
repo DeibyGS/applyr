@@ -4,6 +4,56 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.14.0] — 2026-09-24
+
+### Changed
+
+- **`cv verify` is stricter — CVs it used to pass can now be BLOCKED, correctly.**
+  Metrics are checked in far more formats (`3M`, `3.4K`, `5+`, `10,000`, `€40K`, `3×`,
+  `35 %`), not only `$N` / `N%` / `Nx`. A `Title - Company` heading must now match on
+  the **company** (any shared word used to pass — `Head of AI - Globex` passed on "AI").
+  Unfilled placeholders (`[FULL NAME]`, `[Achievement …]`) block with issue type
+  `unfilled_placeholder`, and claims past the 10,000-character review cap are checked.
+- `cv-master-template.md` wraps its guidance in `<!-- -->` comments, which applyr
+  ignores. Guidance lines left over from older templates are ignored too — their
+  examples ("Cut API latency by 42%", "DevOps") no longer count as evidence or as
+  profile content.
+
+### Fixed
+
+- **`cv verify` false BLOCKED verdicts:** commas inside brackets
+  (`LLM APIs (tool use, function calling)`), brackets in headings
+  (`Junior Developer (FP Internship)`), accents (`gestión` vs `gestion`) and the same
+  number written differently (`35 %`/`35%`, `450+`/`+450`, `10,000`/`10.000`).
+  Phone numbers and version strings (`+34 674…`, `ES6+`) are not treated as metrics.
+- **`add` stored the offer and then crashed** on a topic whose `score` was a string,
+  `null` or not an object — the agent's retry was then blocked as a duplicate. Topics
+  are now validated before anything is written (`invalid_value`).
+- **`--json` output corrupted by warnings on stdout** — invalid `date_applied` /
+  `date_responded` and an unparseable `applyr.toml` now warn on stderr.
+- `stats --json` on an empty database printed plain text instead of JSON.
+- `setup-agent` crashed when `.cursor/rules` is a directory (current Cursor); it now
+  writes `.cursor/rules/applyr.mdc` with `alwaysApply: true`. It also pointed users at
+  the wrong `cv-master.md` path.
+- `update`: moving an offer back to pending/applied/waiting clears the recorded
+  reply (`response_rate` and `stats` disagreed); repeating the same status no longer
+  pushes the follow-up date forward, and a new follow-up re-arms `follow_up_done`.
+- `show` crashed on older topic rows holding a non-numeric or NULL score.
+- **`cv pdf` deleted a user's own `cv-x.html`** sitting next to `cv-x.md` — it now uses
+  a uniquely named hidden temp file (next to the CV, so snap Chromium can read it).
+  Paths containing `#`, `?` or `%` work, `<html lang>` follows the CV language, CV text
+  is HTML-escaped (`List<T>`, `R&D`) and `cv generate`'s scaffold comments never reach
+  the PDF.
+- **`cv keywords` matched substrings** (`go` in "Google", `java` in "JavaScript").
+  Matching is now whole-term, alias-aware (JS ↔ JavaScript), accent-insensitive and
+  bracket-aware for `tech_stack`; work-mode words (remote, presencial…) are no longer
+  keywords.
+- Frontmatter ends at its own `---` line (a `---` inside a summary ended it early);
+  CRLF files are supported.
+- The test suite could append the agent instructions to the repository's own
+  `AGENTS.md` (CLI tests ran from the repo root, and `CLAUDE.md` is gitignored). Tests
+  now run from a sandbox directory.
+
 ## [1.13.5] — 2026-09-09
 
 ### Fixed
