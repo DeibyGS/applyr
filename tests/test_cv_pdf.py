@@ -12,7 +12,7 @@ from applyr.md_render import render_markdown_to_html
 
 
 @pytest.fixture
-def fake_chrome(monkeypatch):
+def chrome(monkeypatch):
     """Replace Chrome with a recorder that captures the HTML it was given."""
     seen: dict = {}
     config = cv_mod.load_config()
@@ -29,6 +29,13 @@ def fake_chrome(monkeypatch):
 
     monkeypatch.setattr(cv_mod.subprocess, "run", fake_run)
     return seen
+
+
+@pytest.fixture
+def fake_chrome(chrome, monkeypatch):
+    """Faked Chrome with the verify gate bypassed — for tests about rendering only."""
+    monkeypatch.setattr(cv_mod, "_check_pdf_gate", lambda _path, _force: (None, None))
+    return chrome
 
 
 def _cv(dir_: Path, body: str, language: str = "es") -> Path:
@@ -88,3 +95,93 @@ class TestEscaping:
     def test_links_still_render(self):
         html = render_markdown_to_html("[repo](https://github.com/x/y?a=1&b=2)\n")
         assert '<a href="https://github.com/x/y?a=1&amp;b=2">repo</a>' in html
+
+
+# ---------------------------------------------------------------------------
+# Verify gate (ADR-015): cv pdf renders only a CV that passes cv verify now
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def gated(tmp_db, tmp_applyr, monkeypatch):
+    """A linked offer (#1, with existing notes) and a minimal cv-master.md."""
+    from applyr.db import get_conn
+
+    monkeypatch.setattr(cv_mod, "APPLYR_DIR", tmp_applyr)
+    (tmp_applyr / "cv-master.md").write_text("## TECHNICAL SKILLS\n\nLanguages: Python\n")
+    conn = get_conn(tmp_db)
+    conn.execute("INSERT INTO offers (title, company, notes) VALUES ('Dev', 'Acme', 'call Monday')")
+    conn.commit()
+    conn.close()
+    return tmp_db
+
+
+def _offer_row(db):
+    from applyr.db import get_conn
+    conn = get_conn(db)
+    try:
+        return conn.execute("SELECT notes, cv_evidence_used FROM offers WHERE id = 1").fetchone()
+    finally:
+        conn.close()
+
+
+def _exit_code(capsys, fn):
+    from applyr.errors import set_json_mode
+    import json
+    set_json_mode(True)
+    try:
+        with pytest.raises(SystemExit) as exc:
+            fn()
+    finally:
+        set_json_mode(False)
+    assert exc.value.code == 1
+    return json.loads(capsys.readouterr().err.strip().splitlines()[-1])["error"]
+
+
+def test_unverified_cv_is_refused_and_no_pdf_is_written(gated, tmp_path, chrome, capsys):
+    cv = _cv(tmp_path, "# [FULL NAME]\n")
+    err = _exit_code(capsys, lambda: cv_mod.cmd_cv_pdf(str(cv)))
+    assert err["code"] == "verify_required"
+    assert err["details"]["unsupported"][0]["category"] == "placeholder"
+    assert not (tmp_path / "cv-acme.pdf").exists()
+    assert "uri" not in chrome  # Chrome never ran
+
+
+def test_verified_cv_renders_without_touching_the_offer(gated, tmp_path, chrome):
+    cv_mod.cmd_cv_pdf(str(_cv(tmp_path, "# Ana\n")))
+    assert (tmp_path / "cv-acme.pdf").exists()
+    notes, evidence = _offer_row(gated)
+    assert notes == "call Monday"
+    assert evidence is None  # only `cv verify` snapshots evidence
+
+
+def test_force_renders_and_appends_a_dated_note(gated, tmp_path, chrome, capsys):
+    from datetime import date
+    cv_mod.cmd_cv_pdf(str(_cv(tmp_path, "# [FULL NAME]\n")), force=True)
+    assert (tmp_path / "cv-acme.pdf").exists()
+    assert "--force" in capsys.readouterr().err
+    notes, _ = _offer_row(gated)
+    assert notes == (f"call Monday\n[{date.today().isoformat()}] cv pdf --force: "
+                     "verify skipped (1 unsupported claim(s))")
+
+
+def test_cv_without_offer_id_is_refused_naming_force(gated, tmp_path, chrome, capsys):
+    cv = tmp_path / "hand.md"
+    cv.write_text("# Ana\n", encoding="utf-8")
+    err = _exit_code(capsys, lambda: cv_mod.cmd_cv_pdf(str(cv)))
+    assert err["code"] == "verify_required"
+    assert "no offer id" in err["message"]
+
+
+def test_force_on_cv_without_offer_id_renders_and_writes_nothing(gated, tmp_path, chrome):
+    cv = tmp_path / "hand.md"
+    cv.write_text("# Ana\n", encoding="utf-8")
+    cv_mod.cmd_cv_pdf(str(cv), force=True)
+    assert (tmp_path / "hand.pdf").exists()
+    assert _offer_row(gated)[0] == "call Monday"
+
+
+def test_force_renders_even_without_cv_master(gated, tmp_applyr, tmp_path, chrome):
+    (tmp_applyr / "cv-master.md").unlink()
+    cv_mod.cmd_cv_pdf(str(_cv(tmp_path, "# Ana\n")), force=True)
+    assert (tmp_path / "cv-acme.pdf").exists()
+    assert _offer_row(gated)[0].endswith("verify skipped (cv-master.md not found)")

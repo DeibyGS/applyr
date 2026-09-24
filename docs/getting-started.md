@@ -67,7 +67,7 @@ Paste a job offer into your AI agent and say "analyze this". The agent will:
 Or add manually:
 
 ```bash
-applyr add '{"title":"Engineer","company":"Acme","tech_stack":"Python, FastAPI","compatibility_pct":75}'
+applyr add '{"title":"Engineer","company":"Acme","tech_stack":"Python, FastAPI","compatibility_pct":75,"score_source":"manual"}'
 ```
 
 ## Verify Setup

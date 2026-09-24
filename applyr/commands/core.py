@@ -732,6 +732,13 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     topics: dict = data.get("topics") or {}
     _validate_topics(topics)
     compat_raw = data.get("compatibility_pct")
+    # ADR-015: a hand-typed score must say so, or it is indistinguishable from a
+    # rubric-scored one. Not stored — "manual" is already derivable (a score with
+    # no topics); this only makes the shortcut explicit at the boundary.
+    score_source = data.get("score_source")
+    if score_source is not None and score_source != "manual":
+        die("Error: 'score_source' must be \"manual\".", code="invalid_value",
+            details={"field": "score_source", "valid": ["manual"]})
 
     # weights_used snapshots the raw, pre-normalization weights dict that
     # actually produced compatibility_pct. NULL when no weights were used
@@ -744,6 +751,9 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
             die("Error: 'compatibility_pct' must be an integer 0-100.", code="invalid_value", details={"field": "compatibility_pct"})
         if not 0 <= compatibility_pct <= 100:
             die("Error: 'compatibility_pct' must be between 0 and 100.", code="invalid_value", details={"field": "compatibility_pct"})
+        if score_source != "manual":
+            warn("Deprecated: 'compatibility_pct' without \"score_source\": \"manual\" — this becomes "
+                 "an error in the next major version. Score with 'topics', or mark the score as manual.")
     elif topics:
         compatibility_pct = calculate_score(topics)
         weights_used = json.dumps(config["weights_raw"], sort_keys=True)

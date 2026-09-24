@@ -71,7 +71,7 @@ Commands:
   cv review <file>              Recruiter review prompt for a filled CV
   cv review-blind <id>          Blind recruiter read of cv-master.md against the offer
   cv verify <file>              Deterministic gate: every claim grounded in cv-master.md
-  cv pdf <file>                 Render the CV to PDF via Chrome
+  cv pdf <file> [--force]       Render a verified CV to PDF via Chrome
   cv ats-check <file> | cv keywords <id> | cv cover-letter <id>
   cv stats [--min-sample N]     Compare CVs by response and interview rate
   cv compare <v1> <v2>          Compare two CV versions (ATS, keywords)
@@ -404,7 +404,7 @@ def main():
             print("  applyr cv review <file>              Recruiter review prompt")
             print("  applyr cv review-blind <id>               Blind recruiter evaluation")
             print("  applyr cv verify <file>                   Deterministic claim-grounding gate")
-            print("  applyr cv pdf <file> [--output f.pdf]     CV (.md or .html) to PDF via Chrome")
+            print("  applyr cv pdf <file> [--output f.pdf] [--force]  Verified CV (.md or .html) to PDF via Chrome")
             print("  applyr cv ats-check <file>           Check ATS compatibility")
             print("  applyr cv keywords <id>                   Match keywords vs CV")
             print("  applyr cv bullet-optimize <file>     Optimize bullet points")
@@ -443,10 +443,11 @@ def main():
             cmd_cv_verify(args[2], as_json=as_json)
         elif subcmd == "pdf":
             if len(args) < 3:
-                _usage("Usage: applyr cv pdf <file> [--output file.pdf]")
+                _usage("Usage: applyr cv pdf <file> [--output file.pdf] [--force]\n"
+                       "  Refuses a CV that fails 'applyr cv verify'; --force renders anyway and notes it on the offer")
             html_file = args[2]
             output = _get_flag(args, "--output")
-            cmd_cv_pdf(html_file, output=output)
+            cmd_cv_pdf(html_file, output=output, force=_has_flag(args, "--force"))
         elif subcmd == "ats-check":
             if len(args) < 3:
                 _usage("Usage: applyr cv ats-check <file>")

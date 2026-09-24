@@ -270,11 +270,70 @@ def _page_limit_for(cv_path: Path) -> int:
     return 2 if seniority.lower() in _SENIOR_LEVELS else 1
 
 
-def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
+# Why `_verify_cv` could not check a CV at all, as the `cv pdf` gate words it.
+_UNVERIFIABLE_REASONS = {
+    "no_offer_id": "no offer id in the file",
+    "not_found": "offer #{offer_id} not found",
+    "cv_master_missing": "cv-master.md not found",
+}
+
+
+def _check_pdf_gate(cv_path: Path, force: bool) -> tuple[int | None, str | None]:
+    """Refuse to render a CV that does not pass `cv verify` right now (ADR-015).
+
+    Re-runs the verify checks on the file as it is on disk instead of trusting
+    a stored result, so an edit after verification can never slip through.
+    Returns (None, None) when the CV passes. With `force`, returns the offer to
+    note the bypass on (None when there is no linked offer) and the reason.
+    """
+    verdict = _verify_cv(cv_path)
+    unsupported = verdict.get("unsupported", [])
+    unverifiable = verdict.get("unverifiable")
+    if unverifiable:
+        reason = _UNVERIFIABLE_REASONS[unverifiable].format(offer_id=verdict["offer_id"])
+    elif verdict["passed"]:
+        return None, None
+    else:
+        reason = f"{len(unsupported)} unsupported claim(s)"
+
+    if not force:
+        for r in unsupported:
+            error(f"  [{r['category']}] {r['claim']}")
+        error(f"Error: this CV does not pass 'applyr cv verify' ({reason}) — no PDF generated.")
+        die(f"Error: this CV does not pass 'applyr cv verify' ({reason}).",
+            code="verify_required", details={"reason": reason, "unsupported": unsupported},
+            text="  Fix it and re-run 'applyr cv verify <file>', or pass --force to render anyway "
+                 "(the bypass is recorded on the offer).")
+    warn(f"Warning: rendering an unverified CV (--force): {reason}.")
+    # An offer that no longer exists has nowhere to take the note.
+    return (None if unverifiable == "not_found" else verdict["offer_id"]), reason
+
+
+def _note_forced_pdf(offer_id: int, reason: str) -> None:
+    """Append a dated `cv pdf --force` line to the offer's notes, keeping existing ones."""
+    from datetime import date
+
+    from applyr.db import get_conn
+
+    line = f"[{date.today().isoformat()}] cv pdf --force: verify skipped ({reason})"
+    conn = get_conn()
+    try:
+        conn.execute(
+            "UPDATE offers SET notes = CASE WHEN notes IS NULL OR notes = '' THEN ? "
+            "ELSE notes || char(10) || ? END WHERE id = ?",
+            (line, line, offer_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def cmd_cv_pdf(cv_file: str, output: str | None = None, force: bool = False) -> None:
     """Convert a CV file (markdown or HTML) to PDF using Chrome headless.
 
     For .md files: renders markdown → ATS-safe HTML → PDF in one invocation.
     For .html files: renders directly to PDF (legacy support).
+    Refuses a CV that fails `cv verify` unless `force` (see _check_pdf_gate).
     """
     from applyr.md_render import render_markdown_file_to_html
 
@@ -291,6 +350,8 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
     if not cv_path.exists():
         die(f"Error: CV file not found: {cv_file}", code="not_found",
             details={"path": cv_file})
+
+    forced_offer_id, forced_reason = _check_pdf_gate(cv_path, force)
 
     if output:
         pdf_path = Path(output).resolve()
@@ -353,6 +414,8 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
             _die_chrome("Chrome exited with an error.", result)
         if pdf_path.exists():
             print(f"PDF generated: {pdf_path}")
+            if forced_offer_id is not None:
+                _note_forced_pdf(forced_offer_id, forced_reason)
             page_count = _count_pdf_pages(pdf_path)
             if page_count is not None:
                 limit = _page_limit_for(cv_path)
@@ -1162,23 +1225,18 @@ def _check_employer_claim(heading: str, claims: list) -> bool:
     return False
 
 
-def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
-    """Deterministic truth gate for a generated CV.
+def _verify_cv(cv_path: Path) -> dict:
+    """Run the deterministic claim checks on a CV file, with no side effects.
 
-    Extracts protected-fact claims (technologies, metrics, employer/project/
-    title names) from the CV and checks each against the Evidence Graph
-    parsed fresh from cv-master.md — no LLM calls (ADR-003), no
-    agent-executed prompt. Unlike `cv review`/`cv review-blind`, the result
-    here is directly authoritative on exit: 0 for PASS, 1 for BLOCKED (every
-    unsupported claim listed). On PASS, the verified claim texts are
-    snapshotted to offers.cv_evidence_used for later audit (see cmd_show) —
-    an immutable record of what backed this CV, not a live cache.
+    Shared by `cv verify` and the `cv pdf` gate (ADR-015) so both judge a CV
+    by exactly the same rules. When the CV cannot be checked at all it returns
+    {"offer_id", "unverifiable": <error code>} — "no_offer_id", "not_found" or
+    "cv_master_missing" — and the caller decides whether that is fatal (it is
+    for `cv verify`, not for `cv pdf --force`). Otherwise it returns
+    {"offer_id", "results", "unsupported", "passed"}.
     """
-    import json
-
     from applyr.db import get_conn
 
-    cv_path = Path(cv_file).resolve()
     content = read_text_or_die(cv_path)
 
     if cv_path.suffix == ".md":
@@ -1188,8 +1246,7 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
 
     offer_id = _extract_offer_id_from_md(content)
     if offer_id is None:
-        die("Error: no offer id found in this CV — pass a file generated by 'applyr cv generate'.",
-            code="no_offer_id")
+        return {"offer_id": None, "unverifiable": "no_offer_id"}
 
     conn = get_conn()
     try:
@@ -1197,11 +1254,11 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
     finally:
         conn.close()
     if not offer:
-        die(f"Error: offer #{offer_id} not found.", code="not_found", details={"offer_id": offer_id})
+        return {"offer_id": offer_id, "unverifiable": "not_found"}
 
     cv_master = get_cv_master_path()
     if not cv_master.exists():
-        die("Error: cv-master.md not found. Run 'applyr init' first.", code="cv_master_missing")
+        return {"offer_id": offer_id, "unverifiable": "cv_master_missing"}
     claims = parse_evidence(cv_master.read_text(encoding="utf-8"))
 
     vocabulary = _build_tech_vocabulary(claims, offer["tech_stack"])
@@ -1229,7 +1286,37 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
         })
 
     unsupported = [r for r in results if not r["supported"]]
-    passed = not unsupported
+    return {"offer_id": offer_id, "results": results, "unsupported": unsupported, "passed": not unsupported}
+
+
+def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
+    """Deterministic truth gate for a generated CV.
+
+    Extracts protected-fact claims (technologies, metrics, employer/project/
+    title names) from the CV and checks each against the Evidence Graph
+    parsed fresh from cv-master.md — no LLM calls (ADR-003), no
+    agent-executed prompt. Unlike `cv review`/`cv review-blind`, the result
+    here is directly authoritative on exit: 0 for PASS, 1 for BLOCKED (every
+    unsupported claim listed). On PASS, the verified claim texts are
+    snapshotted to offers.cv_evidence_used for later audit (see cmd_show) —
+    an immutable record of what backed this CV, not a live cache.
+    """
+    import json
+
+    from applyr.db import get_conn
+
+    cv_path = Path(cv_file).resolve()
+    verdict = _verify_cv(cv_path)
+    offer_id = verdict["offer_id"]
+    unverifiable = verdict.get("unverifiable")
+    if unverifiable == "no_offer_id":
+        die("Error: no offer id found in this CV — pass a file generated by 'applyr cv generate'.",
+            code="no_offer_id")
+    if unverifiable == "not_found":
+        die(f"Error: offer #{offer_id} not found.", code="not_found", details={"offer_id": offer_id})
+    if unverifiable == "cv_master_missing":
+        die("Error: cv-master.md not found. Run 'applyr init' first.", code="cv_master_missing")
+    results, unsupported, passed = verdict["results"], verdict["unsupported"], verdict["passed"]
 
     # Calculate evidence density
     total_claims = len(results)

@@ -40,6 +40,7 @@ def main():
         "seniority_level": "senior",
         "tech_stack": "Python, FastAPI, PostgreSQL, Docker",
         "compatibility_pct": 78,
+        "score_source": "manual",  # a hand-typed score must say so (ADR-015)
         "status": "pending",
     }
     print("\n2. applyr add '<json>'")

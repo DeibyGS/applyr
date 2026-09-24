@@ -19,7 +19,7 @@ git clone https://github.com/DeibyGS/applyr && cd applyr && pip install -e ".[de
 ```bash
 applyr init                              # Create ~/.applyr/ with config + DB
 applyr setup-agent --agent claude        # Generate agent instructions
-applyr add '{"title":"Engineer","company":"Acme","compatibility_pct":75}'
+applyr add '{"title":"Engineer","company":"Acme","compatibility_pct":75,"score_source":"manual"}'
 applyr list                              # Show all offers
 applyr stats                             # Conversion funnel
 ```

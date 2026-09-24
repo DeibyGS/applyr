@@ -14,11 +14,11 @@ echo ""
 
 # Add offers
 echo "--- add (JSON from argument) ---"
-applyr add '{"title":"Frontend Engineer","company":"WebCo","tech_stack":"React,TypeScript","compatibility_pct":72}'
+applyr add '{"title":"Frontend Engineer","company":"WebCo","tech_stack":"React,TypeScript","compatibility_pct":72,"score_source":"manual"}'
 echo ""
 
 echo "--- add (JSON from stdin) ---"
-echo '{"title":"DevOps Engineer","company":"CloudInc","tech_stack":"Kubernetes,Terraform","compatibility_pct":68}' | applyr add -
+echo '{"title":"DevOps Engineer","company":"CloudInc","tech_stack":"Kubernetes,Terraform","compatibility_pct":68,"score_source":"manual"}' | applyr add -
 echo ""
 
 # List
