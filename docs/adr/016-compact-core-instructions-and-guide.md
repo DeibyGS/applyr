@@ -1,6 +1,6 @@
 # ADR 016 — Compact Core Instructions, `applyr guide`, and Native Agent Targets
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-24
 **Supersedes:** None (new decision)
 

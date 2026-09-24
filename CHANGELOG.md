@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   `--global`), `copilot` (`.github/copilot-instructions.md`), `windsurf`
   (`.windsurfrules`) and `cline` (`.clinerules`). All four are also auto-detected, after
   the existing Claude, Cursor and `AGENTS.md` checks.
+- **`setup-agent --agent claude-skill`** installs applyr as a Claude Code skill
+  (`.claude/skills/applyr/SKILL.md`, or `~/.claude/skills/applyr/SKILL.md` with
+  `--global`). Claude loads it only when a conversation is about job offers, CVs or
+  applications, so other sessions pay no tokens for it. It is never auto-detected, and
+  a `SKILL.md` applyr did not write is never overwritten without `--force`.
 
 ### Changed
 

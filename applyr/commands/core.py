@@ -114,6 +114,10 @@ _AGENT_TARGETS = {
     "cline":    (".clinerules",),
     "opencode": ("AGENTS.md",),
     "generic":  ("AGENTS.md",),
+    # A Claude Code skill: loaded only when a conversation is about offers or
+    # CVs, so sessions that never touch applyr pay no tokens for it (ADR-016).
+    # Opt-in only — deliberately absent from _AGENT_DETECT_ORDER.
+    "claude-skill": (".claude/skills/applyr/SKILL.md",),
 }
 
 # Canonical per-user global paths for `--global`, resolved against the user's
@@ -124,7 +128,19 @@ _AGENT_GLOBAL_TARGETS = {
     "claude":   ".claude/CLAUDE.md",
     "gemini":   ".gemini/GEMINI.md",
     "opencode": ".config/opencode/AGENTS.md",
+    "claude-skill": ".claude/skills/applyr/SKILL.md",
 }
+
+# Claude Code reads `description` to decide when to load the skill, so it names
+# the situations applyr is for rather than describing the tool.
+_SKILL_FRONTMATTER = (
+    "---\n"
+    "name: applyr\n"
+    "description: Job-application workflow with the applyr CLI. Use when the user shares a job "
+    "offer or posting, asks to score or evaluate an offer, wants a CV or resume tailored, "
+    "reviewed or turned into a PDF, or asks about their applications, follow-ups or pipeline.\n"
+    "---\n\n"
+)
 
 # Cursor only applies an `.mdc` rule on every request when it says so in its
 # frontmatter; without `alwaysApply` the instructions would load on demand only.
@@ -473,6 +489,38 @@ def _warn_if_profile_empty() -> None:
              "applyr refuses to build a CV on nothing.")
 
 
+def _write_claude_skill(target: Path, display: str, instructions: str, force: bool, global_: bool) -> bool:
+    """Write the applyr Claude Code skill; False when it was left as it is.
+
+    The whole file belongs to applyr, so there is no block to splice: a refresh
+    rewrites it. The version stamp sits right after the frontmatter, where
+    staleness detection still finds it. A SKILL.md applyr did not write (no
+    stamp) is never overwritten without --force.
+    """
+    content = _SKILL_FRONTMATTER + instructions.rstrip() + "\n"
+    if not target.exists():
+        target.write_text(content)
+        print(f"  Created {display} (Claude Code skill)")
+        return True
+
+    version = find_stamped_version(target.read_text())
+    if version is not None and not is_stale_version(version):
+        print(f"  {display} already contains up-to-date applyr instructions (v{version}) — skipped.")
+        return False
+    if force:
+        target.write_text(content)
+        print(f"  Rewrote {display} (Claude Code skill)")
+        return True
+
+    global_flag = " --global" if global_ else ""
+    if version is None:
+        warn(f"  {display} exists and was not written by applyr — left untouched.")
+    else:
+        warn(f"  {display} is from applyr v{version}; the installed package is v{__version__}.")
+    warn(f"  Run 'applyr setup-agent --agent claude-skill{global_flag} --force' to overwrite it.")
+    return False
+
+
 def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool = False) -> None:
     """Write applyr agent instructions into the project or user-global AI config file."""
     cwd = Path.cwd()
@@ -556,8 +604,11 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
     # Create parent dirs if needed (e.g. .claude/ or ~/.config/opencode/)
     target.parent.mkdir(parents=True, exist_ok=True)
 
+    if agent == "claude-skill":
+        if not _write_claude_skill(target, display, instructions, force, global_):
+            return
     # If file exists, append (don't overwrite user content)
-    if target.exists():
+    elif target.exists():
         existing = target.read_text()
         existing_lower = existing.lower()
         existing_version = find_stamped_version(existing)
