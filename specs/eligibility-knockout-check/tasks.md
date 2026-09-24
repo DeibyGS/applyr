@@ -9,11 +9,11 @@ Chained PRs (500-line budget): **PR 1** = T1–T2 · **PR 2** = T3–T6 · **PR 
   - Done when: unit tests cover pass/warn/block/unknown per item, EN/ES section and language names, native ≥ C2, remote never blocks, and invalid blocks raise with the field name.
 
 ## PR 2 — Storage and recommendation
-- [ ] T3 — Schema v15 migration + `SCHEMA_SQL` columns [S] — implements AC-01, AC-E3 — Depends on: PR 1
+- [x] T3 — Schema v15 migration + `SCHEMA_SQL` columns [S] — implements AC-01, AC-E3 — Depends on: PR 1
   - Done when: a v14 DB migrates with both columns NULL; a fresh DB has them; `test_db` passes.
-- [ ] T4 — `recommendation_for()` eligibility-aware (reason via `eligibility.block_reason()`) [S] — implements AC-10, AC-11, AC-12 — Depends on: T3
+- [x] T4 — `recommendation_for()` eligibility-aware (reason via `eligibility.block_reason()`) [S] — implements AC-10, AC-11, AC-12 — Depends on: T3
   - Done when: a `block` result returns `low_match` for a score of 95; two-arg calls unchanged.
-- [ ] T5 — `add`: validate before insert, evaluate, store, print; `show` / list / search expose `eligibility` + `eligibility_block` [M] — implements AC-01, AC-02, AC-10, AC-13, AC-14, AC-E1, AC-E2 — Depends on: T4
+- [x] T5 — `add`: validate before insert, evaluate, store, print; `show` / list / search expose `eligibility` + `eligibility_block` [M] — implements AC-01, AC-02, AC-10, AC-13, AC-14, AC-E1, AC-E2 — Depends on: T4
   - Done when: CLI tests show an invalid block stores nothing (`invalid_eligibility`), a blocked 95% offer reads `low_match` in add/show/list/search text and `--json`, and a missing CV master yields all-`unknown`.
 - [ ] T6 — `pipeline`, `summary`, calibration, `rescore` (re-evaluates), `applyr next` warning [M] — implements AC-10, AC-15, AC-16, AC-17 — Depends on: T5
   - Done when: a blocked offer is `low_match` in pipeline/summary/calibration; editing the profile then `rescore` flips the result; `next` names the blocking item.

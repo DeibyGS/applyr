@@ -6,6 +6,7 @@ DB, no config, no clock — the same requirements and profile text always give
 the same result, which is what makes the gate testable and trustworthy.
 """
 
+import json
 import math
 import re
 from dataclasses import dataclass, field
@@ -271,6 +272,17 @@ def evaluate(requirements: dict, profile: EligibilityProfile, work_mode: str | N
     if requirements.get("driving_license"):
         items.append(_license_item(profile))
     return {"items": items, "blocked": any(i["status"] == ELIGIBILITY_BLOCK for i in items)}
+
+
+def load_stored(raw: str | None) -> dict | None:
+    """A stored eligibility column (requirements or result) as a dict — None when absent or corrupt."""
+    if not raw:
+        return None
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return result if isinstance(result, dict) else None
 
 
 def block_reason(result: dict | None) -> str | None:

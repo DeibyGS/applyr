@@ -47,7 +47,8 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score, recommendation_for
-from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum, _is_numeric_score
+from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum, _is_numeric_score, _evaluate_eligibility
+from applyr.eligibility import EligibilityError, block_reason, load_stored, validate_requirements
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
 
@@ -171,16 +172,43 @@ _AGENT_DETECT_ORDER = [
 _RECOMMENDATION_ICONS = {"apply": "✅", "maybe": "⚠️", "low_match": "❌"}
 
 
-def _get_recommendation(score: int, config: dict) -> tuple[str, str]:
+_ELIGIBILITY_ICONS = {"pass": "✓", "warn": "!", "block": "✗", "unknown": "?"}
+
+
+def _get_recommendation(score: int, config: dict, eligibility: dict | None = None) -> tuple[str, str]:
     """(recommendation, display icon) — see scoring.recommendation_for."""
-    recommendation = recommendation_for(score, config)
+    recommendation = recommendation_for(score, config, eligibility)
     return recommendation, _RECOMMENDATION_ICONS[recommendation]
 
 
 def _rows_with_recommendation(rows) -> list[dict]:
-    """Offer rows as dicts, each carrying its `recommendation`."""
+    """Offer rows as dicts, each carrying its `recommendation` and `eligibility_block`.
+
+    The raw `eligibility_result` column is replaced by the one field a listing
+    needs; `show --json` carries the per-item detail.
+    """
     config = load_config()
-    return [dict(r) | {"recommendation": recommendation_for(r["compatibility_pct"], config)} for r in rows]
+    out = []
+    for r in rows:
+        data = dict(r)
+        eligibility = load_stored(data.pop("eligibility_result", None))
+        data["recommendation"] = recommendation_for(r["compatibility_pct"], config, eligibility)
+        data["eligibility_block"] = block_reason(eligibility)
+        out.append(data)
+    return out
+
+
+def _print_eligibility(eligibility: dict | None) -> None:
+    """Per-item eligibility verdicts, and what blocked the offer if anything did."""
+    if not eligibility or not eligibility.get("items"):
+        return
+    print("\n  Eligibility:")
+    for item in eligibility["items"]:
+        icon = _ELIGIBILITY_ICONS.get(item["status"], "?")
+        print(f"    {icon} {item['item']:<18} {item['status']:<8} {item['detail']}")
+    reason = block_reason(eligibility)
+    if reason:
+        print(f"     BLOCKED BY: {reason}")
 
 
 def _get_recommendation_label(recommendation: str) -> str:
@@ -852,6 +880,18 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     else:
         compatibility_pct = 0
 
+    # --- Eligibility / knockout check (ADR-017) ----------------------------
+    # Validated before the INSERT so a malformed block stores nothing (AC-E1).
+    eligibility_requirements: dict | None = None
+    eligibility: dict | None = None
+    if data.get("eligibility") is not None:
+        try:
+            eligibility_requirements = validate_requirements(data["eligibility"])
+        except EligibilityError as exc:
+            die(f"Error: invalid eligibility — {exc}", code="invalid_eligibility",
+                details={"field": exc.field})
+        eligibility = _evaluate_eligibility(eligibility_requirements, work_mode)
+
     # --- Auto follow-up date ----------------------------------------------
     follow_up_date: str | None = data.get("follow_up_date")
     if not follow_up_date and status in ("applied", "waiting"):
@@ -870,7 +910,7 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
                 seniority_level, role_category, tech_stack, language,
                 cover_letter, cover_letter_file,
                 contact_name, contact_role, job_url, rejection_reason, notes,
-                job_description
+                job_description, eligibility_requirements, eligibility_result
             ) VALUES (
                 ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
@@ -879,7 +919,7 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
                 ?, ?, ?, ?,
                 ?, ?,
                 ?, ?, ?, ?, ?,
-                ?
+                ?, ?, ?
             )
             """,
             (
@@ -891,6 +931,8 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
                 cover_letter, cover_letter_file,
                 contact_name, contact_role, job_url, rejection_reason, notes,
                 job_description,
+                json.dumps(eligibility_requirements) if eligibility_requirements is not None else None,
+                json.dumps(eligibility) if eligibility is not None else None,
             ),
         )
         offer_id: int = cursor.lastrowid
@@ -933,7 +975,7 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     topics_list = [{"topic": k, "score": v["score"], "detail": v.get("detail", ""),
                     "confidence": v.get("confidence")}
                    for k, v in topics.items()]
-    recommendation, icon = _get_recommendation(compatibility_pct, config)
+    recommendation, icon = _get_recommendation(compatibility_pct, config, eligibility)
     confidence = _derive_confidence(topics_list)
     why_match, biggest_weakness = _get_why_you_match(topics_list, TOPIC_LABELS) if topics_list else ([], None)
 
@@ -952,6 +994,8 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
             "topics": topics_list,
             "why_match": why_match,
             "biggest_weakness": biggest_weakness,
+            "eligibility": eligibility,
+            "eligibility_block": block_reason(eligibility),
         }
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
@@ -975,6 +1019,7 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     rec_label_text = _get_recommendation_label(recommendation)
     print(f"\n  >> {icon} {rec_label_text} (score {compatibility_pct}%)")
     print(f"     CONFIDENCE: {confidence.upper()}")
+    _print_eligibility(eligibility)
     if topics_list:
         _show_match_breakdown(topics_list, TOPIC_LABELS)
 
@@ -1040,7 +1085,7 @@ def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", li
     )
     limit_clause = f"LIMIT {int(effective_limit)}" if effective_limit else ""
 
-    query = f"SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received FROM offers {where_clause} {order_clause} {limit_clause}"
+    query = f"SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received, eligibility_result FROM offers {where_clause} {order_clause} {limit_clause}"
 
     conn = get_conn()
     try:
@@ -1096,7 +1141,11 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
         data["topics"] = [{"topic": t["topic"], "score": t["score"], "detail": t["detail"],
                            "confidence": t["confidence"]} for t in topics]
         data["confidence"] = _derive_confidence([dict(t) for t in topics])
-        data["recommendation"] = recommendation_for(row["compatibility_pct"], load_config())
+        eligibility = load_stored(data.pop("eligibility_result"))
+        data["eligibility_requirements"] = load_stored(row["eligibility_requirements"])
+        data["eligibility"] = eligibility
+        data["eligibility_block"] = block_reason(eligibility)
+        data["recommendation"] = recommendation_for(row["compatibility_pct"], load_config(), eligibility)
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return
 
@@ -1211,10 +1260,12 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
         _show_score_breakdown(topics_dicts, config.get("weights", {}))
 
     # Recommendation
-    recommendation, icon = _get_recommendation(row["compatibility_pct"], config)
+    eligibility = load_stored(row["eligibility_result"])
+    recommendation, icon = _get_recommendation(row["compatibility_pct"], config, eligibility)
     rec_label_text = _get_recommendation_label(recommendation)
     print(f"\n  >> {icon} {rec_label_text} (score {row['compatibility_pct']}%)")
     print(f"     CONFIDENCE: {_derive_confidence(topics_dicts).upper()}")
+    _print_eligibility(eligibility)
 
     print()
 
@@ -1404,7 +1455,7 @@ def cmd_search(keyword: str, status_filter: str | None = None, company: str | No
             else:
                 placeholders = ",".join("?" * len(ids))
                 query = f"""
-                    SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received
+                    SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received, eligibility_result
                     FROM offers
                     WHERE id IN ({placeholders})
                 """
@@ -1417,7 +1468,7 @@ def cmd_search(keyword: str, status_filter: str | None = None, company: str | No
         else:
             pattern = f"%{keyword}%"
             query = """
-                SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received
+                SELECT id, company, title, compatibility_pct, status, work_mode, date_applied, date_received, eligibility_result
                 FROM offers
                 WHERE (
                     title       LIKE ?
