@@ -134,3 +134,50 @@ def test_missing_cv_master_stores_offer_with_all_unknown(run_cli, capsys, tmp_db
     data = _add(run_cli, capsys, "No profile", {"min_years": 9, "city": "Oslo", "driving_license": True})
     assert {i["status"] for i in data["eligibility"]["items"]} == {"unknown"}
     assert data["recommendation"] == "apply"
+
+
+# --- PR 2b: pipeline, calibration, rescore, next (AC-10, AC-15..17) ----------
+
+def test_pipeline_json_reports_blocked_offer_as_low_match(run_cli, capsys, tmp_db, profile):
+    _add(run_cli, capsys, "Blocked", BLOCKING)
+    out, _, code = _run(run_cli, capsys, ["pipeline", "--json"])
+    row = json.loads(out)["pending"][0]
+    assert code == 0 and row["recommendation"] == "low_match"
+    assert row["eligibility_block"].startswith("language:english")
+
+
+def test_calibration_counts_blocked_offer_in_low_match_band(run_cli, capsys, tmp_db, profile):
+    _add(run_cli, capsys, "Blocked", BLOCKING, status="applied")
+    out, _, code = _run(run_cli, capsys, ["stats", "--json"])
+    bands = json.loads(out)["score_calibration"]
+    assert code == 0
+    assert bands["low_match"]["total"] == 1 and bands["apply"]["total"] == 0
+
+
+def test_rescore_re_evaluates_against_the_current_profile(run_cli, capsys, tmp_db, profile):
+    offer_id = _add(run_cli, capsys, "Blocked", BLOCKING)["id"]
+    profile.write_text(PROFILE.replace("English: B1", "English: C2"), encoding="utf-8")
+    out, _, code = _run(run_cli, capsys, ["rescore", str(offer_id), "--json"])
+    data = json.loads(out)
+    assert code == 0
+    assert data["recommendation"] == "apply" and data["eligibility_block"] is None
+    out, _, _ = _run(run_cli, capsys, ["show", str(offer_id), "--json"])
+    assert json.loads(out)["eligibility"]["items"][0]["status"] == "pass"
+
+
+def test_rescore_without_topics_still_re_evaluates_eligibility(run_cli, capsys, tmp_db, profile):
+    payload = {"title": "No topics", "company": "Acme", "eligibility": BLOCKING}
+    _run(run_cli, capsys, ["add", json.dumps(payload), "--json"])
+    out, _, code = _run(run_cli, capsys, ["rescore", "1", "--json"])
+    data = json.loads(out)
+    assert code == 0
+    assert data["new_compatibility_pct"] == data["old_compatibility_pct"] == 0
+    assert data["eligibility"]["blocked"] is True
+
+
+def test_next_names_the_failed_requirement(run_cli, capsys, tmp_db, profile):
+    offer_id = _add(run_cli, capsys, "Blocked", BLOCKING)["id"]
+    out, _, code = _run(run_cli, capsys, ["next", str(offer_id), "--json"])
+    warnings = json.loads(out)["warnings"]
+    assert code == 0
+    assert any("failed requirement: language:english" in w for w in warnings)

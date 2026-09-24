@@ -25,7 +25,8 @@ from applyr.constants import (
     TREND_HISTORY_LIMIT,
 )
 from applyr.db import REPLY_STATUSES, STATUS_LABELS, VALID_SEVERITIES, get_conn
-from applyr.commands._helpers import _bar, _today, _truncate
+from applyr.commands._helpers import _bar, _evaluate_eligibility, _today, _truncate
+from applyr.eligibility import block_reason, load_stored
 from applyr.errors import die
 from applyr.scoring import calculate_score, recommendation_for
 
@@ -102,7 +103,7 @@ def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
     conn = get_conn()
     try:
         rows = conn.execute(
-            "SELECT status, compatibility_pct, title, company, id FROM offers ORDER BY id"
+            "SELECT status, compatibility_pct, title, company, id, eligibility_result FROM offers ORDER BY id"
         ).fetchall()
     finally:
         conn.close()
@@ -126,10 +127,14 @@ def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
         config = load_config()
         payload = {}
         for status in _STATUS_ORDER:
-            payload[status] = [{"id": i["id"], "compatibility_pct": i["compatibility_pct"],
-                                "company": i["company"], "title": i["title"],
-                                "recommendation": recommendation_for(i["compatibility_pct"], config)}
-                               for i in groups[status]]
+            payload[status] = []
+            for i in groups[status]:
+                eligibility = load_stored(i["eligibility_result"])
+                payload[status].append({
+                    "id": i["id"], "compatibility_pct": i["compatibility_pct"],
+                    "company": i["company"], "title": i["title"],
+                    "recommendation": recommendation_for(i["compatibility_pct"], config, eligibility),
+                    "eligibility_block": block_reason(eligibility)})
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
@@ -177,11 +182,12 @@ def _score_calibration(conn) -> tuple[dict, int]:
     }
 
     rows = conn.execute(
-        "SELECT compatibility_pct, status FROM offers "
+        "SELECT compatibility_pct, status, eligibility_result FROM offers "
         "WHERE status != 'pending' AND status != 'discarded' AND weights_used IS NOT NULL"
     ).fetchall()
     for row in rows:
-        band = bands[recommendation_for(row["compatibility_pct"], config)]
+        # A knocked-out offer counts where it was recommended: low_match (ADR-017).
+        band = bands[recommendation_for(row["compatibility_pct"], config, load_stored(row["eligibility_result"]))]
         band["total"] += 1
         if row["status"] in REPLY_STATUSES:
             band["responded"] += 1
@@ -792,13 +798,17 @@ def cmd_rescore(offer_id: int, as_json: bool = False) -> None:
     Reuses the offer's already-judged offer_topics rows (score/detail/
     confidence, unchanged) — this command never re-evaluates fit, only
     re-applies calculate_score() under whatever [weights] are configured now.
+
+    Stored eligibility requirements (ADR-017) are re-judged against the current
+    cv-master.md, so filling in its ELIGIBILITY section later updates the offer.
     """
     config = load_config()
 
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT id, compatibility_pct FROM offers WHERE id = ?", (offer_id,)
+            "SELECT id, compatibility_pct, work_mode, eligibility_requirements FROM offers WHERE id = ?",
+            (offer_id,)
         ).fetchone()
         if not row:
             die(f"Error: offer #{offer_id} not found.", code="not_found",
@@ -808,20 +818,26 @@ def cmd_rescore(offer_id: int, as_json: bool = False) -> None:
         topic_rows = conn.execute(
             "SELECT topic, score, detail FROM offer_topics WHERE offer_id = ?", (offer_id,)
         ).fetchall()
-        if not topic_rows:
+        requirements = load_stored(row["eligibility_requirements"])
+        if not topic_rows and requirements is None:
             die(f"Error: offer #{offer_id} has no scored topics to rescore.", code="no_topics",
                 details={"offer_id": offer_id},
                 text=f"Error: offer #{offer_id} has no scored topics — nothing to rescore.")
 
-        topics = {t["topic"]: {"score": t["score"], "detail": t["detail"]} for t in topic_rows}
-        old_pct = row["compatibility_pct"]
-        new_pct = calculate_score(topics)
-        weights_used_json = json.dumps(config["weights_raw"], sort_keys=True)
+        old_pct = new_pct = row["compatibility_pct"]
+        if topic_rows:
+            topics = {t["topic"]: {"score": t["score"], "detail": t["detail"]} for t in topic_rows}
+            new_pct = calculate_score(topics)
+            conn.execute(
+                "UPDATE offers SET compatibility_pct = ?, weights_used = ? WHERE id = ?",
+                (new_pct, json.dumps(config["weights_raw"], sort_keys=True), offer_id),
+            )
 
-        conn.execute(
-            "UPDATE offers SET compatibility_pct = ?, weights_used = ? WHERE id = ?",
-            (new_pct, weights_used_json, offer_id),
-        )
+        eligibility = None
+        if requirements is not None:
+            eligibility = _evaluate_eligibility(requirements, row["work_mode"])
+            conn.execute("UPDATE offers SET eligibility_result = ? WHERE id = ?",
+                         (json.dumps(eligibility), offer_id))
         conn.commit()
     finally:
         conn.close()
@@ -831,14 +847,19 @@ def cmd_rescore(offer_id: int, as_json: bool = False) -> None:
             "id": offer_id,
             "old_compatibility_pct": old_pct,
             "new_compatibility_pct": new_pct,
-            "recommendation": recommendation_for(new_pct, config),
+            "recommendation": recommendation_for(new_pct, config, eligibility),
             "weights_used": config["weights_raw"],
+            "eligibility": eligibility,
+            "eligibility_block": block_reason(eligibility),
         }
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
     suffix = "no change" if new_pct == old_pct else "weights updated"
     print(f"Rescored offer #{offer_id}: {old_pct}% → {new_pct}% ({suffix})")
+    if eligibility is not None:
+        reason = block_reason(eligibility)
+        print(f"  Eligibility re-checked: {'BLOCKED BY ' + reason if reason else 'not blocked'}")
 
 
 # ---------------------------------------------------------------------------

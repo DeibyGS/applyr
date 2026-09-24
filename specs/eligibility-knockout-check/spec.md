@@ -1,7 +1,7 @@
 # Spec: Eligibility / Knockout Check
 
 ### Status: APPROVED
-### Version: 1.0
+### Version: 1.1
 
 ### Recovered context
 - Project constitution: no `docs/constitution.md` — `AGENTS.md` plus ADRs act as the
@@ -78,8 +78,10 @@ value; infer requirements applyr was not given.
 
 #### Recommendation effect
 - `[MUST]` AC-10: WHILE an offer has at least one `block` item THE system SHALL report its
-  recommendation as `low_match` in `add`, `show`, `list`, `search`, `pipeline`, `summary`
-  and `rescore` output (text and `--json`), and SHALL show which requirement blocked it.
+  recommendation as `low_match` wherever a recommendation is reported — `add` and `show`
+  (text and `--json`), `list`, `search`, `pipeline` and `rescore` (`--json`) — and SHALL
+  show which requirement blocked it. (v1.1: `summary` and the list/search/pipeline text
+  tables never report a recommendation, so they are unaffected.)
 - `[MUST]` AC-11: The compatibility score of a blocked offer SHALL be identical to the score
   it would have without the eligibility block.
 - `[MUST]` AC-12: The recommendation SHALL remain one of `apply`, `maybe`, `low_match`.
