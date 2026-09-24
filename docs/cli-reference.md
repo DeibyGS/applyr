@@ -57,7 +57,14 @@ cat offer.json | applyr add -
 
 **Required fields:** `title`
 
-**Optional fields:** `company`, `summary`, `date_received`, `date_applied`, `compatibility_pct`, `status`, `canal`, `work_mode`, `location`, `salary_min`, `salary_max`, `salary_period`, `seniority_level`, `role_category`, `tech_stack`, `language`, `cover_letter`, `job_url`, `contact_name`, `contact_role`, `topics`, `notes`
+**Optional fields:** `company`, `summary`, `date_received`, `date_applied`, `compatibility_pct`, `status`, `canal`, `work_mode`, `location`, `salary_min`, `salary_max`, `salary_period`, `seniority_level`, `role_category`, `tech_stack`, `language`, `cover_letter`, `job_url`, `contact_name`, `contact_role`, `topics`, `eligibility`, `notes`
+
+**`eligibility`** ([ADR 017](adr/017-eligibility-knockout-check.md)) — the offer's
+*mandatory* requirements only: `min_years`, `languages` (`[{"language", "level"}]`, level
+`A1`–`C2` or `native`), `city`, `driving_license`. applyr judges each against the
+`## ELIGIBILITY` section of cv-master.md as `pass` / `warn` / `block` / `unknown`. Any
+`block` makes the recommendation `low_match` without changing the score; `--json` adds
+`eligibility` and `eligibility_block`. `rescore` re-checks it against the current profile.
 
 ### `applyr list [--status S] [--sort F] [--limit N] [--all]`
 

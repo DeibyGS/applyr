@@ -40,6 +40,15 @@ then 2-4 bullets with measurable results (e.g. "Cut API latency by 42%"). -->
 ...
 <!-- Your languages with proficiency level. -->
 
+## ELIGIBILITY
+...
+<!-- Facts applyr checks an offer's mandatory requirements against, one per line:
+- Relevant experience (years): 2
+- Cities: Madrid, Alcalá de Henares
+- Relocation: no
+- Driving license: yes
+Language levels are read from LANGUAGES above (use A1–C2 or Native). -->
+
 ## ADDITIONAL
 ...
 <!-- Availability, work preferences and location preferences. -->

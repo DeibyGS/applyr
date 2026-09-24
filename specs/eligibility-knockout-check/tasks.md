@@ -19,11 +19,11 @@ Chained PRs (500-line budget): **PR 1** = T1–T2 · **PR 2** = T3–T6 · **PR 
   - Done when: a blocked offer is `low_match` in pipeline/summary/calibration; editing the profile then `rescore` flips the result; `next` names the blocking item.
 
 ## PR 3 — Health check and docs
-- [ ] T7 — `doctor` non-fatal WARNING when the section is missing [S] [P] — implements AC-18 — Depends on: PR 2
+- [x] T7 — `doctor` non-fatal WARNING when the section is missing [S] [P] — implements AC-18 — Depends on: PR 2
   - Done when: `doctor` exit code is unchanged with the section missing and the warning names it (text + `--json`).
-- [ ] T8 — Template + AGENT_INSTRUCTIONS + matcher role + contracts/cli-reference [S] [P] — implements AC-19 — Depends on: PR 2
+- [x] T8 — Template + AGENT_INSTRUCTIONS + matcher role + contracts/cli-reference [S] [P] — implements AC-19 — Depends on: PR 2
   - Done when: template shows the four keys in EN; instructions say "mandatory requirements only" with the JSON example; `test_agent_instructions` passes.
-- [ ] T9 — CHANGELOG entry [S] — implements — (docs) — Depends on: T7, T8
+- [x] T9 — CHANGELOG entry [S] — implements — (docs) — Depends on: T7, T8
   - Done when: `Unreleased` lists the feature, schema v15, and the new error code.
 
 Task sizes: S (<1h) | M (1-3h) | L (3-6h)

@@ -19,7 +19,9 @@ def doctor_home(tmp_db, tmp_applyr, monkeypatch):
     monkeypatch.setattr("applyr.commands.workflow.APPLYR_DIR", tmp_applyr)
     (tmp_applyr / "AGENT_INSTRUCTIONS.md").write_text("# Agent instructions\n")
     (tmp_applyr / "applyr.toml").write_text("[general]\nthreshold = 65\n")
-    (tmp_applyr / "cv-master.md").write_text("# CV Master\n\n" + "Real experience. " * 200)
+    (tmp_applyr / "cv-master.md").write_text(
+        "# CV Master\n\n" + "Real experience. " * 200
+        + "\n\n## ELIGIBILITY\n- Relevant experience (years): 2\n")
     return tmp_applyr
 
 
@@ -250,3 +252,29 @@ class TestCVOutputPrivacy:
         payload = json.loads(capsys.readouterr().out)
         assert code == 0
         assert self._cv_check(payload)["status"] == "ok"
+
+
+class TestEligibilitySection:
+    """ADR-017: without declared eligibility facts every knockout requirement
+    reads `unknown` — worth saying, never worth failing the health check."""
+
+    def _cv_check(self, payload):
+        return next(c for c in payload["checks"] if c["name"] == "CV Master")
+
+    def test_missing_section_is_a_note_and_keeps_exit_code(self, doctor_home, capsys):
+        (doctor_home / "cv-master.md").write_text("# CV Master\n\n" + "Real experience. " * 200)
+        assert _run(as_json=True) == 0
+        check = self._cv_check(json.loads(capsys.readouterr().out))
+        assert check["status"] == "note"
+        assert "ELIGIBILITY" in check["message"] and "ELIGIBILITY" in check["hint"]
+
+    def test_section_with_only_comments_is_still_a_note(self, doctor_home, capsys):
+        (doctor_home / "cv-master.md").write_text(
+            "# CV Master\n\n" + "Real experience. " * 200
+            + "\n\n## ELIGIBILITY\n<!-- - Cities: Madrid -->\n")
+        assert _run(as_json=True) == 0
+        assert self._cv_check(json.loads(capsys.readouterr().out))["status"] == "note"
+
+    def test_declared_section_is_ok(self, doctor_home, capsys):
+        assert _run(as_json=True) == 0
+        assert self._cv_check(json.loads(capsys.readouterr().out))["status"] == "ok"

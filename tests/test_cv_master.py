@@ -52,6 +52,7 @@ class TestUnfilledTemplate:
             "CERTIFICATIONS",
             "TECHNICAL SKILLS",
             "LANGUAGES",
+            "ELIGIBILITY",
             "ADDITIONAL",
         }
         assert "PROFESSIONAL SUMMARY" in report.reason

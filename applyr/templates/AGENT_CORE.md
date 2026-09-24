@@ -47,8 +47,9 @@ ask the user** before running the command.
 | After sending | `applyr update <id> applied --canal <channel>` | `deliver` |
 
 Scoring: give each topic a `score`, a `detail` and a `confidence`. **Omit a topic the
-offer does not mention — never score it 100.** Rubric and JSON template:
-`applyr guide score`.
+offer does not mention — never score it 100.** Put only the offer's *mandatory*
+requirements in the `eligibility` block — applyr forces LOW MATCH on a failed one.
+Rubric and JSON template: `applyr guide score`.
 
 ## Stop and ask the user
 
