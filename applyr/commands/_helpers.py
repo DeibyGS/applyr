@@ -3,6 +3,8 @@
 from datetime import date
 
 from applyr.constants import PROGRESS_BAR_WIDTH, TOPIC_PARTIAL_MIN, TOPIC_STRONG_MIN
+from applyr.cv import get_cv_master_path
+from applyr.eligibility import evaluate, parse_profile
 from applyr.errors import die
 
 
@@ -25,6 +27,19 @@ def _validate_enum(value: str | None, valid: tuple[str, ...], field: str, requir
         die(f"Error: invalid {field} '{value}'. Valid: {', '.join(valid)}",
             code="invalid_value",
             details={"field": field, "value": value, "valid": list(valid)})
+
+
+def _evaluate_eligibility(requirements: dict, work_mode: str | None) -> dict:
+    """Judge an offer's requirements against the current cv-master.md (ADR-017).
+
+    A missing or unreadable profile is not an error here: every item then reads
+    `unknown`, which never blocks — the offer is still registered (AC-E2).
+    """
+    try:
+        text = get_cv_master_path().read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        text = ""
+    return evaluate(requirements, parse_profile(text), work_mode)
 
 
 def _is_numeric_score(score) -> bool:

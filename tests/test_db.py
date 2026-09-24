@@ -696,6 +696,35 @@ class TestMigrationV12ToV13:
 
 
 @pytest.mark.unit
+class TestMigrationV14ToV15:
+    """Eligibility columns (ADR-017) are additive: rows recorded before the
+    migration get NULL, which every reader treats as "no eligibility check"."""
+
+    def test_real_v14_database_gains_null_eligibility_columns(self, tmp_db):
+        conn = get_conn(tmp_db)
+        # A genuine v14 table: SCHEMA_SQL already created the new columns, so
+        # drop them to prove the (14, 15) migration adds them back.
+        conn.execute("ALTER TABLE offers DROP COLUMN eligibility_requirements")
+        conn.execute("ALTER TABLE offers DROP COLUMN eligibility_result")
+        conn.execute("INSERT INTO offers (title, company, compatibility_pct) VALUES ('Backend Dev', 'Acme', 70)")
+        conn.execute("UPDATE schema_version SET version = 14")
+        conn.commit()
+        conn.close()
+
+        init_db(tmp_db)
+        init_db(tmp_db)  # idempotent
+
+        conn = get_conn(tmp_db)
+        try:
+            row = dict(conn.execute("SELECT * FROM offers WHERE title = 'Backend Dev'").fetchone())
+            version = conn.execute("SELECT version FROM schema_version").fetchone()["version"]
+        finally:
+            conn.close()
+        assert row["eligibility_requirements"] is None and row["eligibility_result"] is None
+        assert version == SCHEMA_VERSION == 15
+
+
+@pytest.mark.unit
 class TestSchemaWarningGoesToStderr:
     """A bare print() put a prose line above the payload of every `--json`
     command, so an agent parsing the output hit a JSONDecodeError on character

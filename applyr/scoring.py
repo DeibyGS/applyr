@@ -7,14 +7,19 @@ from applyr.constants import DEFAULT_TOPIC_WEIGHT, TOPIC_PARTIAL_MIN, TOPIC_STRO
 from applyr.evidence import parse_evidence, is_evidenced
 
 
-def recommendation_for(score: int, config: dict) -> str:
+def recommendation_for(score: int, config: dict, eligibility_result: dict | None = None) -> str:
     """"apply" / "maybe" / "low_match" for an offer's compatibility score.
 
     The single definition every command uses. It used to be re-derived in
     several places — with hardcoded 80/60 fallbacks in one and an inline copy
     in the score calibration — and only `add`/`show` exposed it, so an agent
     reading `list --json` had to re-implement the thresholds itself.
+
+    A failed knockout requirement (ADR-017) forces "low_match" whatever the
+    score — the score itself is never changed, only what it recommends.
     """
+    if eligibility_result and eligibility_result.get("blocked"):
+        return "low_match"
     general = config["general"]
     if score >= general["threshold_apply"]:
         return "apply"

@@ -6,7 +6,7 @@ from pathlib import Path
 from applyr.config import load_config
 from applyr.errors import warn
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 # CHECK is the only thing guarding against a typo'd literal there. One
 # source of truth for the constraint still matters even so.
@@ -192,6 +192,13 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         "ALTER TABLE offers ADD COLUMN cv_iteration INTEGER DEFAULT 0",
         "ALTER TABLE offers ADD COLUMN cv_iteration_history TEXT",
     ],
+    # Eligibility / knockout check (ADR-017): the offer's mandatory requirements
+    # as the agent extracted them, and applyr's per-item verdict. Additive —
+    # existing rows get NULL, which reads as "no eligibility check" (AC-E3).
+    (14, 15): [
+        "ALTER TABLE offers ADD COLUMN eligibility_requirements TEXT",
+        "ALTER TABLE offers ADD COLUMN eligibility_result TEXT",
+    ],
 }
 
 SCHEMA_SQL = f"""\
@@ -249,7 +256,10 @@ CREATE TABLE IF NOT EXISTS offers (
     cv_tailoring_plan TEXT,
     evidence_map      TEXT,
     cv_iteration      INTEGER DEFAULT 0,
-    cv_iteration_history TEXT
+    cv_iteration_history TEXT,
+    -- Eligibility / knockout check (ADR-017)
+    eligibility_requirements TEXT,
+    eligibility_result TEXT
 );
 
 CREATE TABLE IF NOT EXISTS offer_topics (
