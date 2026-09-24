@@ -25,7 +25,7 @@ from applyr.commands.analytics import (
     cmd_gaps_list,
     cmd_gaps_stats,
 )
-from applyr.commands.workflow import cmd_export, cmd_doctor, cmd_cv_stats, cmd_next, cmd_role
+from applyr.commands.workflow import cmd_export, cmd_doctor, cmd_cv_stats, cmd_guide, cmd_next, cmd_role
 
 __all__ = [
     "cmd_cv_stats",
@@ -54,4 +54,5 @@ __all__ = [
     "cmd_doctor",
     "cmd_role",
     "cmd_next",
+    "cmd_guide",
 ]

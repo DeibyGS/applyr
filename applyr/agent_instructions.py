@@ -198,3 +198,71 @@ def role_instructions(name: str) -> str | None:
         return None
     return (_ROLES_DIR / f"{name.replace('-', '_')}.md").read_text(encoding="utf-8")
 
+
+
+# `applyr guide` slugs → the exact heading they print (ADR-016). A fixed list on
+# purpose: agents hard-code these, so a reworded heading has to fail a test here
+# rather than silently break every agent that calls the old slug.
+GUIDE_SLUGS: dict[str, str] = {
+    "principles": "## Core Principles",
+    "roles": "## Agent Roles",
+    "privacy": "## Privacy",
+    "setup": "## Setup",
+    "workflow": "## Workflow",
+    "health": "### Step 1 — Health check, then read profile",
+    "duplicates": "### Step 2 — Check duplicates",
+    "score": "### Step 3 — Evaluate and register (Matcher role)",
+    "decide": "### Step 4 — Decide",
+    "recruiter": "### Step 5 — Recruiter evaluation (blind)",
+    "plan": "### Step 5.5 — CV Tailoring Plan (automatic)",
+    "architect": "### Step 5.7 — CV Architect (tailoring strategy)",
+    "generate": "### Step 6 — Generate and review CV",
+    "verify": "### Step 6b — Verify grounding",
+    "deliver": "### Step 7 — Deliver",
+    "response-format": "## Agent response format",
+    "example": "## Example flow",
+    "commands": "## Command reference",
+    "errors": "## Error recovery",
+    "ats-rules": "## ATS CV rules",
+}
+
+
+def packaged_core() -> str:
+    """The short core block setup-agent injects (ADR-016), or "" if missing."""
+    src = Path(__file__).parent / "templates" / "AGENT_CORE.md"
+    return src.read_text(encoding="utf-8") if src.exists() else ""
+
+
+def _heading_level(line: str) -> int:
+    """Markdown heading level of a line (0 when it is not a heading)."""
+    for level in range(1, 7):
+        if line.startswith("#" * level + " "):
+            return level
+    return 0
+
+
+def guide_section(slug: str) -> str | None:
+    """The packaged instructions' section for a guide slug, heading included.
+
+    Runs from the slug's heading to the next heading of the same or a higher
+    level. Lines inside fenced code blocks are never headings — a `# comment`
+    in a bash example must not end a section early. None when the slug is
+    unknown or its heading is missing from the installed template.
+    """
+    heading = GUIDE_SLUGS.get(slug)
+    if heading is None:
+        return None
+    lines = packaged_instructions().split("\n")
+    start, level, in_fence = None, _heading_level(heading), False
+    for i, line in enumerate(lines):
+        if line.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if start is None:
+            if line.strip() == heading:
+                start = i
+        elif 0 < _heading_level(line) <= level:
+            return "\n".join(lines[start:i]).rstrip() + "\n"
+    return None if start is None else "\n".join(lines[start:]).rstrip() + "\n"

@@ -12,13 +12,18 @@ Set up `~/.applyr/` with config, database, and templates.
 applyr init
 ```
 
-### `applyr setup-agent [--agent NAME]`
+### `applyr setup-agent [--agent NAME] [--global] [--force]`
 
-Generate agent-specific instructions.
+Inject applyr's core agent instructions (about 80 lines) into your agent's config file.
+The full workflow is served on demand by `applyr guide`, so the injected block barely
+changes between releases. The block ends with `<!-- applyr-end -->`; `--force`
+refreshes only what lies between the version stamp and that marker, keeping your own
+text before and after it.
 
 ```bash
 applyr setup-agent                # Auto-detect
 applyr setup-agent --agent claude # Specify: claude | cursor | opencode | generic
+applyr setup-agent --force        # Refresh a stale block in place
 ```
 
 ### `applyr add '<json>'`
@@ -221,6 +226,20 @@ applyr cv pdf cv.html  # Legacy HTML files still work
 ```
 
 ## System
+
+### `applyr guide [step] [--json]`
+
+Print one section of the full agent instructions from the installed package — the
+detail behind the core block `setup-agent` injects. Without a step it lists them.
+Works before `applyr init`.
+
+```bash
+applyr guide                 # List steps: principles, setup, health, duplicates, score,
+                             # decide, recruiter, plan, architect, generate, verify,
+                             # deliver, response-format, example, commands, errors, ats-rules …
+applyr guide score           # Scoring rubric + add JSON template
+applyr guide verify --json   # {"slug", "title", "content"}
+```
 
 ### `applyr doctor`
 
