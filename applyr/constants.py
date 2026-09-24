@@ -131,3 +131,53 @@ PROTECTED_FACT_ALIASES: dict[str, list[str]] = {
     "Kubernetes": ["K8s"],
     "CI/CD": ["Continuous Integration", "Continuous Deployment", "Continuous Delivery"],
 }
+
+# ---------------------------------------------------------------------------
+# Eligibility / knockout check (docs/adr/017-eligibility-knockout-check.md)
+# ---------------------------------------------------------------------------
+# Per-item outcomes. Only "block" changes the recommendation; "unknown" never does.
+ELIGIBILITY_PASS = "pass"
+ELIGIBILITY_WARN = "warn"
+ELIGIBILITY_BLOCK = "block"
+ELIGIBILITY_UNKNOWN = "unknown"
+
+# Keys the agent may put in `add`'s `eligibility` block — anything else is rejected.
+ELIGIBILITY_KEYS = ("min_years", "languages", "city", "driving_license")
+
+# Falling short by at most this many years is a warning, not a block.
+ELIGIBILITY_YEARS_TOLERANCE = 1
+
+# CEFR scale, lowest first. Native is ranked above C2. Falling short by exactly
+# one step is a warning; two or more is a block.
+CEFR_LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2", "NATIVE")
+NATIVE_LEVEL_WORDS = frozenset({"native", "nativo", "nativa", "bilingual", "bilingüe", "bilingue"})
+
+# `## ELIGIBILITY` heading spellings (lowercased, accents folded).
+ELIGIBILITY_SECTION_NAMES = frozenset({"eligibility", "elegibilidad"})
+LANGUAGE_SECTION_NAMES = frozenset({"languages", "idiomas"})
+
+# Profile line keys (lowercased, accents folded, text before the first "(" or
+# ":") mapped to the field they fill.
+ELIGIBILITY_PROFILE_KEYS = {
+    "relevant experience": "years",
+    "experiencia relevante": "years",
+    "cities": "cities",
+    "ciudades": "cities",
+    "relocation": "relocation",
+    "reubicacion": "relocation",
+    "driving license": "driving_license",
+    "carnet de conducir": "driving_license",
+}
+YES_WORDS = frozenset({"yes", "si", "y", "true"})
+NO_WORDS = frozenset({"no", "n", "false"})
+
+# Language names in either language -> one canonical key (accents folded, lowercased).
+LANGUAGE_ALIASES = {
+    "english": "english", "ingles": "english",
+    "spanish": "spanish", "espanol": "spanish", "castellano": "spanish",
+    "french": "french", "frances": "french",
+    "german": "german", "aleman": "german",
+    "italian": "italian", "italiano": "italian",
+    "portuguese": "portuguese", "portugues": "portuguese",
+    "catalan": "catalan",
+}
