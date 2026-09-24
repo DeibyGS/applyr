@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from applyr.constants import PROGRESS_BAR_WIDTH
+from applyr.constants import PROGRESS_BAR_WIDTH, TOPIC_PARTIAL_MIN, TOPIC_STRONG_MIN
 from applyr.errors import die
 
 
@@ -82,9 +82,9 @@ def _classify_topic(score: int) -> str:
     """
     if not _is_numeric_score(score) or not 0 <= score <= 100:
         return "invalid"
-    elif score >= 80:
+    elif score >= TOPIC_STRONG_MIN:
         return "strong"
-    elif score >= 50:
+    elif score >= TOPIC_PARTIAL_MIN:
         return "partial"
     else:
         return "missing"

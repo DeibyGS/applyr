@@ -157,12 +157,21 @@ def load_config() -> dict:
     # look "incomplete" once merged, and its custom threshold would be
     # silently ignored in favor of the 80/60 defaults.
     user_general = user_config.get("general", {})
+    # Derived only from numbers: a quoted value ("85") made the subtraction
+    # raise TypeError inside load_config(), breaking every command before
+    # _sanitize() below could report it.
     if "threshold_apply" not in user_general and "threshold" in user_general:
         threshold = user_general["threshold"]
         config["general"]["threshold_apply"] = threshold
-        config["general"]["threshold_maybe"] = max(0, threshold - 20)
+        if _is_number(threshold):
+            config["general"]["threshold_maybe"] = max(0, threshold - 20)
     elif "threshold_apply" in user_general and "threshold_maybe" not in user_general:
-        config["general"]["threshold_maybe"] = max(0, config["general"]["threshold_apply"] - 20)
+        if _is_number(config["general"]["threshold_apply"]):
+            config["general"]["threshold_maybe"] = max(0, config["general"]["threshold_apply"] - 20)
+
+    # Kept on the config so `doctor` can still report what was replaced —
+    # after sanitizing, the bad values themselves are gone.
+    config["config_issues"] = _sanitize(config)
 
     # Normalize weights to decimals for calculate_score(), but keep the raw
     # relative-integer dict too — that's the shape weights_used snapshots
@@ -170,6 +179,66 @@ def load_config() -> dict:
     config["weights_raw"] = dict(config["weights"])
     config["weights"] = _normalize_weights(config["weights"])
     return config
+
+
+def known_topics(config: dict) -> set[str]:
+    """Built-in topics plus any custom topic given its own [weights] entry."""
+    return set(TOPIC_LABELS) | set(config["weights"])
+
+
+_WARNED: set[str] = set()
+
+
+def _warn_once(message: str) -> None:
+    """load_config() runs several times per command; say each problem once."""
+    if message not in _WARNED:
+        _WARNED.add(message)
+        print(f"Warning: {message}", file=sys.stderr)
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _sanitize(config: dict) -> list[str]:
+    """Replace unusable thresholds/weights with safe values, warning on stderr.
+
+    Nothing validated these before: `threshold_maybe` above `threshold_apply`
+    made MAYBE unreachable, a negative weight pushed scores outside 0-100 (and
+    `add` stored them), and a non-numeric weight crashed every command in
+    `sum()`. Only `doctor` noticed, and only the negative case.
+
+    Returns the problems found (also warned once on stderr).
+    """
+    issues: list[str] = []
+
+    def report(message: str) -> None:
+        issues.append(message)
+        _warn_once(message)
+
+    general = config["general"]
+    defaults = {"threshold_apply": DEFAULT_THRESHOLD_APPLY, "threshold_maybe": DEFAULT_THRESHOLD_MAYBE}
+    for key, default in defaults.items():
+        value = general.get(key)
+        if not _is_number(value) or not 0 <= value <= 100:
+            report(f"[general] {key} = {value!r} is not a number 0-100 — using {default}.")
+            general[key] = default
+    if general["threshold_maybe"] > general["threshold_apply"]:
+        report(f"[general] threshold_maybe ({general['threshold_maybe']}) is above threshold_apply "
+                   f"({general['threshold_apply']}) — MAYBE could never happen; using {general['threshold_apply']}.")
+        general["threshold_maybe"] = general["threshold_apply"]
+
+    weights = config["weights"]
+    for topic, weight in list(weights.items()):
+        if _is_number(weight) and weight >= 0:
+            continue
+        if topic in DEFAULT_WEIGHTS:
+            report(f"[weights] {topic} = {weight!r} must be a number >= 0 — using {DEFAULT_WEIGHTS[topic]}.")
+            weights[topic] = DEFAULT_WEIGHTS[topic]
+        else:
+            report(f"[weights] {topic} = {weight!r} must be a number >= 0 — ignored.")
+            del weights[topic]
+    return issues
 
 
 def create_default_config():

@@ -9,7 +9,9 @@ import tempfile
 from pathlib import Path
 
 from applyr.config import APPLYR_DIR, load_config
-from applyr.constants import CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, PROTECTED_FACT_ALIASES
+from applyr.constants import (
+    CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, PROTECTED_FACT_ALIASES, TOPIC_PARTIAL_MIN, TOPIC_STRONG_MIN,
+)
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
 from applyr.evidence import fold_accents, is_evidenced, parse_evidence
@@ -191,7 +193,7 @@ def _get_tailoring_hints(
     # Get strong topics to highlight
     for topic, values in topics.items():
         score = values.get("score", 0)
-        if score >= 80:
+        if score >= TOPIC_STRONG_MIN:
             label = _TOPIC_LABELS.get(topic, topic)
             if label not in highlight:
                 highlight.append(label)
@@ -199,7 +201,7 @@ def _get_tailoring_hints(
     # Get missing topics to de-emphasize
     for topic, values in topics.items():
         score = values.get("score", 0)
-        if score < 50:
+        if score < TOPIC_PARTIAL_MIN:
             label = _TOPIC_LABELS.get(topic, topic)
             de_emphasize.append(label)
 

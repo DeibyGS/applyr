@@ -3,8 +3,24 @@
 import json
 
 from applyr.config import load_config
-from applyr.constants import DEFAULT_TOPIC_WEIGHT
+from applyr.constants import DEFAULT_TOPIC_WEIGHT, TOPIC_PARTIAL_MIN, TOPIC_STRONG_MIN
 from applyr.evidence import parse_evidence, is_evidenced
+
+
+def recommendation_for(score: int, config: dict) -> str:
+    """"apply" / "maybe" / "low_match" for an offer's compatibility score.
+
+    The single definition every command uses. It used to be re-derived in
+    several places — with hardcoded 80/60 fallbacks in one and an inline copy
+    in the score calibration — and only `add`/`show` exposed it, so an agent
+    reading `list --json` had to re-implement the thresholds itself.
+    """
+    general = config["general"]
+    if score >= general["threshold_apply"]:
+        return "apply"
+    if score >= general["threshold_maybe"]:
+        return "maybe"
+    return "low_match"
 
 
 def calculate_score(topics: dict) -> int:
@@ -159,15 +175,15 @@ def evaluate_evidence(
                     evaluation["evidence_status"] = "missing"
             else:
                 # No tech stack string provided — fall back to score heuristic
-                if score >= 80:
+                if score >= TOPIC_STRONG_MIN:
                     evaluation["evidence_status"] = "strong"
-                elif score >= 50:
+                elif score >= TOPIC_PARTIAL_MIN:
                     evaluation["evidence_status"] = "weak"
 
         elif topic in ("experience", "projects", "education", "english", "cultural_fit"):
-            if score >= 80:
+            if score >= TOPIC_STRONG_MIN:
                 evaluation["evidence_status"] = "strong"
-            elif score >= 50:
+            elif score >= TOPIC_PARTIAL_MIN:
                 evaluation["evidence_status"] = "weak"
             else:
                 evaluation["evidence_status"] = "missing"
