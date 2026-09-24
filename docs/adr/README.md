@@ -16,6 +16,7 @@ reverses one of them.
 | [009](009-weight-versioning-and-rebalance.md) | Weight versioning + rescore + rebalanced `DEFAULT_WEIGHTS` — supersedes 004 | Accepted |
 | [010](010-opt-in-pypi-update-check.md) | Opt-in, default-off PyPI version check in `doctor` — narrowly supersedes 001 | Accepted |
 | [011](011-evidence-based-cv-engine.md) | Evidence-Based CV Engine — deterministic claim verification against `cv-master.md`, no LLM calls | Accepted |
+| [015](015-cli-enforced-pipeline-gates.md) | CLI-enforced pipeline — `applyr next` state machine, `cv pdf` verify gate, `--record`, `score_source` (012–014 live on `feat/cc-visual-ui`) | Proposed |
 
 ## Conventions
 
