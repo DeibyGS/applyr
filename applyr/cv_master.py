@@ -16,10 +16,41 @@ the presence of real content, never for particular section names. A profile
 written in Spanish is as valid as one written in English.
 """
 
+import re
 from dataclasses import dataclass
 
 # A section left as `...` is unfilled no matter how much text surrounds it.
 PLACEHOLDER_LINES = {"...", "…"}
+
+# Guidance lines cv-master-template.md shipped as plain text up to v1.13.x.
+# Users are told to delete them, but a profile filled around them kept them —
+# and then they counted as content, and their examples ("Cut API latency by
+# 42%", "DevOps") as evidence that let `cv verify` pass a fabricated claim.
+# Current templates wrap guidance in HTML comments instead; this set keeps
+# profiles created from the old template safe too.
+LEGACY_TEMPLATE_GUIDANCE_LINES = frozenset({
+    "Your full name, city, country, email, phone, LinkedIn, GitHub and website.",
+    "2-3 sentences: who you are, your strongest area, seniority and the roles you target.",
+    "For each role: **Job Title — Company** — City — Remote/Hybrid/Onsite — MM/YYYY–MM/YYYY,",
+    'then 2-4 bullets with measurable results (e.g. "Cut API latency by 42%").',
+    "For each degree: **Degree — Institution** — MM/YYYY–MM/YYYY.",
+    "For each project: **Name — Stack** — URL, then what it does and its key technical decisions.",
+    "Certifications with issuer and year.",
+    "Grouped by area: Languages, Backend, Frontend, Databases, DevOps.",
+    "Your languages with proficiency level.",
+    "Availability, work preferences and location preferences.",
+})
+
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def strip_template_guidance(text: str) -> str:
+    """cv-master.md text minus HTML comments and legacy template guidance lines."""
+    text = _HTML_COMMENT_RE.sub("", text)
+    return "\n".join(
+        line for line in text.splitlines()
+        if line.strip() not in LEGACY_TEMPLATE_GUIDANCE_LINES
+    )
 
 # Below this many words of real content, the file cannot describe a career — a
 # floor for catching emptiness, not a measure of quality. Words rather than
@@ -58,7 +89,7 @@ def inspect_cv_master(text: str) -> CvMasterReport:
     content_words = 0
     current_section = "the document"
 
-    for raw in text.splitlines():
+    for raw in strip_template_guidance(text).splitlines():
         line = raw.strip()
         if not line:
             continue
