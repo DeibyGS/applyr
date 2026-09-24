@@ -15,7 +15,9 @@ from applyr.agent_instructions import (
     packaged_instructions,
     stamp,
     stamped_version,
-    strip_stamped_block,
+    split_stamped_block,
+    with_end_marker,
+    foreign_headings,
 )
 from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, known_topics, load_config
 from applyr.constants import (
@@ -456,6 +458,7 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
         error("Error: could not find AGENT_INSTRUCTIONS.md")
         die("Could not find AGENT_INSTRUCTIONS.md", code="not_found",
             text="  Run 'applyr init' first.")
+    block = with_end_marker(instructions)
 
     # Auto-detect only when targeting the current project; --global needs an explicit agent
     detected_path: str | None = None
@@ -554,16 +557,25 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
             # A stamped block was already found and confirmed stale above —
             # replace it in place rather than appending another copy after
             # it, or repeated --force runs across releases would leave one
-            # stale block behind per upgrade.
-            head = strip_stamped_block(existing)
-            target.write_text(f"{head}{INJECT_SEPARATOR}{instructions}" if head else instructions)
+            # stale block behind per upgrade. Text after the block survives
+            # when it is end-marked (ADR-016).
+            parts = split_stamped_block(existing)
+            if parts.legacy:
+                foreign = foreign_headings(parts.block, packaged_instructions())
+                if foreign:
+                    warn(f"  {display}: the old applyr block has no end marker, so it is taken to run "
+                         f"to the end of the file — these sections after it will be removed with it: "
+                         f"{', '.join(foreign[:5])}")
+            tail = parts.tail if not parts.legacy else "\n"
+            body = f"{parts.head}{INJECT_SEPARATOR}{block}" if parts.head else block
+            target.write_text(body + tail)
             print(f"  Refreshed applyr instructions in {display}")
         else:
-            target.write_text(existing.rstrip() + INJECT_SEPARATOR + instructions)
+            target.write_text(existing.rstrip() + INJECT_SEPARATOR + block + "\n")
             verb = "Appended updated" if has_legacy_block else "Appended"
             print(f"  {verb} applyr instructions to {display}")
     else:
-        target.write_text(new_file_prefix + instructions)
+        target.write_text(new_file_prefix + block + "\n")
         print(f"  Created {display} with applyr instructions")
 
     from applyr.cv import get_cv_master_path

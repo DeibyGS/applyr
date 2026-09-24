@@ -4,6 +4,21 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`setup-agent --force` no longer deletes text written after the applyr block**
+  ([ADR 016](docs/adr/016-compact-core-instructions-and-guide.md)). The injected block
+  now ends with `<!-- applyr-end -->`, and a refresh replaces only what lies between the
+  version stamp and that marker. Before, the block was assumed to run to end of file,
+  so any section a user added below it was silently removed on refresh.
+- Blocks written by earlier versions have no end marker and are still taken to run to
+  end of file. When such a block contains a heading applyr never wrote, `--force` now
+  names it in a warning before replacing it.
+- A refresh also removes older applyr blocks left behind by earlier releases, keeping
+  the user's text between them, so the file ends up with exactly one block.
+
 ## [1.16.0] — 2026-09-24
 
 ### Added

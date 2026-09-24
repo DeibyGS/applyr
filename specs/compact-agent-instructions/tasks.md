@@ -6,10 +6,10 @@ Each PR is opened only after the previous one is merged to `main` (lesson from #
 - [x] T0 — ADR-016, ADR index, spec/plan/tasks — Depends on: none
 
 ## PR 1 — End-marked injection (fix)
-- [ ] T1 — `END_MARKER` + `replace_block` (marker-aware, legacy EOF fallback, duplicate cleanup) [M] — implements AC-01, AC-02, AC-03, AC-05 — Depends on: PR 0
+- [x] T1 — `END_MARKER` + `replace_block` (marker-aware, legacy EOF fallback, duplicate cleanup) [M] — implements AC-01, AC-02, AC-03, AC-05 — Depends on: PR 0
   - Done when: user text before and after the block survives `--force` byte for byte.
-- [ ] T2 — Legacy trailing-text warning [S] — implements AC-04 — Depends on: T1
-- [ ] T3 — CHANGELOG (Fixed) [S] — Depends on: T1–T2
+- [x] T2 — Legacy trailing-text warning [S] — implements AC-04 — Depends on: T1
+- [x] T3 — CHANGELOG (Fixed) [S] — Depends on: T1–T2
 
 ## PR 2 — Core block + `applyr guide`
 - [ ] T4 — Write `templates/AGENT_CORE.md` (≤100 lines) [M] — implements AC-06, AC-07 — Depends on: PR 1
