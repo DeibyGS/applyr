@@ -107,15 +107,22 @@ SORT_FIELDS = {
 
 _AGENT_TARGETS = {
     "claude":   ("CLAUDE.md",),
-    "cursor":   (".cursorrules",),
+    "cursor":   (".cursor/rules/applyr.mdc",),
+    "gemini":   ("GEMINI.md",),
+    "copilot":  (".github/copilot-instructions.md",),
+    "windsurf": (".windsurfrules",),
+    "cline":    (".clinerules",),
     "opencode": ("AGENTS.md",),
     "generic":  ("AGENTS.md",),
 }
 
-# Canonical per-user global paths for `--global`. Resolved against the user's home.
+# Canonical per-user global paths for `--global`, resolved against the user's
+# home. Only tools that document a global instructions file are listed (ADR-016):
+# `~/.cursorrules` used to be here, but Cursor never reads it — global rules
+# live in Cursor's settings UI.
 _AGENT_GLOBAL_TARGETS = {
     "claude":   ".claude/CLAUDE.md",
-    "cursor":   ".cursorrules",
+    "gemini":   ".gemini/GEMINI.md",
     "opencode": ".config/opencode/AGENTS.md",
 }
 
@@ -131,9 +138,13 @@ _CURSOR_MDC_FRONTMATTER = (
 _AGENT_DETECT_ORDER = [
     ("claude",   "CLAUDE.md"),
     ("claude",   ".claude/CLAUDE.md"),
-    ("cursor",   ".cursorrules"),
     ("cursor",   ".cursor/rules"),
+    ("cursor",   ".cursorrules"),
     ("generic",  "AGENTS.md"),
+    ("gemini",   "GEMINI.md"),
+    ("copilot",  ".github/copilot-instructions.md"),
+    ("windsurf", ".windsurfrules"),
+    ("cline",    ".clinerules"),
 ]
 
 
@@ -486,9 +497,9 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
         if global_:
             error("Error: --global requires an explicit --agent")
             die("--global requires an explicit --agent", code="invalid_value",
-                text="  Supported: --agent claude | cursor | opencode")
+                text=f"  Supported: --agent {' | '.join(_AGENT_GLOBAL_TARGETS)}")
         print("No AI agent config detected in this directory.")
-        print("  Supported: --agent claude | cursor | opencode | generic")
+        print(f"  Supported: --agent {' | '.join(_AGENT_TARGETS)}")
         print("  Example: applyr setup-agent --agent claude")
         return
 
@@ -500,11 +511,17 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
 
     if global_ and agent not in _AGENT_GLOBAL_TARGETS:
         error(f"Error: agent '{agent}' has no canonical global path")
+        hint = (" Cursor has no global rules file — set user rules in Cursor's settings instead."
+                if agent == "cursor" else "")
         die(f"Agent '{agent}' has no canonical global path", code="invalid_value",
             details={"value": agent, "global_targets": list(_AGENT_GLOBAL_TARGETS)},
-            text="  --global is only supported for claude, cursor and opencode")
+            text=f"  --global is only supported for {', '.join(_AGENT_GLOBAL_TARGETS)}.{hint}")
 
     _warn_if_profile_empty()
+
+    if agent == "cursor" and not global_ and (cwd / ".cursorrules").exists():
+        warn("Cursor is phasing out .cursorrules — applyr now writes .cursor/rules/applyr.mdc. "
+             "Your .cursorrules was left untouched.")
 
     if agent == "opencode" and (cwd / ".opencode/instructions.md").exists():
         warn("Deprecation: .opencode/instructions.md is no longer read by OpenCode "
@@ -524,17 +541,17 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
         # `detected_path` is only ever a value from that curated table, never
         # user input, so writing to it directly is safe.
         rel_path = detected_path or _AGENT_TARGETS[agent][0]
+        if agent == "cursor":
+            # Always applyr's own `.mdc` rule inside `.cursor/rules/` (ADR-016) —
+            # never the phased-out `.cursorrules`, even when that is what detection
+            # found. The one exception is an old single-file `.cursor/rules`, which
+            # is appended to as before: a directory cannot be created over it.
+            legacy_rules_file = cwd / ".cursor" / "rules"
+            rel_path = ".cursor/rules" if legacy_rules_file.is_file() else _AGENT_TARGETS["cursor"][0]
         target = cwd / rel_path
         display = rel_path
 
-    # Current Cursor keeps `.cursor/rules` as a directory of `.mdc` files, not
-    # the single legacy file — writing text to the directory crashed with
-    # IsADirectoryError. Give applyr its own rule file inside it instead.
-    new_file_prefix = ""
-    if target.is_dir():
-        target = target / "applyr.mdc"
-        display = f"{display}/applyr.mdc"
-        new_file_prefix = _CURSOR_MDC_FRONTMATTER
+    new_file_prefix = _CURSOR_MDC_FRONTMATTER if target.suffix == ".mdc" else ""
 
     # Create parent dirs if needed (e.g. .claude/ or ~/.config/opencode/)
     target.parent.mkdir(parents=True, exist_ok=True)

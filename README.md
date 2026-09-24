@@ -125,8 +125,8 @@ Edit `~/Documents/applyr/cv-master.md` with your complete professional profile. 
 ### 3. Connect your agent
 
 ```bash
-applyr setup-agent                       # Auto-detects Claude/Cursor/OpenCode
-applyr setup-agent --agent claude        # Or specify: claude | cursor | opencode | generic
+applyr setup-agent                       # Auto-detects Claude/Cursor/Gemini/Copilot/Windsurf/Cline/AGENTS.md
+applyr setup-agent --agent claude        # Or: cursor | gemini | copilot | windsurf | cline | opencode | generic
 ```
 
 **Done.** Paste a job offer into your agent and say "analyze this".

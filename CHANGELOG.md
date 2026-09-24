@@ -13,9 +13,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   the steps ([ADR 016](docs/adr/016-compact-core-instructions-and-guide.md)). It works
   before `applyr init`. Slugs are a fixed list, and a test fails if a heading change
   leaves one pointing at nothing.
+- **New `setup-agent` targets:** `gemini` (`GEMINI.md`, and `~/.gemini/GEMINI.md` with
+  `--global`), `copilot` (`.github/copilot-instructions.md`), `windsurf`
+  (`.windsurfrules`) and `cline` (`.clinerules`). All four are also auto-detected, after
+  the existing Claude, Cursor and `AGENTS.md` checks.
 
 ### Changed
 
+- **`setup-agent --agent cursor` always writes `.cursor/rules/applyr.mdc`**, with
+  `alwaysApply` frontmatter, even when detection found a legacy `.cursorrules`. That
+  file now only gets a warning and is never modified. An old single-file
+  `.cursor/rules` is still appended to, as before.
+- **`setup-agent --global --agent cursor` is refused** and points to Cursor's settings.
+  It used to write `~/.cursorrules`, a file Cursor never reads, so global Cursor setup
+  silently did nothing.
 - **`setup-agent` injects a compact core block (~80 lines) instead of the full
   565-line instructions.** The core keeps the rules an agent must never skip: never
   invent, `applyr next`, `cv verify`, and the points where it must stop for the user.
