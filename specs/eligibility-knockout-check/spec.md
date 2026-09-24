@@ -1,6 +1,6 @@
 # Spec: Eligibility / Knockout Check
 
-### Status: APPROVED
+### Status: IMPLEMENTED
 ### Version: 1.1
 
 ### Recovered context

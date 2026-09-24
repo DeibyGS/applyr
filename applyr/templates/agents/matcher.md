@@ -47,6 +47,10 @@ For each important requirement, produce:
 4. **Evidence beats assumptions.** Always prefer concrete evidence over inference.
 5. **Set confidence per topic** (`high` | `medium` | `low`) based on evidence quality.
 6. **Explain your reasoning** in the `rationale` field.
+7. **Extract knockout requirements, do not judge them.** Put only what the offer marks as
+   mandatory (minimum years, required language level, city for onsite/hybrid roles,
+   driving license) in `add`'s `eligibility` block. applyr compares it with cv-master.md
+   and forces LOW MATCH on a failed one — "nice to have" requirements never go there.
 
 ## Scoring Rubric
 

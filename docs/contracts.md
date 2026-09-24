@@ -34,7 +34,7 @@ agents. Adding a key is backward compatible; renaming or removing one is not.
 
 | Table | Purpose |
 |-------|---------|
-| `offers` | Main record — 34 columns |
+| `offers` | Main record — 44 columns (schema v15) |
 | `offer_topics` | Per-topic scores, cascades on offer delete |
 | `schema_version` | Single-row migration tracker |
 
@@ -73,7 +73,8 @@ With `--json`, failures emit one JSON object on stderr
 | `history_corrupt` | An offer's `cv_iteration_history` is not a JSON list — `next` and `--record` refuse rather than overwrite it (ADR 015) |
 | `verify_required` | `cv pdf` refused a CV that does not pass `cv verify` right now — `details.unsupported` lists the claims; `--force` overrides and is noted on the offer (ADR 015) |
 | `unsupported_format` | File exists but isn't readable as text, e.g. a rendered PDF passed to `cv ats-check` |
-| `no_topics` | `rescore` target has no `offer_topics` rows to recompute from |
+| `no_topics` | `rescore` target has no `offer_topics` rows and no stored eligibility requirements to recompute from |
+| `invalid_eligibility` | `add`'s `eligibility` block is malformed — `details.field` names the key; nothing is stored (ADR 017) |
 | `db_error` | Database could not be opened or initialized |
 | `error` | Unclassified — refining one into a specific code is additive, not breaking |
 

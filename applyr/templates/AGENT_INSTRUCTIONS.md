@@ -185,6 +185,29 @@ and its own metrics/follow-ups have nothing to attach to.
 
 `confidence` is optional per topic — shown on every topic above for illustration, not because it's required.
 
+#### Eligibility — knockout requirements
+
+A weighted score cannot express "C1 English, mandatory": a B1 candidate with a strong stack
+still scores high. Add an `eligibility` block with **only the requirements the offer marks
+as mandatory** — never "nice to have" or "a plus":
+
+```json
+"eligibility": {
+  "min_years": 3,
+  "languages": [{"language": "english", "level": "C1"}],
+  "city": "Madrid",
+  "driving_license": true
+}
+```
+
+All keys are optional; omit what the offer does not require. Levels are `A1`–`C2` or
+`native`. `city` matters only for `onsite`/`hybrid` offers, so set `work_mode` too. Do not
+judge the requirements yourself: applyr compares them with the `## ELIGIBILITY` section of
+cv-master.md and prints each as `pass`, `warn` (at most one year or one CEFR level short),
+`block` or `unknown` (the profile does not say). Any `block` makes the recommendation
+LOW MATCH whatever the score, with a `BLOCKED BY:` line naming the requirement. A malformed
+block fails with `invalid_eligibility` and stores nothing.
+
 <details>
 <summary>Valid enum values</summary>
 
@@ -207,6 +230,7 @@ The CLI prints one of three states — `APPLY`, `MAYBE`, or `LOW MATCH`. Follow 
 - **APPLY** (score >= threshold_apply) — tell the user the score and recommend applying. Wait for confirmation.
 - **MAYBE** (threshold_maybe <= score < threshold_apply) — tell the user the score and skill gaps, let them decide; proceed if they want to.
 - **LOW MATCH** (score < threshold_maybe) — tell the user the score, list skill gaps, recommend archiving. If they agree: `applyr update <id> discarded --notes "Below threshold"`. If they insist, proceed but warn about gaps.
+- **LOW MATCH with `BLOCKED BY:`** — the offer failed a mandatory requirement, whatever its score. Tell the user which one; it is their call whether to apply anyway. If the profile was wrong, fix cv-master.md and run `applyr rescore <id>`.
 
 **Framing note for MAYBE/LOW MATCH:** these scores measure fit against *this specific
 offer's stated requirements*, not "will an ATS auto-reject me." Most ATS platforms do not

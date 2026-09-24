@@ -4,6 +4,29 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Eligibility / knockout check** ([ADR 017](docs/adr/017-eligibility-knockout-check.md)).
+  `applyr add` accepts an optional `eligibility` block with the offer's *mandatory*
+  requirements (`min_years`, `languages`, `city`, `driving_license`). applyr judges each one
+  against a new `## ELIGIBILITY` section of cv-master.md (and its languages section) as
+  `pass`, `warn` (at most one year or one CEFR level short), `block` or `unknown`. Any
+  `block` makes the recommendation `low_match` everywhere — `add`, `show`, `list`,
+  `search`, `pipeline`, `stats` calibration, `rescore`, `applyr next` — while the
+  compatibility score stays untouched. `--json` gains `eligibility` / `eligibility_block`.
+- `rescore` re-checks stored eligibility requirements against the current cv-master.md,
+  also for offers without scored topics.
+- `doctor` notes (without failing) a cv-master.md with no ELIGIBILITY values.
+- New error code `invalid_eligibility` (`details.field`); a malformed block stores nothing.
+
+### Changed
+
+- Schema v15: two nullable `offers` columns, `eligibility_requirements` and
+  `eligibility_result`. Additive — existing offers read exactly as before.
+- The cv-master template gains an `## ELIGIBILITY` section.
+
 ## [1.17.0] — 2026-09-24
 
 ### Added

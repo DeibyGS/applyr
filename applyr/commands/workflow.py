@@ -16,6 +16,7 @@ from applyr.constants import CV_STATS_NAME_WIDTH
 from applyr.cv import get_cv_master_path
 from applyr.cv_master import inspect_cv_master
 from applyr.cv_stats import build_report
+from applyr.eligibility import parse_profile
 from applyr.db import SCHEMA_VERSION, get_conn, get_schema_version
 from applyr.errors import die
 from applyr.update_check import check_for_update
@@ -224,7 +225,8 @@ def _check_cv_master() -> dict:
     if not cv_master.exists():
         return _issue("CV Master", f"NOT FOUND — {cv_master}",
                       "Run 'applyr init' to create a template.")
-    report = inspect_cv_master(cv_master.read_text(encoding="utf-8"))
+    text = cv_master.read_text(encoding="utf-8")
+    report = inspect_cv_master(text)
     if not report.filled:
         return _issue("CV Master",
                       f"WARNING — {report.reason}",
@@ -241,6 +243,18 @@ def _check_cv_master() -> dict:
             f"cv-master.md also exists at {stray}",
             f"applyr only reads {cv_master}. Edits to {stray} have no effect — "
             "delete it or merge its content into the real file.",
+        )
+    # ADR-017: without declared eligibility facts every knockout requirement
+    # reads `unknown`, so the gate never fires. Reported, never blocking.
+    profile = parse_profile(text)
+    if profile.years is None and profile.cities is None and profile.relocation is None \
+            and profile.driving_license is None:
+        return _note(
+            "CV Master",
+            f"OK ({cv_master}, {report.content_words} words) — but no ELIGIBILITY section "
+            "with values",
+            "Add a '## ELIGIBILITY' section (relevant years, cities, relocation, driving "
+            "license) so knockout requirements can be checked; until then they read as unknown.",
         )
     return _ok("CV Master", f"OK ({cv_master}, {report.content_words} words of content)")
 
