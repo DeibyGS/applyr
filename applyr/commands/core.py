@@ -44,7 +44,7 @@ from applyr.db import (
     init_db,
 )
 from applyr.scoring import calculate_score
-from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum
+from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum, _is_numeric_score
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
 
@@ -115,6 +115,15 @@ _AGENT_GLOBAL_TARGETS = {
     "cursor":   ".cursorrules",
     "opencode": ".config/opencode/AGENTS.md",
 }
+
+# Cursor only applies an `.mdc` rule on every request when it says so in its
+# frontmatter; without `alwaysApply` the instructions would load on demand only.
+_CURSOR_MDC_FRONTMATTER = (
+    "---\n"
+    "description: applyr job-application workflow (scoring, CV review, ATS rules)\n"
+    "alwaysApply: true\n"
+    "---\n\n"
+)
 
 _AGENT_DETECT_ORDER = [
     ("claude",   "CLAUDE.md"),
@@ -505,6 +514,15 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
         target = cwd / rel_path
         display = rel_path
 
+    # Current Cursor keeps `.cursor/rules` as a directory of `.mdc` files, not
+    # the single legacy file — writing text to the directory crashed with
+    # IsADirectoryError. Give applyr its own rule file inside it instead.
+    new_file_prefix = ""
+    if target.is_dir():
+        target = target / "applyr.mdc"
+        display = f"{display}/applyr.mdc"
+        new_file_prefix = _CURSOR_MDC_FRONTMATTER
+
     # Create parent dirs if needed (e.g. .claude/ or ~/.config/opencode/)
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -547,16 +565,49 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
             verb = "Appended updated" if has_legacy_block else "Appended"
             print(f"  {verb} applyr instructions to {display}")
     else:
-        target.write_text(instructions)
+        target.write_text(new_file_prefix + instructions)
         print(f"  Created {display} with applyr instructions")
 
+    from applyr.cv import get_cv_master_path
     print(f"\n  Your AI agent will now use applyr automatically.")
-    print(f"  Make sure {APPLYR_DIR / 'cv-master.md'} has your professional profile.")
+    # The real default lives under CV_HOME (or [cv] cv_master), not APPLYR_DIR —
+    # pointing users at ~/.applyr/cv-master.md sent them to a file `doctor`
+    # itself flags as a stray copy.
+    print(f"  Make sure {get_cv_master_path()} has your professional profile.")
 
 
 # ---------------------------------------------------------------------------
 # cmd_add
 # ---------------------------------------------------------------------------
+
+def _validate_topics(topics: object) -> None:
+    """Reject malformed topics before anything is written to the database.
+
+    Validation used to run inside the INSERT loop, after the offer row existed:
+    a string or null score then crashed the output step with a traceback, the
+    offer was already committed, and the agent's retry was blocked as a
+    duplicate. Every check here runs before the first INSERT, so a bad payload
+    leaves no trace. Out-of-range numbers stay a warning (they are excluded
+    from the score), not an error — that contract predates this check.
+    """
+    if not isinstance(topics, dict):
+        die("Error: 'topics' must be an object keyed by topic name.",
+            code="invalid_value", details={"field": "topics"})
+    for key, values in topics.items():
+        if not isinstance(values, dict):
+            die(f"Error: topic '{key}' must be an object like {{\"score\": 80, \"detail\": \"...\"}}.",
+                code="invalid_value", details={"field": "topics", "topic": key})
+        score = values.get("score")
+        if not _is_numeric_score(score):
+            die(f"Error: topic '{key}' needs a numeric 'score' 0-100 (got {score!r}).",
+                code="invalid_value", details={"field": "score", "topic": key, "value": score})
+        confidence = values.get("confidence")
+        if confidence is not None and confidence not in VALID_CONFIDENCE_LEVELS:
+            die(f"Error: invalid confidence '{confidence}' for topic '{key}'. Valid: {', '.join(VALID_CONFIDENCE_LEVELS)}",
+                code="invalid_value",
+                details={"field": "confidence", "topic": key, "value": confidence,
+                         "valid": list(VALID_CONFIDENCE_LEVELS)})
+
 
 def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     """Parse JSON and insert a new job offer into the database.
@@ -637,10 +688,10 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
     date_received: str = data.get("date_received") or _today()
     date_applied: str | None = _parse_date(data.get("date_applied"))
     if data.get("date_applied") and date_applied is None:
-        print(f"Warning: invalid date_applied format '{data['date_applied']}' — ignored. Use YYYY-MM-DD.")
+        warn(f"Warning: invalid date_applied format '{data['date_applied']}' — ignored. Use YYYY-MM-DD.")
     date_responded: str | None = _parse_date(data.get("date_responded"))
     if data.get("date_responded") and date_responded is None:
-        print(f"Warning: invalid date_responded format '{data['date_responded']}' — ignored. Use YYYY-MM-DD.")
+        warn(f"Warning: invalid date_responded format '{data['date_responded']}' — ignored. Use YYYY-MM-DD.")
 
     # --- Validate enums ----------------------------------------------------
     _validate_enum(status, VALID_STATUSES, "status", required=True)
@@ -680,7 +731,8 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
         warn("")
 
     # --- Compatibility score -----------------------------------------------
-    topics: dict = data.get("topics", {})
+    topics: dict = data.get("topics") or {}
+    _validate_topics(topics)
     compat_raw = data.get("compatibility_pct")
 
     # weights_used snapshots the raw, pre-normalization weights dict that
@@ -754,15 +806,10 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
         # --- Insert topics -------------------------------------------------
         skill_gaps: list[tuple] = []
         for topic_key, values in topics.items():
-            score = values.get("score", 0)
+            score = values["score"]
             detail = values.get("detail", "")
             confidence = values.get("confidence")
-            if confidence is not None and confidence not in VALID_CONFIDENCE_LEVELS:
-                die(f"Error: invalid confidence '{confidence}' for topic '{topic_key}'. Valid: {', '.join(VALID_CONFIDENCE_LEVELS)}",
-                    code="invalid_value",
-                    details={"field": "confidence", "topic": topic_key, "value": confidence,
-                             "valid": list(VALID_CONFIDENCE_LEVELS)})
-            if isinstance(score, (int, float)) and not 0 <= score <= 100:
+            if not 0 <= score <= 100:
                 warn(f"  Warning: topic '{topic_key}' score {score} is outside 0-100 and "
                      "will not count toward the compatibility percentage.")
             if not detail:
@@ -772,7 +819,7 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
                 (offer_id, topic_key, score, detail, confidence),
             )
             # Track gaps: topics below the MAYBE cutoff (for in-memory notice only)
-            if isinstance(score, (int, float)) and score < threshold_maybe:
+            if score < threshold_maybe:
                 skill_gaps.append((topic_key, threshold_maybe - score))
 
         conn.commit()
@@ -780,7 +827,7 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
         conn.close()
 
     # --- Compute derived values shared by both output modes ---------------
-    topics_list = [{"topic": k, "score": v.get("score", 0), "detail": v.get("detail", ""),
+    topics_list = [{"topic": k, "score": v["score"], "detail": v.get("detail", ""),
                     "confidence": v.get("confidence")}
                    for k, v in topics.items()]
     recommendation, icon = _get_recommendation(compatibility_pct, config)
@@ -1049,7 +1096,9 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
             label = topic_labels.get(t["topic"], t["topic"])
             bar = _bar(t["score"])
             suffix = _topic_display_suffix(t["detail"], t["confidence"])
-            print(f"    {label:<18} {t['score']:>3}%  {bar} {suffix}")
+            # Legacy rows can hold NULL, and `None:>3` raises TypeError.
+            score_txt = t["score"] if _is_numeric_score(t["score"]) else "—"
+            print(f"    {label:<18} {score_txt:>3}%  {bar} {suffix}")
 
         # Skill-level breakdown
         _show_match_breakdown(topics_dicts, topic_labels)
@@ -1070,6 +1119,10 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
 # cmd_update
 # ---------------------------------------------------------------------------
 
+# Statuses that mean "the company has not answered yet".
+_AWAITING_REPLY_STATUSES = frozenset({"pending", "applied", "waiting"})
+
+
 def cmd_update(offer_id: int, status: str, notes: str | None = None,
                canal: str | None = None, cv: str | None = None,
                job_description: str | None = None) -> None:
@@ -1081,12 +1134,13 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
 
     conn = get_conn()
     try:
-        row = conn.execute("SELECT id, title, company FROM offers WHERE id = ?", (offer_id,)).fetchone()
+        row = conn.execute("SELECT id, title, company, status FROM offers WHERE id = ?", (offer_id,)).fetchone()
         if not row:
             error(f"Error: offer #{offer_id} not found.")
             die(f"offer #{offer_id} not found.", code="not_found",
                 details={"offer_id": offer_id},
                 text="  Hint: run 'applyr list' to see available offers.")
+        status_changed = row["status"] != status
 
         # Build dynamic update
         fields: list[str] = ["status = ?"]
@@ -1134,11 +1188,16 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
             params.append(_today())
 
         # Auto follow-up only while an answer is still owed. A rejected or
-        # closed offer needs no chasing.
-        if status in ("applied", "waiting"):
+        # closed offer needs no chasing. Only on an actual transition: re-running
+        # the same `update <id> applied` (an agent retrying) used to push the
+        # date forward every time, so the follow-up never came due. A new
+        # follow-up also re-arms `follow_up_done`, or a done flag from an
+        # earlier cycle would hide it from `followups`.
+        if status in ("applied", "waiting") and status_changed:
             new_follow_up = (date.today() + timedelta(days=followup_days)).isoformat()
             fields.append("follow_up_date = ?")
             params.append(new_follow_up)
+            fields.append("follow_up_done = 0")
 
         # Record response date when first response received. The status doubles
         # as the response kind: `response_status` had no writer at all until
@@ -1150,6 +1209,15 @@ def cmd_update(offer_id: int, status: str, notes: str | None = None,
             params.append(_today())
             fields.append("response_status = ?")
             params.append(status)
+        elif status in _AWAITING_REPLY_STATUSES:
+            # Moving back to a "no answer yet" status (e.g. correcting a
+            # mistaken `rejected` to `applied`) means there was no reply.
+            # Leaving response_status behind made `response_rate` count a reply
+            # that `stats` (which reads the status) did not — two metrics
+            # disagreeing about the same offer. `discarded` keeps its history:
+            # withdrawing after an interview does not erase the interview.
+            fields.append("response_status = 'no_response'")
+            fields.append("date_responded = NULL")
 
         params.append(offer_id)
         conn.execute(f"UPDATE offers SET {', '.join(fields)} WHERE id = ?", params)

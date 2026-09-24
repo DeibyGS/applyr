@@ -27,9 +27,22 @@ def _validate_enum(value: str | None, valid: tuple[str, ...], field: str, requir
             details={"field": field, "value": value, "valid": list(valid)})
 
 
+def _is_numeric_score(score) -> bool:
+    """Check if score is a valid numeric type (int/float, not bool or string).
+
+    bool is a subclass of int — without this check, `True` would silently score as 1.
+    Returns True if the score can be used in calculations, False otherwise.
+    """
+    return isinstance(score, (int, float)) and not isinstance(score, bool)
+
+
 def _bar(score: int, width: int = PROGRESS_BAR_WIDTH) -> str:
     """Render a simple ASCII progress bar for a 0-100 score."""
-    filled = round(score * width / 100)
+    # Rows written before `add` validated topic types can hold a string or
+    # NULL score; render them as an empty bar instead of crashing `show`.
+    if not _is_numeric_score(score):
+        score = 0
+    filled = round(max(0, min(score, 100)) * width / 100)
     return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
@@ -67,7 +80,7 @@ def _classify_topic(score: int) -> str:
         calculate_score() too — see docs/adr/004-weighted-scoring.md), "strong"
         if score >= 80, "partial" if 50-79, else "missing".
     """
-    if not 0 <= score <= 100:
+    if not _is_numeric_score(score) or not 0 <= score <= 100:
         return "invalid"
     elif score >= 80:
         return "strong"

@@ -116,7 +116,9 @@ class TestLoadConfig:
         config = load_config()
         assert config["general"]["threshold"] == 65
         captured = capsys.readouterr()
-        assert "Warning" in captured.out
+        # stderr, never stdout: load_config() runs under every `--json` command.
+        assert "Warning" in captured.err
+        assert captured.out == ""
 
 
 @pytest.mark.unit

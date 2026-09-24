@@ -1,6 +1,7 @@
 """Configuration management — loads/creates applyr.toml with defaults."""
 
 import os
+import sys
 import tomllib
 from pathlib import Path
 
@@ -143,8 +144,8 @@ def load_config() -> dict:
             with open(config_path, "rb") as f:
                 user_config = tomllib.load(f)
         except Exception as e:
-            print(f"Warning: could not parse {config_path}: {e}")
-            print("Using default configuration.")
+            print(f"Warning: could not parse {config_path}: {e}", file=sys.stderr)
+            print("Using default configuration.", file=sys.stderr)
             user_config = {}
 
     config = _deep_merge(defaults, user_config)
