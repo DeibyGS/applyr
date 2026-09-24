@@ -10,6 +10,7 @@ user's back — it is theirs and may carry hand edits.
 """
 
 from pathlib import Path
+from typing import NamedTuple
 
 from applyr import __version__
 
@@ -20,6 +21,10 @@ STAMP_SUFFIX = "-->"
 # it injects. Shared here so the block can be found and replaced later, not
 # just appended after.
 INJECT_SEPARATOR = "\n\n---\n\n"
+
+# Closes an injected block (ADR-016). Before it existed the block was assumed to
+# run to end of file, so `--force` deleted anything a user wrote after it.
+END_MARKER = "<!-- applyr-end -->"
 
 # Written only when the packaged template cannot be found — a pointer, not
 # instructions. It carries no stamp, so it reads as stale and gets replaced by
@@ -73,17 +78,30 @@ def find_stamped_version(text: str) -> str | None:
     return version
 
 
-def strip_stamped_block(text: str) -> str:
-    """Return text with its last stamped applyr block, and the separator
-    before it, removed — leaving only what came before setup-agent injected
-    it.
+def with_end_marker(stamped: str) -> str:
+    """Close an injected block with END_MARKER so it can be found again later."""
+    return f"{stamped.rstrip()}\n{END_MARKER}"
 
-    setup-agent always appends its block as the very last thing in a target
-    file, right after INJECT_SEPARATOR (see cmd_setup_agent), so the last
-    stamp line marks exactly where the user's own content ends. Used to
-    replace a stale block in place on `--force` instead of leaving it behind
-    and appending another copy after it — which would otherwise accumulate
-    one stale block per applyr upgrade a user ever ran --force for.
+
+class InjectedBlock(NamedTuple):
+    head: str     # user text before the block, without setup-agent's separator
+    block: str    # the applyr block itself, stamp through END_MARKER (or EOF)
+    tail: str     # user text after END_MARKER, byte for byte
+    legacy: bool  # no END_MARKER: written before ADR-016
+
+
+def split_stamped_block(text: str) -> InjectedBlock:
+    """Split text around its last injected applyr block.
+
+    Returns the user's text before the block, the block, the user's text
+    after it, and whether the block had no END_MARKER. Blocks from before the marker
+    existed are assumed to run to end of file, which is what setup-agent
+    always did — but text a user added after such a block cannot be told
+    apart from the block itself, so it is lost; the caller warns about that.
+
+    Older applyr blocks left in the head (a file refreshed by a version
+    that appended instead of replacing) are removed too, keeping any user
+    text between them, so a refresh always leaves exactly one block.
     """
     lines = text.split("\n")
     stamp_index = None
@@ -92,11 +110,38 @@ def strip_stamped_block(text: str) -> str:
         if stripped.startswith(STAMP_PREFIX) and stripped.endswith(STAMP_SUFFIX):
             stamp_index = i
     if stamp_index is None:
-        return text
+        return InjectedBlock(text, "", "", False)
+
     head = "\n".join(lines[:stamp_index]) + "\n"
     if head.endswith(INJECT_SEPARATOR):
         head = head[:-len(INJECT_SEPARATOR)]
-    return head.rstrip("\n")
+    head = head.rstrip("\n")
+
+    block_and_after = "\n".join(lines[stamp_index:])
+    marker_at = block_and_after.find(END_MARKER)
+    if marker_at == -1:
+        block, tail, legacy = block_and_after, "", True
+    else:
+        end = marker_at + len(END_MARKER)
+        block, tail, legacy = block_and_after[:end], block_and_after[end:], False
+
+    if find_stamped_version(head) is not None:
+        older = split_stamped_block(head)
+        between = older.tail.strip("\n")
+        head = (f"{older.head}{INJECT_SEPARATOR}{between}" if older.head and between
+                else older.head or between)
+    return InjectedBlock(head, block, tail, legacy)
+
+
+def foreign_headings(block: str, template: str) -> list[str]:
+    """Markdown headings in an injected block that the packaged template lacks.
+
+    A legacy block (no END_MARKER) runs to end of file, so a heading here that
+    applyr never wrote is most likely the user's own section, about to be lost.
+    """
+    known = {line.strip() for line in template.split("\n") if line.startswith("#")}
+    return [line.strip() for line in block.split("\n")
+            if line.startswith("#") and line.strip() not in known]
 
 
 def _as_tuple(raw: str) -> tuple[int, ...] | None:

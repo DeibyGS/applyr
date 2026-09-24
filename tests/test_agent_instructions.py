@@ -18,7 +18,9 @@ from applyr.agent_instructions import (
     packaged_instructions,
     stamp,
     stamped_version,
-    strip_stamped_block,
+    END_MARKER,
+    split_stamped_block,
+    with_end_marker,
 )
 
 
@@ -96,27 +98,98 @@ class TestFindStampedVersion:
         assert find_stamped_version(text) == "9.9.9"
 
 
-class TestStripStampedBlock:
-    """Used by --force to replace a stale injected block in place instead of
-    appending a new copy behind it every time."""
+class TestSplitStampedBlock:
+    """Used by --force to replace a stale injected block in place, keeping the
+    user's text on both sides of it (ADR-016)."""
 
-    def test_strips_the_block_and_its_separator(self):
+    def test_legacy_block_runs_to_end_of_file(self):
         text = f"# My project{INJECT_SEPARATOR}{stamp('old body')}"
-        assert strip_stamped_block(text) == "# My project"
+        parts = split_stamped_block(text)
+        assert (parts.head, parts.tail, parts.legacy) == ("# My project", "", True)
+
+    def test_end_marked_block_keeps_text_after_it(self):
+        text = f"# Mine{INJECT_SEPARATOR}{with_end_marker(stamp('old'))}\n\n## After\nkeep me\n"
+        parts = split_stamped_block(text)
+        assert parts.head == "# Mine"
+        assert parts.tail == "\n\n## After\nkeep me\n"
+        assert parts.block.endswith(END_MARKER)
+        assert parts.legacy is False
 
     def test_returns_text_unchanged_when_no_stamp_present(self):
         text = "# My project\n\nno applyr instructions here\n"
-        assert strip_stamped_block(text) == text
+        assert split_stamped_block(text).head == text
 
-    def test_strips_only_the_last_block_when_more_than_one(self):
+    def test_older_blocks_are_dropped_keeping_text_between_them(self):
+        text = (
+            f"# My project{INJECT_SEPARATOR}{with_end_marker(f'{STAMP_PREFIX} 0.1.0 -->\nfirst')}"
+            f"\n\nbetween{INJECT_SEPARATOR}{STAMP_PREFIX} 0.2.0 -->\nsecond"
+        )
+        assert split_stamped_block(text).head == f"# My project{INJECT_SEPARATOR}between"
+
+    def test_older_legacy_block_is_dropped_entirely(self):
         text = (
             f"# My project{INJECT_SEPARATOR}{STAMP_PREFIX} 0.1.0 -->\nfirst"
             f"{INJECT_SEPARATOR}{STAMP_PREFIX} 0.2.0 -->\nsecond"
         )
-        assert strip_stamped_block(text) == f"# My project{INJECT_SEPARATOR}{STAMP_PREFIX} 0.1.0 -->\nfirst"
+        assert split_stamped_block(text).head == "# My project"
 
     def test_handles_a_stamp_with_no_preceding_content(self):
-        assert strip_stamped_block(stamp("body")) == ""
+        assert split_stamped_block(stamp("body")).head == ""
+
+
+class TestSetupAgentForceKeepsUserText:
+    """End to end through cmd_setup_agent (AC-01..AC-05)."""
+
+    @pytest.fixture
+    def project(self, tmp_path, monkeypatch, tmp_applyr):
+        monkeypatch.chdir(tmp_path)
+        return tmp_path
+
+    def _run(self, force=False):
+        from applyr.commands.core import cmd_setup_agent
+        cmd_setup_agent(agent="claude", force=force)
+
+    def test_new_file_ends_with_the_marker(self, project):
+        self._run()
+        assert (project / "CLAUDE.md").read_text().rstrip().endswith(END_MARKER)
+
+    def test_force_keeps_text_before_and_after_the_block(self, project):
+        before, after = "# Mine\n\nhello", "\n\n## My notes\nkeep me\n"
+        stale = with_end_marker(f"{STAMP_PREFIX} 0.1.0 -->\nold body")
+        (project / "CLAUDE.md").write_text(f"{before}{INJECT_SEPARATOR}{stale}{after}")
+        self._run(force=True)
+        text = (project / "CLAUDE.md").read_text()
+        assert text.startswith(before + INJECT_SEPARATOR)
+        assert text.endswith(END_MARKER + after)
+        assert "old body" not in text
+
+    def test_legacy_block_is_replaced_and_foreign_sections_are_warned(self, project, capsys):
+        legacy = f"# Mine{INJECT_SEPARATOR}{STAMP_PREFIX} 0.1.0 -->\n## Core Principles\nold\n\n## My own notes\nx\n"
+        (project / "CLAUDE.md").write_text(legacy)
+        self._run(force=True)
+        text = (project / "CLAUDE.md").read_text()
+        assert text.startswith("# Mine" + INJECT_SEPARATOR)
+        assert text.rstrip().endswith(END_MARKER)
+        err = capsys.readouterr().err
+        assert "## My own notes" in err
+        assert "## Core Principles" not in err
+
+    def test_legacy_block_of_pure_template_does_not_warn(self, project, capsys):
+        (project / "CLAUDE.md").write_text(f"# Mine{INJECT_SEPARATOR}{STAMP_PREFIX} 0.1.0 -->\n## Core Principles\nold\n")
+        self._run(force=True)
+        assert "end marker" not in capsys.readouterr().err
+
+    def test_force_twice_leaves_exactly_one_block(self, project, monkeypatch):
+        import applyr.commands.core as core
+        monkeypatch.setattr(core, "is_stale_version", lambda _v: True)  # every run really refreshes
+        (project / "CLAUDE.md").write_text("# Mine\n")
+        self._run()
+        self._run(force=True)
+        self._run(force=True)
+        text = (project / "CLAUDE.md").read_text()
+        assert text.count(STAMP_PREFIX) == 1
+        assert text.count(END_MARKER) == 1
+        assert text.startswith("# Mine" + INJECT_SEPARATOR)
 
 
 class TestIsStaleVersion:
