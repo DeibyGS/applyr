@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from applyr.config import APPLYR_DIR, load_config
@@ -295,12 +296,18 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
         pdf_path = cv_path.with_suffix(".pdf")
 
     # For markdown files, convert to HTML first
+    tmp_html: Path | None = None
     if cv_path.suffix == ".md":
         html_content = render_markdown_file_to_html(str(cv_path))
+        # The document language is what screen readers and some ATS parsers
+        # use to pick a dictionary — it was hardcoded "en" for Spanish CVs too.
+        lang_match = re.search(r'^language:\s*"?([a-z]{2})"?\s*$',
+                               read_text_or_die(cv_path)[:2000], re.MULTILINE)
+        lang = lang_match.group(1) if lang_match else "en"
         # Wrap in full HTML document with ATS-safe CSS
         full_html = f"""\
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -313,9 +320,16 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
 {html_content}
 </body>
 </html>"""
-        # Write temporary HTML file
-        tmp_html = cv_path.with_suffix(".html")
-        tmp_html.write_text(full_html)
+        # A uniquely named hidden temp file, not `cv-x.html`: that name belonged
+        # to the user — a legacy or hand-edited `cv-x.html` beside `cv-x.md`
+        # was silently overwritten and then deleted by the cleanup below.
+        # Kept next to the CV, not in /tmp: snap-packaged Chromium (Ubuntu's
+        # chromium-browser) has a private /tmp and cannot read files there.
+        # Explicit UTF-8: accented CV text must not depend on the locale.
+        fd, tmp_name = tempfile.mkstemp(prefix=".applyr-cv-", suffix=".html", dir=cv_path.parent)
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+            tmp_file.write(full_html)
+        tmp_html = Path(tmp_name)
         html_path = tmp_html
     else:
         html_path = cv_path
@@ -326,7 +340,9 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
         "--disable-gpu",
         "--no-pdf-header-footer",
         f"--print-to-pdf={pdf_path}",
-        f"file://{html_path}",
+        # as_uri() percent-encodes: a raw "file://" + path broke on "#", "?"
+        # or "%" in a directory name (Chrome read them as URL syntax).
+        html_path.as_uri(),
     ]
 
     try:
@@ -350,9 +366,9 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None) -> None:
         die(f"Error: Chrome not found at: {chrome_path}",
             code="chrome_not_found", details={"path": chrome_path})
     finally:
-        # Clean up temporary HTML file if we created one
-        if cv_path.suffix == ".md" and html_path.exists():
-            html_path.unlink()
+        # Only ever the temp file this call created — never a user's file.
+        if tmp_html is not None:
+            tmp_html.unlink(missing_ok=True)
 
 
 def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -> None:
