@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **`applyr guide [step] [--json]`** prints one section of the full agent instructions
+  (`score`, `recruiter`, `verify`, `ats-rules`, …) from the installed package, or lists
+  the steps ([ADR 016](docs/adr/016-compact-core-instructions-and-guide.md)). It works
+  before `applyr init`. Slugs are a fixed list, and a test fails if a heading change
+  leaves one pointing at nothing.
+
+### Changed
+
+- **`setup-agent` injects a compact core block (~80 lines) instead of the full
+  565-line instructions.** The core keeps the rules an agent must never skip: never
+  invent, `applyr next`, `cv verify`, and the points where it must stop for the user.
+  The rest is read on demand with `applyr guide`. Existing blocks change only when you
+  refresh them with `applyr setup-agent --agent <name> --force`. The full document
+  still lives in the package and in `~/.applyr/AGENT_INSTRUCTIONS.md`.
+
 ### Fixed
 
 - **`setup-agent --force` no longer deletes text written after the applyr block**

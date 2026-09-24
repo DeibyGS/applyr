@@ -12,6 +12,7 @@ from applyr.agent_instructions import (
     find_stamped_version,
     is_stale,
     is_stale_version,
+    packaged_core,
     packaged_instructions,
     stamp,
     stamped_version,
@@ -301,6 +302,17 @@ def _get_why_you_match(topics: list[dict], topic_labels: dict) -> tuple[list[str
 def _get_agent_instructions() -> str:
     """Return the instructions `setup-agent` should inject into a project.
 
+    The packaged core block (ADR-016): about 80 lines instead of the full
+    document, which agents now read step by step with `applyr guide`. Only a
+    broken install without the core falls back to the full instructions below.
+    """
+    core = packaged_core()
+    return stamp(core) if core else _get_full_instructions()
+
+
+def _get_full_instructions() -> str:
+    """The full instructions, as setup-agent injected them before ADR-016.
+
     The local copy wins while it is current, so hand edits survive. Once it falls
     behind the installed package it is bypassed rather than rewritten: the file
     belongs to the user, and silently overwriting it would be the mirror image of
@@ -561,7 +573,7 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
             # when it is end-marked (ADR-016).
             parts = split_stamped_block(existing)
             if parts.legacy:
-                foreign = foreign_headings(parts.block, packaged_instructions())
+                foreign = foreign_headings(parts.block, packaged_instructions() + packaged_core())
                 if foreign:
                     warn(f"  {display}: the old applyr block has no end marker, so it is taken to run "
                          f"to the end of the file — these sections after it will be removed with it: "

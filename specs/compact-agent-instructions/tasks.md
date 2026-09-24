@@ -12,11 +12,11 @@ Each PR is opened only after the previous one is merged to `main` (lesson from #
 - [x] T3 — CHANGELOG (Fixed) [S] — Depends on: T1–T2
 
 ## PR 2 — Core block + `applyr guide`
-- [ ] T4 — Write `templates/AGENT_CORE.md` (≤100 lines) [M] — implements AC-06, AC-07 — Depends on: PR 1
-- [ ] T5 — `GUIDE_SLUGS` + `guide_section` + slug↔heading test [M] — implements AC-09, AC-10 — Depends on: PR 1
-- [ ] T6 — `cmd_guide` + CLI (pre-init, `--json`, unknown slug) [S] — implements AC-08, AC-11, AC-E1 — Depends on: T5
-- [ ] T7 — `setup-agent` injects the stamped core [S] — implements AC-06, AC-12 — Depends on: T4
-- [ ] T8 — Wheel ships `AGENT_CORE.md`; docs + CHANGELOG (Changed) [S] — Depends on: T4–T7
+- [x] T4 — Write `templates/AGENT_CORE.md` (≤100 lines) [M] — implements AC-06, AC-07 — Depends on: PR 1
+- [x] T5 — `GUIDE_SLUGS` + `guide_section` + slug↔heading test [M] — implements AC-09, AC-10 — Depends on: PR 1
+- [x] T6 — `cmd_guide` + CLI (pre-init, `--json`, unknown slug) [S] — implements AC-08, AC-11, AC-E1 — Depends on: T5
+- [x] T7 — `setup-agent` injects the stamped core [S] — implements AC-06, AC-12 — Depends on: T4
+- [x] T8 — Wheel ships `AGENT_CORE.md`; docs + CHANGELOG (Changed) [S] — Depends on: T4–T7
 
 ## PR 3 — New and corrected targets
 - [ ] T9 — Gemini / Copilot / Windsurf / Cline targets + detection [M] — implements AC-13, AC-18 — Depends on: PR 2

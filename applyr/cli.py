@@ -17,6 +17,7 @@ from applyr.commands import (
     cmd_gaps_list,
     cmd_gaps_save,
     cmd_gaps_stats,
+    cmd_guide,
     cmd_init,
     cmd_list,
     cmd_next,
@@ -79,6 +80,7 @@ Commands:
   cv compare <v1> <v2>          Compare two CV versions (ATS, keywords)
   response-rate [--json]        Application response rate and trends
   doctor [--json]               Check configuration and database health (exit 1 if unhealthy)
+  guide [step]                  Print one workflow step's full instructions (guide lists them)
   role [name]                   Print an agent role's instructions (matcher, recruiter, architect, writer, fact-checker)
   version                       Show version
   help                          Show this help
@@ -180,7 +182,9 @@ def main():
     # must observe the environment, not mutate it. While it ran through this
     # path the database was recreated before the check, so its "NOT FOUND"
     # branch was unreachable and a missing database always reported OK.
-    if cmd not in ("init", "doctor"):
+    # `guide` only reads the packaged template, so it works before `init` —
+    # an agent can read how to set applyr up before applyr is set up.
+    if cmd not in ("init", "doctor", "guide"):
         from applyr.config import APPLYR_DIR
         db_path = APPLYR_DIR / "jobs.db"
         if not db_path.exists():
@@ -393,6 +397,9 @@ def main():
 
     elif cmd == "doctor":
         cmd_doctor(as_json=as_json)
+
+    elif cmd == "guide":
+        cmd_guide(args[1] if len(args) >= 2 else None, as_json=as_json)
 
     elif cmd == "role":
         cmd_role(args[1] if len(args) >= 2 else None, as_json=as_json)

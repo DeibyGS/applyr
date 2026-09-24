@@ -8,7 +8,9 @@ import sys
 from pathlib import Path
 
 from applyr import __version__
-from applyr.agent_instructions import is_stale, role_instructions, role_names, stamped_version
+from applyr.agent_instructions import (
+    GUIDE_SLUGS, guide_section, is_stale, role_instructions, role_names, stamped_version,
+)
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CV_STATS_NAME_WIDTH
 from applyr.cv import get_cv_master_path
@@ -455,6 +457,37 @@ def cmd_role(name: str | None = None, as_json: bool = False) -> None:
     else:
         print(content)
 
+
+
+def cmd_guide(slug: str | None = None, as_json: bool = False) -> None:
+    """Print one workflow section from the packaged instructions, or list them (ADR-016).
+
+    Reads the template shipped with the installed package, never a copy on
+    disk, so the detail an agent asks for always matches the running version.
+    """
+    if slug is None:
+        steps = [{"slug": s, "title": h.lstrip("# ")} for s, h in GUIDE_SLUGS.items()]
+        if as_json:
+            print(json.dumps({"steps": steps}, ensure_ascii=False))
+        else:
+            print("Workflow guide (applyr guide <step>):")
+            for step in steps:
+                print(f"  {step['slug']:<16} {step['title']}")
+        return
+    if slug not in GUIDE_SLUGS:
+        names = list(GUIDE_SLUGS)
+        die(f"Error: unknown guide step '{slug}'.", code="invalid_value",
+            details={"value": slug, "valid": names},
+            text=f"Error: unknown guide step '{slug}'. Available: {', '.join(names)}")
+    content = guide_section(slug)
+    if content is None:
+        die(f"Error: the installed instructions have no '{slug}' section — reinstall applyr.",
+            code="not_found", details={"slug": slug})
+    if as_json:
+        print(json.dumps({"slug": slug, "title": GUIDE_SLUGS[slug].lstrip("# "), "content": content},
+                         ensure_ascii=False))
+    else:
+        print(content, end="")
 
 
 def cmd_next(offer_id: int, as_json: bool = False) -> None:

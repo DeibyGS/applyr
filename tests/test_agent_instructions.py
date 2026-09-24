@@ -232,49 +232,70 @@ class TestInit:
 
 
 class TestGetAgentInstructions:
-    """What `setup-agent` actually injects."""
+    """What `setup-agent` actually injects: the stamped core (ADR-016). The
+    local-copy rules below apply to the full-document fallback."""
+
+    def test_injects_the_stamped_core_not_the_full_document(self, core_home):
+        from applyr.agent_instructions import packaged_core
+        from applyr.commands.core import _get_agent_instructions
+
+        (core_home / "AGENT_INSTRUCTIONS.md").write_text(stamp("# Hand-edited full copy\n"))
+        result = _get_agent_instructions()
+
+        assert stamped_version(result) == __version__
+        assert packaged_core() in result
+        assert "Hand-edited full copy" not in result
+
+    def test_core_is_short_and_carries_the_rules_that_must_not_be_skipped(self):
+        from applyr.agent_instructions import packaged_core
+
+        core = packaged_core()
+        assert len(core.splitlines()) <= 100
+        for must in ("applyr next", "applyr guide", "applyr role", "cv verify", "Stop and ask the user",
+                     "only source of truth"):
+            assert must in core, must
 
     def test_current_local_copy_wins(self, core_home):
-        from applyr.commands.core import _get_agent_instructions
+        from applyr.commands.core import _get_full_instructions
 
         local_text = stamp("# Hand-edited but current\n")
         (core_home / "AGENT_INSTRUCTIONS.md").write_text(local_text)
 
-        assert _get_agent_instructions() == local_text
+        assert _get_full_instructions() == local_text
 
     def test_stale_local_copy_is_bypassed_for_the_packaged_one(self, core_home):
-        from applyr.commands.core import _get_agent_instructions
+        from applyr.commands.core import _get_full_instructions
 
         (core_home / "AGENT_INSTRUCTIONS.md").write_text("# Ancient instructions\n")
-        result = _get_agent_instructions()
+        result = _get_full_instructions()
 
         assert stamped_version(result) == __version__
         assert "Ancient instructions" not in result
 
     def test_stale_copy_warns_on_stderr(self, core_home, capsys):
-        from applyr.commands.core import _get_agent_instructions
+        from applyr.commands.core import _get_full_instructions
 
         (core_home / "AGENT_INSTRUCTIONS.md").write_text("# Ancient instructions\n")
-        _get_agent_instructions()
+        _get_full_instructions()
 
         captured = capsys.readouterr()
         assert __version__ in captured.err
         assert captured.out == ""  # warnings are not data (ADR 006)
 
     def test_stale_copy_is_left_untouched_on_disk(self, core_home):
-        from applyr.commands.core import _get_agent_instructions
+        from applyr.commands.core import _get_full_instructions
 
         local = core_home / "AGENT_INSTRUCTIONS.md"
         local.write_text("# Ancient instructions\n")
-        _get_agent_instructions()
+        _get_full_instructions()
 
         # The file is the user's and may hold hand edits. Bypass it, never rewrite it.
         assert local.read_text() == "# Ancient instructions\n"
 
     def test_falls_back_to_the_package_when_no_local_copy_exists(self, core_home):
-        from applyr.commands.core import _get_agent_instructions
+        from applyr.commands.core import _get_full_instructions
 
-        result = _get_agent_instructions()
+        result = _get_full_instructions()
 
         assert stamped_version(result) == __version__
 

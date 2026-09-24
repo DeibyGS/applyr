@@ -88,6 +88,7 @@ Each role reads the previous output — no information is lost between steps.
 - **CV tailoring plan** — automatic evidence map per requirement (STRONG/WEAK/MISSING), priorities (P0-P3), forbidden claims, and section strategy — generated on `cv generate`, saved to DB
 - **Claim-grounding gate** — `cv verify` checks every technology, metric, and employer name in a generated CV against your `cv-master.md`, deterministically — no LLM call, exit 0 (PASS) or 1 (BLOCKED, lists unsupported claims). JSON output includes evidence density metric and Fact Checker-compatible issue format
 - **Agent role instructions** — one file per role (Matcher, Recruiter, CV Architect, CV Writer, Fact Checker), shipped with the package and printed by `applyr role <name>`
+- **Compact agent instructions** — `setup-agent` injects an ~80-line core block; the full workflow is served step by step with `applyr guide <step>`, straight from the installed package, so it never goes stale
 - **Duplicate detection** — same company+title? applyr catches it before you waste time
 - **ATS-safe CVs** — locked single-column CSS, standard fonts, no images. Your agent fills content, never touches structure
 - **ATS compatibility check** — validates CV against ATS rules (headers, formatting, keywords)
