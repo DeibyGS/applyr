@@ -1,6 +1,6 @@
 # Spec: Compact Agent Instructions, `applyr guide`, Native Agent Targets
 
-### Status: APPROVED
+### Status: IMPLEMENTED
 ### Version: 1.0
 
 ### Recovered context

@@ -25,5 +25,5 @@ Each PR is opened only after the previous one is merged to `main` (lesson from #
 - [x] T12 — Docs + CHANGELOG [S] — Depends on: T9–T11
 
 ## PR 4 — Claude Code skill
-- [ ] T13 — `claude-skill` target: frontmatter + stamped core, whole-file write, never auto-detected [M] — implements AC-19, AC-20, AC-21 — Depends on: PR 3
-- [ ] T14 — Docs + CHANGELOG; set spec status IMPLEMENTED [S] — Depends on: T13
+- [x] T13 — `claude-skill` target: frontmatter + stamped core, whole-file write, never auto-detected [M] — implements AC-19, AC-20, AC-21 — Depends on: PR 3
+- [x] T14 — Docs + CHANGELOG; set spec status IMPLEMENTED [S] — Depends on: T13

@@ -106,3 +106,67 @@ def test_existing_agents_are_detected_before_new_ones(run_cli, capsys, project):
     _run(run_cli, capsys, ["setup-agent"])
     assert "applyr next" in (project / "CLAUDE.md").read_text()
     assert (project / "GEMINI.md").read_text() == "# gemini\n"
+
+
+# --- claude-skill (AC-19..AC-21) --------------------------------------------
+
+SKILL = Path(".claude/skills/applyr/SKILL.md")
+
+
+def test_claude_skill_has_frontmatter_and_the_stamped_core(run_cli, capsys, project):
+    from applyr.agent_instructions import find_stamped_version, packaged_core
+    from applyr import __version__
+    out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude-skill"])
+    assert code == 0, err
+    text = (project / SKILL).read_text()
+    assert text.startswith("---\nname: applyr\ndescription: ")
+    assert "job offer" in text.split("---")[1] and "CV" in text.split("---")[1]
+    assert packaged_core().strip() in text
+    assert find_stamped_version(text) == __version__
+    assert END_MARKER not in text  # the whole file is applyr's: no block to delimit
+
+
+def test_claude_skill_global_writes_under_home(run_cli, capsys, project, fake_home):
+    out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude-skill", "--global"])
+    assert code == 0, err
+    assert (fake_home / SKILL).exists()
+    assert not (project / SKILL).exists()
+
+
+def test_claude_skill_is_never_auto_detected(run_cli, capsys, project):
+    (project / SKILL).parent.mkdir(parents=True)
+    (project / SKILL).write_text("---\nname: other\n---\nmine\n")
+    out, err, code = _run(run_cli, capsys, ["setup-agent"])
+    assert "No AI agent config detected" in out
+    assert (project / SKILL).read_text() == "---\nname: other\n---\nmine\n"
+
+
+def _stale_skill(project):
+    from applyr.agent_instructions import STAMP_PREFIX
+    (project / SKILL).parent.mkdir(parents=True)
+    (project / SKILL).write_text(f"---\nname: applyr\n---\n\n{STAMP_PREFIX} 0.1.0 -->\nold core\n")
+
+
+def test_stale_claude_skill_needs_force_and_is_then_rewritten_whole(run_cli, capsys, project):
+    _stale_skill(project)
+    out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude-skill"])
+    assert "old core" in (project / SKILL).read_text()
+    assert "--force" in err
+    _run(run_cli, capsys, ["setup-agent", "--agent", "claude-skill", "--force"])
+    text = (project / SKILL).read_text()
+    assert "old core" not in text
+    assert text.count("name: applyr") == 1
+
+
+def test_foreign_skill_file_is_never_overwritten_without_force(run_cli, capsys, project):
+    (project / SKILL).parent.mkdir(parents=True)
+    (project / SKILL).write_text("my own skill\n")
+    out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude-skill"])
+    assert (project / SKILL).read_text() == "my own skill\n"
+    assert "not written by applyr" in err
+
+
+def test_global_supports_exactly_the_documented_four(run_cli, capsys, project, fake_home):
+    out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "windsurf", "--global"])
+    assert code != 0
+    assert "claude, gemini, opencode, claude-skill" in err

@@ -127,6 +127,7 @@ Edit `~/Documents/applyr/cv-master.md` with your complete professional profile. 
 ```bash
 applyr setup-agent                       # Auto-detects Claude/Cursor/Gemini/Copilot/Windsurf/Cline/AGENTS.md
 applyr setup-agent --agent claude        # Or: cursor | gemini | copilot | windsurf | cline | opencode | generic
+applyr setup-agent --agent claude-skill  # Claude Code skill — loaded only when you talk about offers/CVs
 ```
 
 **Done.** Paste a job offer into your agent and say "analyze this".

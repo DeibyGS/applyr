@@ -36,6 +36,12 @@ applyr setup-agent --force        # Refresh a stale block in place
 | `cline` | `.clinerules` | — |
 | `opencode` | `AGENTS.md` | `~/.config/opencode/AGENTS.md` |
 | `generic` | `AGENTS.md` | — |
+| `claude-skill` | `.claude/skills/applyr/SKILL.md` | `~/.claude/skills/applyr/SKILL.md` |
+
+`claude-skill` installs applyr as a Claude Code skill. Claude loads it only when a
+conversation is about job offers, CVs or applications, so other sessions pay nothing
+for it. It is never auto-detected. The file belongs to applyr and `--force` rewrites it
+whole, but a `SKILL.md` that applyr did not write is never overwritten without `--force`.
 
 A legacy `.cursorrules` is detected and warned about but never modified.
 
