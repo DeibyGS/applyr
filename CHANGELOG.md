@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **`applyr next <id> [--json]`** returns an offer's next pipeline step — `score`,
+  `decide`, `generate`, `cv_review`, `verify`, `pdf`, `apply` or `done` — with the exact
+  command to run, a reason, and `needs_user_confirmation` where the agent must stop for
+  the user ([ADR 015](docs/adr/015-cli-enforced-pipeline-gates.md)). It is read-only and
+  derived from stored data on every call. A review or PDF older than the CV's last edit
+  does not count. Before, the pipeline order existed only as prose in the agent
+  instructions.
+- **`--record <score>`** on `cv review-blind` and `cv review` stores the score of a
+  prompt the agent executed. applyr derives the verdict itself and appends it to the
+  offer's `cv_iteration_history`. These two steps used to leave no trace, so nothing
+  could tell a finished review loop from a skipped one. A corrupt history is reported
+  with the new error code `history_corrupt` and is never overwritten.
+
 ### Changed
 
 - **`cv pdf` refuses a CV that does not pass `cv verify`** ([ADR 015](docs/adr/015-cli-enforced-pipeline-gates.md)).

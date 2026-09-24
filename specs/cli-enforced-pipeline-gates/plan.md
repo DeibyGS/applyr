@@ -19,6 +19,9 @@
 | `applyr/cli.py` | MODIFY | `next` command, `--record` flags, help text | 2 |
 | `applyr/templates/AGENT_INSTRUCTIONS.md` | MODIFY | Document `next`, `--record`, pdf gate | 2 |
 | `tests/test_pipeline_next.py` | CREATE | AC-08..21, AC-E4..E7 | 2 |
+| `applyr/constants.py` | MODIFY | `CV_REVIEW_*` verdict bands and iteration cap | 2 |
+| `applyr/commands/__init__.py` | MODIFY | Export `cmd_next` | 2 |
+| `docs/contracts.md` | MODIFY | New `history_corrupt` error code | 2 |
 | `CHANGELOG.md` | MODIFY | Unreleased entry, each PR | 1, 2 |
 
 ### Dependencies

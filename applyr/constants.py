@@ -60,6 +60,14 @@ DEFAULT_TOPIC_WEIGHT = 0.10
 TOPIC_STRONG_MIN = 80
 TOPIC_PARTIAL_MIN = 50
 
+# `cv review --record` verdict bands — a CV's document quality, not offer fit,
+# so fixed like `cv ats-check`'s rather than following threshold_apply/maybe.
+CV_REVIEW_READY_MIN = 80
+CV_REVIEW_MINOR_MIN = 60
+# Initial review + the 2 re-reviews AGENT_INSTRUCTIONS allows; after that
+# `applyr next` moves on to verify instead of looping (ADR-015).
+CV_REVIEW_MAX_ITERATIONS = 3
+
 # Duplicate detection — minimum title similarity (0.0-1.0) to treat two offers
 # at the same company as the same role. Below this they are separate offers.
 DUPLICATE_SIMILARITY_THRESHOLD = 0.85
