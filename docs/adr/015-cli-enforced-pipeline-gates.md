@@ -1,6 +1,6 @@
 # ADR 015 — CLI-Enforced Pipeline: `applyr next` and the `cv pdf` Verify Gate
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-09-24
 **Supersedes:** None (new decision)
 
