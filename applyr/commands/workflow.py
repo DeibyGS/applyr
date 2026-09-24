@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from applyr import __version__
-from applyr.agent_instructions import is_stale, stamped_version
+from applyr.agent_instructions import is_stale, role_instructions, role_names, stamped_version
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import CV_STATS_NAME_WIDTH
 from applyr.cv import get_cv_master_path
@@ -432,3 +432,26 @@ def cmd_cv_stats(min_sample: int = 1, as_json: bool = False) -> None:
 def _truncate_cv(name: str, width: int) -> str:
     """Shorten a CV filename for table display."""
     return name if len(name) <= width else name[:width - 1] + "…"
+
+
+def cmd_role(name: str | None = None, as_json: bool = False) -> None:
+    """Print one agent role's instructions, or list the available roles."""
+    names = role_names()
+    if name is None:
+        if as_json:
+            print(json.dumps({"roles": names}))
+        else:
+            print("Agent roles (applyr role <name>):")
+            for role in names:
+                print(f"  {role}")
+        return
+    content = role_instructions(name)
+    if content is None:
+        die(f"Error: unknown role '{name}'.", code="invalid_value",
+            details={"value": name, "valid": names},
+            text=f"Error: unknown role '{name}'. Available: {', '.join(names)}")
+    if as_json:
+        print(json.dumps({"role": name, "content": content}, ensure_ascii=False))
+    else:
+        print(content)
+

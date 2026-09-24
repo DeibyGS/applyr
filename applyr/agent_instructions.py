@@ -27,7 +27,7 @@ INJECT_SEPARATOR = "\n\n---\n\n"
 FALLBACK = (
     "# applyr — Agent Instructions\n\n"
     "Download the full instructions from:\n"
-    "https://github.com/DeibyGS/applyr/blob/main/templates/AGENT_INSTRUCTIONS.md\n"
+    "https://github.com/DeibyGS/applyr/blob/main/applyr/templates/AGENT_INSTRUCTIONS.md\n"
 )
 
 
@@ -128,3 +128,28 @@ def is_stale(text: str) -> bool:
     lacks the marker.
     """
     return is_stale_version(stamped_version(text))
+
+
+_ROLES_DIR = Path(__file__).parent / "templates" / "agents"
+
+
+def role_names() -> list[str]:
+    """Roles with a packaged instruction file, e.g. ["architect", "matcher", ...]."""
+    return sorted(p.stem.replace("_", "-") for p in _ROLES_DIR.glob("*.md"))
+
+
+def role_instructions(name: str) -> str | None:
+    """A role's instruction file, or None if there is no such role.
+
+    The main instructions used to point agents at `applyr/templates/agents/
+    <role>.md` — a path inside this repository. After `pip install` those files
+    live somewhere in site-packages that no agent can guess, so `applyr role`
+    serves them instead.
+    """
+    # Only listed names: the raw name must never become a path — "../x"
+    # escaped the roles folder, and "Matcher" worked only on case-insensitive
+    # filesystems (macOS) while failing on Linux.
+    if name not in role_names():
+        return None
+    return (_ROLES_DIR / f"{name.replace('-', '_')}.md").read_text(encoding="utf-8")
+

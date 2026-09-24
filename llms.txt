@@ -27,7 +27,7 @@ applyr stats                             # Conversion funnel
 ## Architecture
 
 ```
-applyr/cli.py         → Entry point, argparse routing
+applyr/cli.py         → Entry point, hand-written argument routing
 applyr/commands/core.py      → CRUD: add, list, show, update, delete, search
 applyr/commands/analytics.py → Stats: pipeline, stats, gaps, trends, compare, plan, salary
 applyr/commands/workflow.py  → Export, doctor
