@@ -52,6 +52,14 @@ def run_cli(tmp_applyr, monkeypatch):
     for mod in (core_mod, workflow_mod, cv_mod):
         monkeypatch.setattr(mod, "APPLYR_DIR", tmp_applyr)
 
+    # Run every CLI call from inside the sandbox, never from the repo root.
+    # `setup-agent` auto-detects and WRITES the agent file in the cwd: CLAUDE.md
+    # is gitignored, so on a fresh checkout it was missing and detection fell
+    # through to the repo's own tracked AGENTS.md — the smoke test appended
+    # ~520 lines of instructions to it (the long-standing "AGENTS.md
+    # duplication" bug). Tests that need another cwd still chdir themselves.
+    monkeypatch.chdir(tmp_applyr.parent)
+
     def _run(args: list[str]):
         monkeypatch.setattr(sys, "argv", ["applyr"] + args)
         from applyr.cli import main
