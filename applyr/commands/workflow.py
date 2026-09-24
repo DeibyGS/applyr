@@ -270,6 +270,14 @@ def _check_chrome(config: dict) -> dict:
                  "Set CHROME_BIN env var or chrome_path in applyr.toml.")
 
 
+def _check_config_values(config: dict) -> dict:
+    """Thresholds/weights load_config() had to replace — see config._sanitize."""
+    issues = config.get("config_issues", [])
+    if not issues:
+        return _ok("Config values", "OK")
+    return _issue("Config values", f"WARNING — {len(issues)} invalid value(s) replaced: " + "; ".join(issues))
+
+
 def _check_weights(config: dict) -> dict:
     weights = config["weights"]
     if all(v > 0 for v in weights.values()):
@@ -320,6 +328,7 @@ def cmd_doctor(as_json: bool = False) -> None:
         _check_agent_instructions(),
         _check_chrome(config),
         _check_weights(config),
+        _check_config_values(config),
         _check_cv_output_privacy(config),
     ]
     issues = [c for c in checks if c["status"] == "issue"]

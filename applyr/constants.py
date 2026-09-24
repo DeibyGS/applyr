@@ -53,6 +53,13 @@ CV_STATS_NAME_WIDTH = 28
 # Scoring
 DEFAULT_TOPIC_WEIGHT = 0.10
 
+# Per-topic bands (strong / partial / missing). Deliberately NOT the offer-level
+# threshold_apply / threshold_maybe: those decide whether to apply to the whole
+# offer and are user-tunable; these describe one topic's fit and were a bare
+# 80/50 repeated in four modules.
+TOPIC_STRONG_MIN = 80
+TOPIC_PARTIAL_MIN = 50
+
 # Duplicate detection — minimum title similarity (0.0-1.0) to treat two offers
 # at the same company as the same role. Below this they are separate offers.
 DUPLICATE_SIMILARITY_THRESHOLD = 0.85

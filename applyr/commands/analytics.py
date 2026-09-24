@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from applyr.colors import color
-from applyr.config import TOPIC_LABELS, load_config
+from applyr.config import TOPIC_LABELS, known_topics, load_config
 from applyr.constants import (
     CALIBRATION_MIN_SAMPLE,
     COMPARE_COL_MAX,
@@ -27,7 +27,7 @@ from applyr.constants import (
 from applyr.db import REPLY_STATUSES, STATUS_LABELS, VALID_SEVERITIES, get_conn
 from applyr.commands._helpers import _bar, _today, _truncate
 from applyr.errors import die
-from applyr.scoring import calculate_score
+from applyr.scoring import calculate_score, recommendation_for
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -123,10 +123,13 @@ def cmd_pipeline(min_score: int = 0, as_json: bool = False) -> None:
         groups[bucket].append(r)
 
     if as_json:
+        config = load_config()
         payload = {}
         for status in _STATUS_ORDER:
             payload[status] = [{"id": i["id"], "compatibility_pct": i["compatibility_pct"],
-                                "company": i["company"], "title": i["title"]} for i in groups[status]]
+                                "company": i["company"], "title": i["title"],
+                                "recommendation": recommendation_for(i["compatibility_pct"], config)}
+                               for i in groups[status]]
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
@@ -178,12 +181,7 @@ def _score_calibration(conn) -> tuple[dict, int]:
         "WHERE status != 'pending' AND status != 'discarded' AND weights_used IS NOT NULL"
     ).fetchall()
     for row in rows:
-        if row["compatibility_pct"] >= threshold_apply:
-            band = bands["apply"]
-        elif row["compatibility_pct"] >= threshold_maybe:
-            band = bands["maybe"]
-        else:
-            band = bands["low_match"]
+        band = bands[recommendation_for(row["compatibility_pct"], config)]
         band["total"] += 1
         if row["status"] in REPLY_STATUSES:
             band["responded"] += 1
@@ -833,6 +831,7 @@ def cmd_rescore(offer_id: int, as_json: bool = False) -> None:
             "id": offer_id,
             "old_compatibility_pct": old_pct,
             "new_compatibility_pct": new_pct,
+            "recommendation": recommendation_for(new_pct, config),
             "weights_used": config["weights_raw"],
         }
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -1003,12 +1002,17 @@ def cmd_salary(seniority: str | None = None, category: str | None = None, as_jso
 
 def cmd_gaps_save(offer_id: int, gaps_json: str, as_json: bool = False) -> None:
     """Save learning gaps for a job offer."""
+    config = load_config()
     try:
         data = json.loads(gaps_json)
     except json.JSONDecodeError as exc:
         die(f"Error: invalid JSON — {exc}", code="invalid_json")
 
-    gaps = data.get("gaps", [])
+    # `{"gaps": [...]}` is the documented shape; a bare list crashed on .get().
+    gaps = data.get("gaps", []) if isinstance(data, dict) else None
+    if gaps is None or not isinstance(gaps, list) or not all(isinstance(g, dict) for g in gaps):
+        die('Error: expected {"gaps": [{"topic": ..., "gap_detail": ..., "severity": ...}]}.',
+            code="invalid_value", details={"field": "gaps"})
     if not gaps:
         die("Error: gaps array is empty or missing.", code="missing_field")
 
@@ -1029,8 +1033,10 @@ def cmd_gaps_save(offer_id: int, gaps_json: str, as_json: bool = False) -> None:
                 die("Error: each gap must have a 'topic' field.", code="missing_field")
             if not gap_detail:
                 die("Error: each gap must have a 'gap_detail' field.", code="missing_field")
-            if topic not in TOPIC_LABELS:
-                die(f"Error: topic must be one of {list(TOPIC_LABELS.keys())}.", code="invalid_value")
+            valid_topics = known_topics(config)
+            if topic not in valid_topics:
+                die(f"Error: topic must be one of {sorted(valid_topics)}.", code="invalid_value",
+                    details={"field": "topic", "value": topic, "valid": sorted(valid_topics)})
             if severity not in VALID_SEVERITIES:
                 die(f"Error: severity must be one of {VALID_SEVERITIES}.", code="invalid_value")
 

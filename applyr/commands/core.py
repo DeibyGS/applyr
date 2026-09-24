@@ -17,7 +17,7 @@ from applyr.agent_instructions import (
     stamped_version,
     strip_stamped_block,
 )
-from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, load_config
+from applyr.config import APPLYR_DIR, TOPIC_LABELS, create_default_config, known_topics, load_config
 from applyr.constants import (
     DUPLICATE_COMPANY_HISTORY_LIMIT,
     FOLLOWUP_UPCOMING_DAYS,
@@ -43,7 +43,7 @@ from applyr.db import (
     get_db_path,
     init_db,
 )
-from applyr.scoring import calculate_score
+from applyr.scoring import calculate_score, recommendation_for
 from applyr.commands._helpers import _bar, _today, _truncate, _classify_topic, _derive_confidence, _show_score_breakdown, _validate_enum, _is_numeric_score
 from applyr.duplicates import find_company_offers, find_exact, find_similar
 from applyr.errors import die, error, warn
@@ -138,31 +138,29 @@ _AGENT_DETECT_ORDER = [
 # Recommendation helpers
 # ---------------------------------------------------------------------------
 
+_RECOMMENDATION_ICONS = {"apply": "✅", "maybe": "⚠️", "low_match": "❌"}
+
+
 def _get_recommendation(score: int, config: dict) -> tuple[str, str]:
-    """Get recommendation state and icon based on score and thresholds.
+    """(recommendation, display icon) — see scoring.recommendation_for."""
+    recommendation = recommendation_for(score, config)
+    return recommendation, _RECOMMENDATION_ICONS[recommendation]
 
-    Returns:
-        Tuple of (recommendation, icon) where recommendation is
-        "apply", "maybe", or "low_match" and icon is the display emoji.
-    """
-    general = config.get("general", {})
-    threshold_apply = general.get("threshold_apply", 80)
-    threshold_maybe = general.get("threshold_maybe", 60)
 
-    if score >= threshold_apply:
-        return "apply", "✅"
-    elif score >= threshold_maybe:
-        return "maybe", "⚠️"
-    else:
-        return "low_match", "❌"
+def _rows_with_recommendation(rows) -> list[dict]:
+    """Offer rows as dicts, each carrying its `recommendation`."""
+    config = load_config()
+    return [dict(r) | {"recommendation": recommendation_for(r["compatibility_pct"], config)} for r in rows]
 
 
 def _get_recommendation_label(recommendation: str) -> str:
     """Get human-readable label for recommendation."""
     labels = {
-        "apply": "STRONG MATCH: APPLY",
-        "maybe": "GOOD MATCH: MAYBE",
-        "low_match": "LOW MATCH: SKIP",
+        # Leads with the CLI's own state name — the one agents are told to
+        # copy. "LOW MATCH: SKIP" brought back a fourth, undocumented state.
+        "apply": "APPLY — strong match",
+        "maybe": "MAYBE — good match, check the gaps",
+        "low_match": "LOW MATCH — consider archiving",
     }
     return labels.get(recommendation, recommendation.upper())
 
@@ -796,7 +794,10 @@ def cmd_add(raw: str, force: bool = False, as_json: bool = False) -> None:
         offer_id: int = cursor.lastrowid
 
         # --- Validate topic keys -------------------------------------------
-        valid_topics = set(config.get("topics", {}).keys()) or set(TOPIC_LABELS.keys())
+        # A topic with its own [weights] entry is a real, scored topic — the old
+        # lookup read a `topics` config key that does not exist, so custom
+        # topics were scored and warned about as unknown in the same run.
+        valid_topics = known_topics(config)
         for key in topics:
             if key not in valid_topics:
                 # warn() (stderr), not print() (stdout) — a bare print() here
@@ -956,7 +957,7 @@ def cmd_list(status_filter: str | None = None, sort_by: str = "date_applied", li
         return
 
     if as_json:
-        print(json.dumps([dict(r) for r in rows], indent=2, ensure_ascii=False))
+        print(json.dumps(_rows_with_recommendation(rows), indent=2, ensure_ascii=False))
         return
 
     # Build display rows
@@ -993,6 +994,7 @@ def cmd_show(offer_id: int, as_json: bool = False) -> None:
         data["topics"] = [{"topic": t["topic"], "score": t["score"], "detail": t["detail"],
                            "confidence": t["confidence"]} for t in topics]
         data["confidence"] = _derive_confidence([dict(t) for t in topics])
+        data["recommendation"] = recommendation_for(row["compatibility_pct"], load_config())
         print(json.dumps(data, indent=2, ensure_ascii=False))
         return
 
@@ -1342,7 +1344,7 @@ def cmd_search(keyword: str, status_filter: str | None = None, company: str | No
         return
 
     if as_json:
-        print(json.dumps([dict(r) for r in rows], indent=2, ensure_ascii=False))
+        print(json.dumps(_rows_with_recommendation(rows), indent=2, ensure_ascii=False))
         return
 
     display = [_make_display_row(r) for r in rows]
