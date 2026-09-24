@@ -455,3 +455,53 @@ def cmd_role(name: str | None = None, as_json: bool = False) -> None:
     else:
         print(content)
 
+
+
+def cmd_next(offer_id: int, as_json: bool = False) -> None:
+    """Print the next pipeline step for one offer and the exact command (ADR-015).
+
+    Read-only: every input is gathered here and handed to the pure
+    `derive_next`, so the state can never drift from what applyr stores.
+    """
+    from applyr.cv import _verify_cv, find_cv_for_offer
+    from applyr.pipeline_next import DONE_STATUSES, derive_next, read_history
+
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
+        if not row:
+            die(f"Error: offer #{offer_id} not found.", code="not_found", details={"offer_id": offer_id})
+        topic_count = conn.execute(
+            "SELECT COUNT(*) FROM offer_topics WHERE offer_id = ?", (offer_id,)).fetchone()[0]
+    finally:
+        conn.close()
+
+    offer = dict(row)
+    # A finished offer needs no history: a damaged one must not strand it in
+    # `history_corrupt` when the honest answer is simply `done`.
+    history = [] if offer["status"] in DONE_STATUSES else read_history(offer["cv_iteration_history"], offer_id)
+    cv_path = find_cv_for_offer(offer_id, offer["cv_used"])
+    pdf_path = cv_path.with_suffix(".pdf") if cv_path else None
+    step = derive_next(
+        offer, topic_count, history,
+        cv_path=str(cv_path) if cv_path else None,
+        cv_mtime=cv_path.stat().st_mtime if cv_path else None,
+        pdf_mtime=pdf_path.stat().st_mtime if pdf_path and pdf_path.exists() else None,
+        verify=lambda: _verify_cv(cv_path),
+        config=load_config(),
+    )
+    step = {"offer_id": offer_id, **step}
+
+    if as_json:
+        print(json.dumps(step, ensure_ascii=False))
+        return
+    print(f"Offer #{offer_id} — next: {step['state']}")
+    if step["command"]:
+        print(f"  Run  : {step['command']}")
+    print(f"  Why  : {step['reason']}")
+    if step["needs_user_confirmation"]:
+        print("  Stop : confirm with the user before running it")
+    for claim in step.get("failing", []):
+        print(f"  Fail : {claim}")
+    for warning in step["warnings"]:
+        print(f"  Warn : {warning}")

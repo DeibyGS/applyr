@@ -20,12 +20,12 @@
 
 ## PR 2 — `--record` + `applyr next` (branch `feat/cc-next-state-machine-next-cmd`, chained on PR 1)
 
-- [ ] T7 — History helpers `read_history` / `append_history` in `applyr/pipeline_next.py` [S] — implements AC-10, AC-E7 — Depends on: PR 1
+- [x] T7 — History helpers `read_history` / `append_history` in `applyr/pipeline_next.py` [S] — implements AC-10, AC-E7 — Depends on: PR 1
   - Done when: an append keeps prior entries; corrupt JSON raises `history_corrupt`.
-- [ ] T8 — `--record` on `cv review-blind` and `cv review` [M] — implements AC-08, AC-09, AC-E4, AC-E5 — Depends on: T7
+- [x] T8 — `--record` on `cv review-blind` and `cv review` [M] — implements AC-08, AC-09, AC-E4, AC-E5 — Depends on: T7
   - Done when: entries carry the derived verdict; `cv_iteration` counts only `cv_review` entries.
-- [ ] T9 — Pure `derive_next()` covering all 8 states [M] — implements AC-12..AC-20 — Depends on: T7
+- [x] T9 — Pure `derive_next()` covering all 8 states [M] — implements AC-12..AC-20 — Depends on: T7
   - Done when: one unit test per state and per transition edge (mtime ordering, iteration cap).
-- [ ] T10 — `cmd_next` + CLI routing + `--json` [S] — implements AC-11, AC-E6 — Depends on: T9
+- [x] T10 — `cmd_next` + CLI routing + `--json` [S] — implements AC-11, AC-E6 — Depends on: T9
   - Done when: `applyr next <id> --json` is valid JSON and the DB is unchanged after the call.
-- [ ] T11 — AGENT_INSTRUCTIONS.md + CHANGELOG [S] — implements AC-21 — Depends on: T10
+- [x] T11 — AGENT_INSTRUCTIONS.md + CHANGELOG [S] — implements AC-21 — Depends on: T10

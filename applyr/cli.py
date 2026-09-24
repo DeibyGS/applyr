@@ -19,6 +19,7 @@ from applyr.commands import (
     cmd_gaps_stats,
     cmd_init,
     cmd_list,
+    cmd_next,
     cmd_pipeline,
     cmd_plan,
     cmd_rescore,
@@ -62,14 +63,15 @@ Commands:
   summary [--json]              Weekly summary (LLM-optimized)
   compare <id1> <id2> [<idN>..] Compare offers side by side
   rescore <id>                  Recompute compatibility_pct under current weights
+  next <id>                     Next pipeline step for an offer and the command to run
   plan [--limit N]              Prioritized learning plan from skill gaps
   salary [--seniority S]        Salary insights by seniority/category
   export [--format csv|json|md] [--redact] [--redact-fields F1,F2]
                                  Export all data (--redact strips sensitive fields;
                                  --redact-fields replaces the default set, not adds to it)
   cv generate <id>              Write a CV skeleton for an offer (then fill it from cv-master.md)
-  cv review <file>              Recruiter review prompt for a filled CV
-  cv review-blind <id>          Blind recruiter read of cv-master.md against the offer
+  cv review <file> [--record N]     Recruiter review prompt; --record stores the score you got
+  cv review-blind <id> [--record N] Blind recruiter read of cv-master.md; --record stores the score
   cv verify <file>              Deterministic gate: every claim grounded in cv-master.md
   cv pdf <file> [--force]       Render a verified CV to PDF via Chrome
   cv ats-check <file> | cv keywords <id> | cv cover-letter <id>
@@ -367,6 +369,16 @@ def main():
         offer_id = _safe_int(args[1])
         cmd_rescore(offer_id, as_json=as_json)
 
+    elif cmd == "next":
+        usage = ("Usage: applyr next <id>\n"
+                 "  The next pipeline step for an offer and the exact command to run (read-only)")
+        if len(args) >= 2 and args[1] in ("--help", "-h"):
+            print(usage)
+            return
+        if len(args) < 2:
+            _usage(usage)
+        cmd_next(_safe_int(args[1]), as_json=as_json)
+
     elif cmd == "plan":
         limit = 10
         raw = _get_flag(args, "--limit")
@@ -424,10 +436,10 @@ def main():
             cmd_cv_generate(offer_id, template=template, force=_has_flag(args, "--force"))
         elif subcmd == "review":
             if len(args) < 3:
-                _usage("Usage: applyr cv review <file>")
-            cmd_cv_review(args[2], as_json=as_json)
+                _usage("Usage: applyr cv review <file> [--record <score>]")
+            cmd_cv_review(args[2], as_json=as_json, record=_get_flag(args, "--record"))
         elif subcmd == "review-blind":
-            usage = ("Usage: applyr cv review-blind <id>\n"
+            usage = ("Usage: applyr cv review-blind <id> [--record <score>]\n"
                      "  Blind recruiter evaluation — reads cv-master.md independently")
             if len(args) >= 3 and args[2] in ("--help", "-h"):
                 print(usage)
@@ -435,7 +447,7 @@ def main():
             if len(args) < 3:
                 _usage(usage)
             offer_id = _safe_int(args[2])
-            cmd_cv_review_blind(offer_id, as_json=as_json)
+            cmd_cv_review_blind(offer_id, as_json=as_json, record=_get_flag(args, "--record"))
         elif subcmd == "verify":
             if len(args) < 3:
                 _usage("Usage: applyr cv verify <file>\n"

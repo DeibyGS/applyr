@@ -63,6 +63,14 @@ threshold_maybe = 60    # Score >= this → MAYBE (below → LOW MATCH)
 
 When the user shares a job offer, follow this pipeline in order.
 
+**Lost your place? Ask applyr.** `applyr next <id>` (`--json` for agents) returns the
+next step for an offer — `score`, `decide`, `generate`, `cv_review`, `verify`, `pdf`,
+`apply` or `done` — with the exact command to run and why. It is derived from what
+applyr stores, read-only, and safe to call at any time. When it says
+`needs_user_confirmation: true`, stop and ask the user before running the command.
+It can only see the two review steps you execute yourself if you record them with
+`--record` (Steps 5 and 6).
+
 ### Step 1 — Health check, then read profile
 
 ```bash
@@ -228,7 +236,14 @@ The command outputs:
 1. A review prompt for the Recruiter agent to execute
 2. Thresholds from config for verdict classification
 
-Execute the prompt yourself as the Recruiter agent. Parse the ATS COMPATIBILITY SCORE and classify:
+Execute the prompt yourself as the Recruiter agent. Parse the ATS COMPATIBILITY SCORE,
+then record it — this is how `applyr next` knows the blind review happened:
+
+```bash
+applyr cv review-blind <id> --record <score>
+```
+
+applyr derives and prints the verdict from your thresholds, as in this table:
 
 | Score Range | Verdict | Action |
 |-------------|---------|--------|
@@ -320,7 +335,11 @@ Then:
 applyr cv review <path-to-html>
 ```
 
-Execute the output prompt yourself. Based on the verdict:
+Execute the output prompt yourself, then record its score (`applyr cv review
+<path-to-html> --record <score>`). applyr derives the verdict — READY TO SEND at 80+,
+NEEDS MINOR EDITS at 60–79, NEEDS MAJOR REVISION below — and counts the iteration.
+A review recorded before your last edit to the file no longer counts in `applyr next`.
+Based on the verdict:
 
 | Verdict | Action |
 |---------|--------|
@@ -369,6 +388,10 @@ Once `cv verify` reaches PASS, generate the PDF immediately:
 ```bash
 applyr cv pdf <path-to-file>
 ```
+
+`cv pdf` re-runs the verify checks itself and refuses a CV that does not pass them
+(exit 1, error code `verify_required`) — no PDF is written. `--force` renders anyway,
+but the bypass is noted on the offer; use it only when the user explicitly asks.
 
 **Do not ask "should I generate the PDF now?" or "do you want the PDF or should we
 review another offer first?" before running this.** Reaching a verified, READY TO SEND
@@ -506,6 +529,8 @@ User: "Sent it via LinkedIn"
 | Export | `applyr export --format json` |
 | Review CV | `applyr cv review <file>` |
 | Blind recruiter evaluation | `applyr cv review-blind <id>` |
+| Record a review score you executed | `applyr cv review-blind <id> --record N` / `applyr cv review <file> --record N` |
+| Next step for an offer | `applyr next <id> [--json]` |
 | Verify CV claims are grounded | `applyr cv verify <file>` |
 | Instructions for one agent role | `applyr role <matcher\|recruiter\|architect\|writer\|fact-checker>` |
 | Get tailoring plan (JSON) | `applyr show <id> --json` (fields: `cv_tailoring_plan`, `evidence_map`) |
@@ -524,6 +549,8 @@ User: "Sent it via LinkedIn"
 | Chrome timeout | Simplify HTML and retry. |
 | Offer not found | Run `applyr list` to check IDs. |
 | `cv verify` returns BLOCKED | Remove or rewrite each unsupported claim it lists, then re-run — do not deliver the CV as-is. |
+| `cv pdf` fails with `verify_required` | Same fix as BLOCKED: run `applyr cv verify <file>`, fix what it lists. Do not reach for `--force` on your own. |
+| `history_corrupt` | The offer's review history is damaged — tell the user; do not try to repair it by hand. |
 
 ## ATS CV rules
 
