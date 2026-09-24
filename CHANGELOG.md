@@ -4,6 +4,48 @@ All notable changes to applyr will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.15.0] — 2026-09-24
+
+### Added
+
+- **`applyr role [name]`** prints a role's instructions (matcher, recruiter, architect,
+  writer, fact-checker) or lists them; `--json` supported. The agent instructions used
+  to cite `applyr/templates/agents/*.md`, a repository path that does not exist once
+  applyr is installed with pip.
+- **CV Writer role** (`applyr role writer`): fill the skeleton from cv-master.md only —
+  numbers copied, never improved; no scope inflation; no leftover placeholders.
+- **`recommendation`** (`apply` / `maybe` / `low_match`) in the JSON of `show`, `list`,
+  `search`, `pipeline` and `rescore` — previously only `add` exposed it, so agents had to
+  re-implement the thresholds.
+- `doctor` reports a new **Config values** check for thresholds/weights it had to replace.
+
+### Changed
+
+- One definition of APPLY / MAYBE / LOW MATCH (`scoring.recommendation_for`) used by
+  every command and by the score calibration.
+- `add` prints the CLI's own state first: `APPLY — strong match`, `MAYBE — …`,
+  `LOW MATCH — consider archiving` (was `STRONG MATCH: APPLY` / `LOW MATCH: SKIP`).
+- Agent instructions aligned with the CLI: the response format uses
+  `APPLY | MAYBE | LOW MATCH` (was `APPLY | SKIP`); an offer is marked `applied` in Step 7,
+  once the user confirms the application was sent (it used to happen before the CV
+  existed); Step 5 states that `cv review-blind` reads cv-master.md; the Matcher's
+  scores are the input to `add`, not read from it.
+- `--help` lists the `cv` and `gaps` subcommands, `search --company` and `role`, and
+  `add --help` states that `company` is required.
+
+### Fixed
+
+- **Invalid config values could break scoring or every command:** `threshold_maybe`
+  above `threshold_apply` (MAYBE unreachable), thresholds outside 0-100 or quoted
+  (`"85"` crashed `load_config`), negative weights (scores outside 0-100 were stored)
+  and non-numeric weights (every command crashed). They are replaced with safe values
+  and reported once on stderr and in `doctor`.
+- A custom topic with its own `[weights]` entry was scored but warned about as unknown by
+  `add`, and rejected by `gaps save`.
+- `gaps save` crashed on a bare JSON list instead of `{"gaps": [...]}`.
+- The packaged fallback URL for the agent instructions was broken, and the packaged
+  example flow no longer names a real company.
+
 ## [1.14.0] — 2026-09-24
 
 ### Changed
