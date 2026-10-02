@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+
+- `applyr setup-agent` now refuses to write into the home directory. Agents such as
+  Claude Code load every `CLAUDE.md` / `AGENTS.md` from the working directory upwards,
+  so a `~/CLAUDE.md` ended up in every session the user opened anywhere under `~`.
+  Run it from the folder where you work with applyr, pass `--global` to install it
+  user-wide on purpose, or `--force` to write into `~` anyway.
+
 ### Added
 
 - `applyr summary` (text and `--json`) now includes the all-time score calibration —

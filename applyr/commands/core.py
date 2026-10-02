@@ -593,6 +593,20 @@ def cmd_setup_agent(agent: str | None = None, global_: bool = False, force: bool
             details={"value": agent, "global_targets": list(_AGENT_GLOBAL_TARGETS)},
             text=f"  --global is only supported for {', '.join(_AGENT_GLOBAL_TARGETS)}.{hint}")
 
+    # A project-level file written in the home directory is not project-level:
+    # agents like Claude Code load every CLAUDE.md/AGENTS.md from the working
+    # directory upwards, so ~/CLAUDE.md lands in every session the user opens
+    # anywhere under ~ — thousands of words of applyr instructions in unrelated
+    # projects. --global is the explicit way to opt into that; --force keeps an
+    # escape hatch for anyone who really wants the file in ~.
+    if not global_ and not force and cwd.resolve() == Path.home().resolve():
+        error("Error: refusing to write agent instructions into your home directory")
+        die("setup-agent run from the home directory", code="invalid_value",
+            text="  Files here are loaded by your agent in every project under ~, not just applyr.\n"
+                 "  Run it from the folder where you work with applyr instead, e.g.:\n"
+                 "    cd ~/Documents/applyr && applyr setup-agent --agent " + agent + "\n"
+                 "  Or pass --global to install it user-wide on purpose, or --force to write here anyway.")
+
     _warn_if_profile_empty()
 
     if agent == "cursor" and not global_ and (cwd / ".cursorrules").exists():
