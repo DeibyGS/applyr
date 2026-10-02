@@ -170,3 +170,36 @@ def test_global_supports_exactly_the_documented_four(run_cli, capsys, project, f
     out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "windsurf", "--global"])
     assert code != 0
     assert "claude, gemini, opencode, claude-skill" in err
+
+
+def test_refuses_to_write_into_the_home_directory(run_cli, capsys, tmp_path, monkeypatch, tmp_db):
+    """A project-level file in ~ is loaded by the agent in every project under ~."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls, h=home: h))
+    monkeypatch.chdir(home)
+    out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude"])
+    assert code != 0
+    assert "--global" in err + out
+    assert not (home / "CLAUDE.md").exists()
+
+
+def test_force_writes_into_the_home_directory_anyway(run_cli, capsys, tmp_path, monkeypatch, tmp_db):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls, h=home: h))
+    monkeypatch.chdir(home)
+    out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude", "--force"])
+    assert code == 0, err
+    assert (home / "CLAUDE.md").exists()
+
+
+def test_global_from_the_home_directory_is_not_blocked(run_cli, capsys, tmp_path, monkeypatch, tmp_db):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls, h=home: h))
+    monkeypatch.chdir(home)
+    out, err, code = _run(run_cli, capsys, ["setup-agent", "--agent", "claude", "--global"])
+    assert code == 0, err
+    assert (home / ".claude" / "CLAUDE.md").exists()
+    assert not (home / "CLAUDE.md").exists()
