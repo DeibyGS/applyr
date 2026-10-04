@@ -528,6 +528,57 @@ class TestCvAtsCheckIgnoresHtmlComments:
         assert "Tables detected" not in out
 
 
+class TestCvAtsCheckBlankLinesAreNotColumns:
+    """Regression, same bug class as TestCvAtsCheckIgnoresHtmlComments but a
+    different rule. `_strip_html_comments` removes the `<!-- TAILOR: ... -->` /
+    `<!-- DE-EMPHASIZE: ... -->` / `<!-- NOT INCLUDED: ... -->` scaffold with a
+    regex and leaves the newlines those comments occupied behind. The column
+    heuristic in `validate_ats_format` was `^\\s{4,}\\S` under `re.MULTILINE`,
+    and `\\s` matches `\\n` — so the leftover blank lines alone, not any layout,
+    satisfied it. `cv ats-check` reported "Multiple columns detected" as a
+    *critical* issue on 24 of 24 generated CVs (every one of the CVs in
+    ~/Documents/applyr/cv), each one 25 points below its real formatting
+    quality, contradicting `cv review`'s READY TO SEND verdict on the same file."""
+
+    SCAFFOLD = (
+        "---\noffer_id: 296\ncompany: \"Acme\"\n---\n"
+        "<!-- TAILOR: Prioritize Python, FastAPI -->\n"
+        "<!-- DE-EMPHASIZE: React -->\n"
+        "<!-- NOT INCLUDED: Starlette, Jinja -->\n"
+        "<!-- LANGUAGE: write every line of this CV in Spanish -->\n"
+        "\n# Jane Doe\n\n"
+        "Madrid | jane@email.com\n\n"
+        "## Technical Skills\n\n"
+        "**Backend:** Python, FastAPI\n"
+    )
+
+    def test_generated_scaffold_does_not_report_multiple_columns(self, tmp_path, capsys):
+        """Uses the real generated shape: YAML frontmatter + the four scaffold
+        comments. Stripping the comments leaves 4 blank lines directly above the
+        `# Name` heading, which is the exact span that matched."""
+        from applyr.cv import cmd_cv_ats_check
+
+        cv_path = tmp_path / "cv-scaffold.md"
+        cv_path.write_text(self.SCAFFOLD)
+        cmd_cv_ats_check(str(cv_path))
+        out = capsys.readouterr().out
+        assert "Multiple columns" not in out
+        assert "100/100" in out
+
+    def test_sibling_command_agrees_with_ats_check(self, tmp_path, capsys):
+        """The check exists to protect a CV an ATS must parse. A generated CV
+        with a single-column body must not lose 25 points to a layout it does
+        not have."""
+        from applyr.cv import cmd_cv_ats_check
+
+        cv_path = tmp_path / "cv-scaffold.md"
+        cv_path.write_text(self.SCAFFOLD)
+        cmd_cv_ats_check(str(cv_path), as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["format_ok"] is True
+        assert payload["score"] >= 80
+
+
 class TestCvReview:
     """Same bug class as TestCvAtsCheck: `cv review` is the single most-invoked
     command in the documented agent workflow (called in a loop until READY TO

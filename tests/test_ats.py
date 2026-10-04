@@ -80,6 +80,24 @@ Madrid, Spain | john@email.com | +34 600 000 000 | linkedin.com/in/johndoe
         assert report.format_ok is True
         assert not any("Tables" in i.message for i in report.issues)
 
+    def test_blank_lines_are_not_multiple_columns(self):
+        """Runs of blank lines are not a column layout. The column heuristic was
+        `^\\s{4,}\\S` under `re.MULTILINE`, and `\\s` matches `\\n`, so the pattern
+        spanned the blank lines themselves: five empty lines followed by a
+        heading matched as one indented "column"."""
+        cv = "\n\n\n\n\n# John Doe\n\n## Technical Skills\n\n**Backend:** Python\n"
+        report = validate_ats_format(cv)
+        assert not any("Multiple columns" in i.message for i in report.issues)
+
+    def test_genuinely_indented_block_is_multiple_columns(self):
+        """Guard the other direction: real horizontal indentation must still trip
+        the rule, or the fix in `test_blank_lines_are_not_multiple_columns`
+        would have silently disabled the check."""
+        cv = "# John Doe\n\n## Technical Skills\n\n    Python    React\n    Node.js   TypeScript\n"
+        report = validate_ats_format(cv)
+        assert report.format_ok is False
+        assert any("Multiple columns" in i.message for i in report.issues)
+
     def test_images_detected(self):
         cv = """# John Doe
 

@@ -94,8 +94,17 @@ def validate_ats_format(cv_content: str) -> ATSReport:
             fix="Convert tables to bullet-point lists"
         ))
 
-    # Check for multiple columns (common patterns)
-    column_indicators = [r'^\s{4,}\S', r'^\t\t']
+    # Check for multiple columns (common patterns). A column layout in a plain
+    # text CV shows up as horizontal indentation, so match horizontal whitespace
+    # only: `[^\S\n]`. This was `\s{4,}`, and `\s` matches `\n`, so under
+    # re.MULTILINE the pattern spanned the blank lines themselves — a run of 4+
+    # empty lines followed by any heading read as one indented "column". Every
+    # generated CV hits that shape, because `_strip_html_comments` deletes the
+    # `<!-- TAILOR: ... -->` scaffold with a regex and leaves the newlines those
+    # comments occupied behind. The heuristic reported a *critical* layout issue
+    # on 24 of 24 generated CVs. Same fix as the table_pattern above: anchor to
+    # what the layout actually looks like, not to incidental whitespace.
+    column_indicators = [r'^[^\S\n]{4,}\S', r'^\t\t']
     for pattern in column_indicators:
         if re.search(pattern, cv_content, re.MULTILINE):
             issues.append(ATSIssue(
