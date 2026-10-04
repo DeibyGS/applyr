@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-10-04
+
+### Added
+
+- `applyr summary` (text and `--json`) now includes the all-time score calibration —
+  outcome rates per APPLY / MAYBE / LOW MATCH band — using the same data and minimum
+  sample as `stats`, so the two can never disagree. `--json` adds `score_calibration`,
+  `score_calibration_excluded_unknown_weights` and `calibration_min_sample`.
+
 ### Changed
 
 - `applyr setup-agent` now refuses to write into the home directory. Agents such as
@@ -26,13 +35,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   `cv review`'s `READY TO SEND` verdict on the same file. The pattern now matches
   horizontal whitespace only (`^[^\S\n]{4,}\S`); genuinely indented content is still
   detected.
-
-### Added
-
-- `applyr summary` (text and `--json`) now includes the all-time score calibration —
-  outcome rates per APPLY / MAYBE / LOW MATCH band — using the same data and minimum
-  sample as `stats`, so the two can never disagree. `--json` adds `score_calibration`,
-  `score_calibration_excluded_unknown_weights` and `calibration_min_sample`.
 
 ## [1.18.0] — 2026-09-24
 
