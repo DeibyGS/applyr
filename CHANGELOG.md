@@ -14,6 +14,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   Run it from the folder where you work with applyr, pass `--global` to install it
   user-wide on purpose, or `--force` to write into `~` anyway.
 
+### Fixed
+
+- `cv ats-check` no longer reports a false-positive critical issue `Multiple columns
+  detected` on generated CVs. The column heuristic was `^\s{4,}\S` under `re.MULTILINE`,
+  and `\s` matches `\n`, so the pattern spanned blank lines instead of measuring
+  indentation. Since `_strip_html_comments` removes the `<!-- TAILOR: ... -->` scaffold
+  and leaves its newlines behind, every generated CV carried a 4+ blank-line run above
+  the `# Name` heading and scored 25 points below its real formatting quality — 24 of 24
+  CVs in one real `~/Documents/applyr/cv` were flagged, and `cv ats-check` disagreed with
+  `cv review`'s `READY TO SEND` verdict on the same file. The pattern now matches
+  horizontal whitespace only (`^[^\S\n]{4,}\S`); genuinely indented content is still
+  detected.
+
 ### Added
 
 - `applyr summary` (text and `--json`) now includes the all-time score calibration —
