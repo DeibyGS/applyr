@@ -57,21 +57,27 @@ applyr:  82% compatibility (>= 80% threshold_apply)
          v
 
 Agent: blind recruiter evaluation (applyr cv review-blind)
+       writes a CV plan, saves it next to the CVs (applyr role architect)
        generates CV with tailoring plan (applyr cv generate)
-       └─ plan auto-created: evidence map, priorities, forbidden claims
-       applies plan to fill CV skeleton from cv-master.md
+       └─ refuses to run without a valid plan for this offer
+       fact-checks every claim (applyr cv fact-check <file.md> --record 0-100)
        verifies every claim (applyr cv verify) — PASS
        checks ATS compatibility (applyr cv ats-check)
-       delivers PDF ready to send
+       delivers PDF ready to send (applyr cv pdf)
+       └─ refuses without a fresh passing fact check
 ```
+
+`applyr cv gate <id>` answers "where am I and what is missing" in one call —
+every pipeline step as ok / missing / invalid / pending, with the command that
+unblocks each one (exit 1 while anything required is missing).
 
 applyr is the **storage layer**. Your AI agent is the **brain**.
 
 The CV tailoring pipeline flows through structured roles:
 
 ```
-Matcher  →  Recruiter  →  CV Architect  →  CV Writer  →  Fact Checker  →  Final
-(fit)       (quality)      (plan)          (execute)      (verify)
+Matcher → Recruiter → Architect → Writer → Fact Checker → Final
+(fit)    (quality)    (plan)    (execute)   (verify)
 ```
 
 Each role reads the previous output — no information is lost between steps.
@@ -85,7 +91,10 @@ Each role reads the previous output — no information is lost between steps.
 - **"Why you match"** — Executive summary of strengths and weaknesses
 - **Weighted scoring** — 6 configurable topics (tech stack 35%, experience 35%, projects 15%, education 5%, english 5%, cultural fit 5%), with a per-offer `weights_used` snapshot so `rescore` and future rebalances never corrupt historical scores
 - **Score breakdown** — Weighted contribution per topic so you understand why 78%
-- **CV tailoring plan** — automatic evidence map per requirement (STRONG/WEAK/MISSING), priorities (P0-P3), forbidden claims, and section strategy — generated on `cv generate`, saved to DB
+- **CV tailoring plan** — automatic evidence map per requirement (STRONG/WEAK/MISSING), priorities (P0-P3), forbidden claims, and section strategy — `applyr cv generate` refuses to run until `applyr role architect` has written one for the offer (a `--force` bypass leaves a dated note on the offer)
+- **Step handoff gates** — one artifact per pipeline step, enforced in order: plan before generation, blind review before generation, fact check before `cv pdf`. `applyr next` names the exact step and command; `applyr cv gate <id>` reports the whole checklist
+- **Fact Checker as a recorded step** — `applyr cv fact-check <file.md>` prints the adversarial prompt; `--record <0-100>` stores the evidence density and a derived PASS/FAIL verdict (never one the agent supplies) in the review history. `cv pdf` refuses to render a CV without a fresh passing record
+- **Framing lint** — `cv verify` warns when the CV summary presents as experience a technology the profile only lists under PROYECTOS, FORMACIÓN or skills. Advisory only: never blocks, never changes the verdict
 - **Claim-grounding gate** — `cv verify` checks every technology, metric, and employer name in a generated CV against your `cv-master.md`, deterministically — no LLM call, exit 0 (PASS) or 1 (BLOCKED, lists unsupported claims). JSON output includes evidence density metric and Fact Checker-compatible issue format
 - **Agent role instructions** — one file per role (Matcher, Recruiter, CV Architect, CV Writer, Fact Checker), shipped with the package and printed by `applyr role <name>`
 - **Compact agent instructions** — `setup-agent` injects an ~80-line core block; the full workflow is served step by step with `applyr guide <step>`, straight from the installed package, so it never goes stale
@@ -148,6 +157,7 @@ You:   "Yes"
 
 Agent: applyr cv generate 1 → fills from cv-master.md
        applyr cv review → ATS compatibility score: 87/100, READY TO SEND
+       applyr cv fact-check 1.md --record 100 → PASS
        applyr cv verify → PASS, every claim grounded in cv-master.md
        applyr cv pdf → delivers PDF
 
@@ -198,8 +208,10 @@ applyr followups                   # Overdue + upcoming
 applyr cv generate <id>            # Markdown CV with YAML frontmatter
 applyr cv review <file.md>         # Recruiter review prompt (accepts .md or .html)
 applyr cv review-blind <id>        # Independent CV evaluation (no score bias)
+applyr cv fact-check <file.md>     # Adversarial claim check ([--record <0-100>])
 applyr cv verify <file.md>         # Deterministic claim-grounding gate (no LLM, exit 0/1)
 applyr cv pdf <file.md>            # Markdown → ATS-HTML → PDF via Chrome
+applyr cv gate <id>               # Pipeline checklist: what is missing (exit 1)
 applyr cv ats-check <file.html>    # Check ATS compatibility (0-100 score)
 applyr cv keywords <id>            # Extract & match keywords vs CV
 applyr cv bullet-optimize <file>   # Analyze bullet points (weak verbs, metrics)
