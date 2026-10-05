@@ -257,3 +257,100 @@ class TestCvGate:
         before = open(tmp_db, "rb").read()
         _gate_json(capsys, run_cli, offer)
         assert open(tmp_db, "rb").read() == before
+
+
+# --- Framing lint (AC-18..21): advisory, never a gate -------------------------
+
+class TestFramingLint:
+    @staticmethod
+    def _profile(tmp_applyr, text):
+        (tmp_applyr / "cv-master.md").write_text(text, encoding="utf-8")
+
+    @staticmethod
+    def _cv(tmp_applyr, summary):
+        cv = tmp_applyr / "cv" / "cv-fusuma.md"
+        cv.parent.mkdir(parents=True, exist_ok=True)
+        cv.write_text(
+            f'---\noffer_id: 1\n---\n\n## Professional Summary\n\n{summary}\n\n'
+            "## Work Experience\n\n**Acme**\n- Shipped APIs\n",
+            encoding="utf-8",
+        )
+        return cv
+
+    def test_term_only_under_projects_is_flagged_with_its_section(
+            self, offer, tmp_applyr):
+        """AC-18: name the technology and the section the profile actually has."""
+        self._profile(
+            tmp_applyr,
+            "## PROYECTOS\n- Pipeline RAG — retrieval pipeline\n\n"
+            "## HABILIDADES TÉCNICAS\n- RAG\n\n"
+            "## WORK EXPERIENCE\n**Acme**\n- Shipped APIs\n",
+        )
+        verdict = cv_mod._verify_cv(self._cv(tmp_applyr, "Backend developer using RAG."))
+        assert [w["term"] for w in verdict["framing"]] == ["RAG"]
+        assert verdict["framing"][0]["sections"] == ["project", "skill"]
+        assert "PROYECTOS" in verdict["framing"][0]["detail"]
+
+    def test_term_under_experience_is_silent(self, offer, tmp_applyr):
+        self._profile(tmp_applyr,
+                      "## WORK EXPERIENCE\n**Acme**\n- Built RAG pipelines\n")
+        verdict = cv_mod._verify_cv(self._cv(tmp_applyr, "Backend developer using RAG."))
+        assert verdict["framing"] == []
+
+    def test_skills_only_term_is_flagged(self, offer, tmp_applyr):
+        self._profile(tmp_applyr,
+                      "## TECHNICAL SKILLS\n- RAG\n\n"
+                      "## WORK EXPERIENCE\n**Acme**\n- Shipped APIs\n")
+        verdict = cv_mod._verify_cv(self._cv(tmp_applyr, "Backend developer using RAG."))
+        assert [w["term"] for w in verdict["framing"]] == ["RAG"]
+        assert verdict["framing"][0]["sections"] == ["skill"]
+
+    def test_a_profile_without_experience_is_never_flagged(self, offer, tmp_applyr):
+        """Nothing is experience, so nothing can be reframed into it."""
+        self._profile(tmp_applyr,
+                      "## TECHNICAL SKILLS\n- RAG\n\n## PROYECTOS\n- Pipeline RAG\n")
+        verdict = cv_mod._verify_cv(self._cv(tmp_applyr, "Backend developer using RAG."))
+        assert verdict["framing"] == []
+
+    def test_project_names_and_employers_are_never_flagged(self, offer, tmp_applyr):
+        """AC-20: only technologies — the vocabulary never holds names."""
+        self._profile(tmp_applyr,
+                      "## WORK EXPERIENCE\n**Fusuma**\n- Shipped the Aurora Analytics platform\n\n"
+                      "## PROYECTOS\n- Aurora Analytics — reporting\n")
+        cv = self._cv(tmp_applyr, "Ex-Fusuma engineer behind Aurora Analytics.")
+        verdict = cv_mod._verify_cv(cv)
+        assert verdict["framing"] == []
+
+    def test_warnings_do_not_change_the_verdict_or_the_exit_code(
+            self, offer, tmp_applyr, capsys):
+        """AC-19: exit 0 on PASS with a Framing section — advisory only."""
+        from applyr.cv import cmd_cv_verify
+
+        self._profile(
+            tmp_applyr,
+            "## PROYECTOS\n- Pipeline RAG — retrieval pipeline\n\n"
+            "## HABILIDADES TÉCNICAS\n- RAG\n\n"
+            "## WORK EXPERIENCE\n**Acme**\n- Shipped APIs\n",
+        )
+        cmd_cv_verify(str(self._cv(tmp_applyr, "Backend developer using RAG.")))
+        out = capsys.readouterr().out
+        assert ">> PASS" in out
+        assert "Framing:" in out
+        assert "RAG" in out
+
+    def test_json_payload_carries_framing_next_to_a_passing_verdict(
+            self, offer, tmp_applyr, capsys):
+        from applyr.cv import cmd_cv_verify
+
+        self._profile(
+            tmp_applyr,
+            "## PROYECTOS\n- Pipeline RAG — retrieval pipeline\n\n"
+            "## HABILIDADES TÉCNICAS\n- RAG\n\n"
+            "## WORK EXPERIENCE\n**Acme**\n- Shipped APIs\n",
+        )
+        cmd_cv_verify(str(self._cv(tmp_applyr, "Backend developer using RAG.")),
+                      as_json=True)
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["passed"] is True  # AC-21: framing never blocks
+        assert payload["unsupported"] == []
+        assert [w["term"] for w in payload["framing"]] == ["RAG"]

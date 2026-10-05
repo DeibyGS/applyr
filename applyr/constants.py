@@ -205,3 +205,17 @@ PLAN_HEADING_ALIASES = (
     "prohibited claims",
     "restricciones",
 )
+
+# Headings that introduce a CV's professional summary — the only section the
+# framing lint reads (ADR-018, AC-18). Both CV_HEADINGS languages plus the
+# short variants a hand-written CV may use; folded before comparison.
+SUMMARY_HEADING_ALIASES = frozenset({
+    "professional summary",
+    "summary",
+    "profile",
+    "about",
+    "perfil profesional",
+    "perfil",
+    "resumen",
+    "resumen profesional",
+})

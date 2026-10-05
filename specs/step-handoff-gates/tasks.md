@@ -64,11 +64,11 @@ PR split keeps each PR under the 400-line budget.
 
 ## PR D — Deterministic framing warning
 
-- [ ] **T14 [MUST][test] framing lint** · S · deps: —
+- [x] **T14 [MUST][test] framing lint** · S · deps: —
   Term only under PROYECTOS → warning naming the section; term under experience →
   silence; skills-only → warning; no experience section → silence; project names and
   employers never flagged; verdict/exit code unchanged. Covers AC-18, AC-19, AC-20.
-- [ ] **T15 [MUST][impl] `applyr/cv.py` + `applyr/constants.py`** · S · deps: T14
+- [x] **T15 [MUST][impl] `applyr/cv.py` + `applyr/constants.py`** · S · deps: T14
   `framing` array in the verify result + printed section; CV summary-section heading
   aliases; never touches `passed`. AC-21 (WONT) enforced by the T14 assertions.
 
