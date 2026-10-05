@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import (
-    CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, PROTECTED_FACT_ALIASES, TOPIC_PARTIAL_MIN, TOPIC_STRONG_MIN,
+    CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, FACT_CHECK_PASS_MIN, PROTECTED_FACT_ALIASES,
+    TOPIC_PARTIAL_MIN, TOPIC_STRONG_MIN,
 )
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
@@ -311,35 +312,88 @@ _UNVERIFIABLE_REASONS = {
 }
 
 
-def _check_pdf_gate(cv_path: Path, force: bool) -> tuple[int | None, str | None]:
-    """Refuse to render a CV that does not pass `cv verify` right now (ADR-015).
+def _fact_check_reason(cv_path: Path, offer_id: int | None) -> str | None:
+    """Why this CV has no passing fact check; None when the gate is satisfied.
 
-    Re-runs the verify checks on the file as it is on disk instead of trusting
-    a stored result, so an edit after verification can never slip through.
-    Returns (None, None) when the CV passes. With `force`, returns the offer to
-    note the bypass on (None when there is no linked offer) and the reason.
+    The record must be newer than the file (ADR-015's staleness rule) and
+    derived PASS (ADR-018 AC-13). A CV with no linked offer has no history to
+    check, so the gate does not apply — that is ADR-015's "no offer id" path.
+    """
+    if offer_id is None:
+        return None
+    from applyr.db import get_conn
+    from applyr.pipeline_next import FACT_CHECK_PASS, fresh_since, read_history
+
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT cv_iteration_history FROM offers WHERE id = ?",
+                           (offer_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return "offer no longer exists"
+    fresh = fresh_since(read_history(row["cv_iteration_history"], offer_id),
+                        "fact_check", cv_path.stat().st_mtime)
+    if fresh and fresh[-1].get("verdict") == FACT_CHECK_PASS:
+        return None
+    if not fresh:
+        return "no fact check recorded since the CV was last edited"
+    return f"last fact check {fresh[-1]['score']} ({fresh[-1]['verdict']})"
+
+
+def _check_pdf_gate(cv_path: Path, force: bool) -> tuple[int | None, list[tuple[str, str]]]:
+    """Refuse to render a CV that is not fact-checked and verified right now (ADR-015/018).
+
+    Re-runs the verify checks on the file as it is on disk and re-reads the
+    recorded fact check, so an edit after either can never slip through.
+    Returns (offer_id, bypasses): offer_id is the offer to note the bypass on
+    (None when there is no linked offer), bypasses is the list of
+    (label, reason) pairs that were skipped — empty when nothing was.
+    Without `force` the first failing gate dies, fact check first because it
+    is the earlier step in the pipeline.
     """
     verdict = _verify_cv(cv_path)
     unsupported = verdict.get("unsupported", [])
     unverifiable = verdict.get("unverifiable")
     if unverifiable:
-        reason = _UNVERIFIABLE_REASONS[unverifiable].format(offer_id=verdict["offer_id"])
+        verify_reason = _UNVERIFIABLE_REASONS[unverifiable].format(offer_id=verdict["offer_id"])
     elif verdict["passed"]:
-        return None, None
+        verify_reason = None
     else:
-        reason = f"{len(unsupported)} unsupported claim(s)"
+        verify_reason = f"{len(unsupported)} unsupported claim(s)"
+
+    offer_id = None if unverifiable == "not_found" else verdict.get("offer_id")
+    fc_reason = _fact_check_reason(cv_path, offer_id)
 
     if not force:
-        for r in unsupported:
-            error(f"  [{r['category']}] {r['claim']}")
-        error(f"Error: this CV does not pass 'applyr cv verify' ({reason}) — no PDF generated.")
-        die(f"Error: this CV does not pass 'applyr cv verify' ({reason}).",
-            code="verify_required", details={"reason": reason, "unsupported": unsupported},
-            text="  Fix it and re-run 'applyr cv verify <file>', or pass --force to render anyway "
-                 "(the bypass is recorded on the offer).")
-    warn(f"Warning: rendering an unverified CV (--force): {reason}.")
+        if fc_reason:
+            error(f"Error: this CV has no passing fact check ({fc_reason}) — no PDF generated.")
+            die(f"Error: this CV has no passing fact check ({fc_reason}).",
+                code="fact_check_required",
+                details={"reason": fc_reason, "offer_id": offer_id},
+                text=f"  Run 'applyr cv fact-check {cv_path}', execute its adversarial prompt, then "
+                     f"record the evidence density: applyr cv fact-check {cv_path} --record <score>.\n"
+                     "  Pass --force to render anyway (the bypass is recorded on the offer).")
+        if verify_reason:
+            for r in unsupported:
+                error(f"  [{r['category']}] {r['claim']}")
+            error(f"Error: this CV does not pass 'applyr cv verify' ({verify_reason}) — no PDF generated.")
+            die(f"Error: this CV does not pass 'applyr cv verify' ({verify_reason}).",
+                code="verify_required",
+                details={"reason": verify_reason, "unsupported": unsupported},
+                text="  Fix it and re-run 'applyr cv verify <file>', or pass --force to render anyway "
+                     "(the bypass is recorded on the offer).")
+        return None, []
+
+    bypasses: list[tuple[str, str]] = []
+    if fc_reason:
+        bypasses.append(("fact check", fc_reason))
+        warn(f"Warning: rendering without a passing fact check (--force): {fc_reason}.")
+    if verify_reason:
+        bypasses.append(("verify", verify_reason))
+        warn(f"Warning: rendering an unverified CV (--force): {verify_reason}.")
     # An offer that no longer exists has nowhere to take the note.
-    return (None if unverifiable == "not_found" else verdict["offer_id"]), reason
+    return (None if unverifiable == "not_found" else offer_id), bypasses
 
 
 def _append_note(offer_id: int, line: str) -> None:
@@ -358,9 +412,9 @@ def _append_note(offer_id: int, line: str) -> None:
         conn.close()
 
 
-def _note_forced_pdf(offer_id: int, reason: str) -> None:
-    """Append a dated `cv pdf --force` line to the offer's notes."""
-    _append_dated_note(offer_id, f"cv pdf --force: verify skipped ({reason})")
+def _note_forced_pdf(offer_id: int, label: str, reason: str) -> None:
+    """Append a dated `cv pdf --force` line naming the gate that was skipped."""
+    _append_dated_note(offer_id, f"cv pdf --force: {label} skipped ({reason})")
 
 
 def _append_dated_note(offer_id: int, text: str) -> None:
@@ -417,7 +471,7 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None, force: bool = False) -> 
         die(f"Error: CV file not found: {cv_file}", code="not_found",
             details={"path": cv_file})
 
-    forced_offer_id, forced_reason = _check_pdf_gate(cv_path, force)
+    forced_offer_id, bypasses = _check_pdf_gate(cv_path, force)
 
     if output:
         pdf_path = Path(output).resolve()
@@ -481,7 +535,8 @@ def cmd_cv_pdf(cv_file: str, output: str | None = None, force: bool = False) -> 
         if pdf_path.exists():
             print(f"PDF generated: {pdf_path}")
             if forced_offer_id is not None:
-                _note_forced_pdf(forced_offer_id, forced_reason)
+                for label, reason in bypasses:
+                    _note_forced_pdf(forced_offer_id, label, reason)
             page_count = _count_pdf_pages(pdf_path)
             if page_count is not None:
                 limit = _page_limit_for(cv_path)
@@ -1089,6 +1144,61 @@ Be specific. Reference exact lines from the CV. Do not be vague."""
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(prompt)
+
+
+def cmd_cv_fact_check(cv_file: str, as_json: bool = False, record: str | None = None) -> None:
+    """Run the adversarial Fact Checker prompt on a CV, or record its score.
+
+    The prompt is the packaged role file (`templates/agents/fact_checker.md`),
+    served instead of pointed at so it survives `pip install` — a second copy
+    in this module is exactly how the fact checker got orphaned in the first
+    place (ADR-018). With `record`, the verdict is derived from the score.
+    """
+    from applyr.agent_instructions import role_instructions
+    from applyr.pipeline_next import parse_record_score
+
+    score = parse_record_score(record) if record is not None else None
+    cv_path = Path(cv_file).resolve()
+    content = read_text_or_die(cv_path)
+
+    if score is not None:
+        offer_id = _extract_offer_id_from_md(content)
+        if offer_id is None:
+            die("Error: no offer id found in this CV — pass a file generated by 'applyr cv generate'.",
+                code="no_offer_id")
+        _record_and_report(offer_id, "fact_check", score, as_json)
+        return
+
+    role = role_instructions("fact-checker")
+    if role is None:
+        die("Error: the packaged Fact Checker instructions are missing from this install.",
+            code="role_missing")
+    appendix = f"""
+
+---
+
+## Input file
+
+- CV: {cv_path}
+- Plan: the CV_TAILORING_PLAN for this offer (offer id in the CV frontmatter)
+
+## Recording the result (applyr)
+
+Report the evidence density as an integer 0-100: the share of major claims
+with no P0/P1 issue (supported/total x 100), then record it:
+
+    applyr cv fact-check {cv_path} --record <score>
+
+The verdict is derived from that score (PASS iff >= {FACT_CHECK_PASS_MIN}), never
+taken from the JSON above. Until it is recorded, 'applyr cv pdf' refuses to
+render this CV (code: fact_check_required)."""
+
+    if as_json:
+        print(json.dumps({"cv_file": str(cv_path), "prompt": role,
+                          "instructions": appendix.strip()}, indent=2, ensure_ascii=False))
+    else:
+        print(role)
+        print(appendix)
 
 
 # ---------------------------------------------------------------------------

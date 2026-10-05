@@ -573,8 +573,8 @@ def cmd_cv_gate(offer_id: int, as_json: bool = False) -> None:
     """
     from applyr.cv import _verify_cv, find_cv_for_offer
     from applyr.gates import PlanStatus, check_plan, plan_hint
-    from applyr.pipeline_next import (DONE_STATUSES, READY_TO_SEND, derive_next,
-                                      fresh_since, read_history)
+    from applyr.pipeline_next import (DONE_STATUSES, FACT_CHECK_PASS, READY_TO_SEND,
+                                      derive_next, fresh_since, read_history)
 
     conn = get_conn()
     try:
@@ -646,11 +646,32 @@ def cmd_cv_gate(offer_id: int, as_json: bool = False) -> None:
                 f"applyr cv review {cv_path} --record <score>")
 
     review_ok = steps[-1]["status"] == "ok"
+    if cv_path is None:
+        add("fact_check", "pending", "No CV file yet")
+    elif not review_ok:
+        add("fact_check", "pending", "Blocked by: cv_review")
+    else:
+        fresh_fc = fresh_since(history, "fact_check", cv_mtime)
+        latest_fc = fresh_fc[-1] if fresh_fc else None
+        if latest_fc and latest_fc["verdict"] == FACT_CHECK_PASS:
+            add("fact_check", "ok", f"Latest fact check: {latest_fc['score']} (PASS)")
+        elif latest_fc:
+            add("fact_check", "missing",
+                f"Latest fact check: {latest_fc['score']} ({latest_fc['verdict']}) — fix the issues, "
+                "re-run and record again",
+                f"applyr cv fact-check {cv_path} --record <score>")
+        else:
+            add("fact_check", "missing", "No fact check recorded since the CV was last edited",
+                f"applyr cv fact-check {cv_path} --record <score>")
+
+    fc_ok = steps[-1]["status"] == "ok"
     verify_result: dict = {}
     if cv_path is None:
         add("verify", "pending", "No CV file yet")
     elif not review_ok:
         add("verify", "pending", "Blocked by: cv_review")
+    elif not fc_ok:
+        add("verify", "pending", "Blocked by: fact_check")
     elif done:
         add("verify", "not_applicable", f"Offer status is '{offer['status']}'")
     else:

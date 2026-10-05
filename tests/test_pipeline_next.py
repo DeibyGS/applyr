@@ -25,6 +25,7 @@ def _rec(step, score, verdict, at):
 
 BLIND = _rec("review_blind", 74, "CLOSE_MATCH", CV_MTIME - 100)
 READY = _rec("cv_review", 85, "READY TO SEND", CV_MTIME + 10)
+FACT_OK = _rec("fact_check", 100, "PASS", CV_MTIME + 11)
 PASS = {"passed": True, "unsupported": []}
 
 
@@ -116,41 +117,95 @@ def test_fresh_non_ready_review_asks_to_edit_before_reviewing_again():
     assert "Edit the file" in step["reason"]
 
 
-def test_review_limit_moves_on_to_verify_with_a_warning():
+def test_review_limit_moves_on_past_the_fact_check_with_a_warning():
     reviews = [_rec("cv_review", 50, "NEEDS MAJOR REVISION", CV_MTIME + i) for i in range(3)]
-    step = _next(history=[BLIND, *reviews], pdf_mtime=None)
+    step = _next(history=[BLIND, *reviews, FACT_OK], pdf_mtime=None)
     assert step["state"] == "pdf"
     assert "limit" in step["warnings"][0]
 
 
+def test_ready_review_must_be_fact_checked_first():
+    """AC-12: the fact check sits between the ready review and verification."""
+    step = _next(history=[BLIND, READY], verify=_must_not_verify)
+    assert step["state"] == "fact_check"
+    assert step["command"] == "applyr cv fact-check cv-x.md"
+
+
+def test_failing_fact_check_does_not_advance_to_verify():
+    """AC-16: a failing record keeps the offer at the fact check."""
+    failed = _rec("fact_check", 99, "FAIL", CV_MTIME + 11)
+    step = _next(history=[BLIND, READY, failed], verify=_must_not_verify)
+    assert step["state"] == "fact_check"
+    assert "99 (FAIL)" in step["reason"]
+
+
+def test_fact_check_older_than_the_cv_does_not_count():
+    stale = _rec("fact_check", 100, "PASS", CV_MTIME - 1)
+    step = _next(history=[BLIND, READY, stale], verify=_must_not_verify)
+    assert step["state"] == "fact_check"
+
+
+def test_fact_check_verdict_is_derived_from_the_score():
+    """AC-13: PASS comes from FACT_CHECK_PASS_MIN, never from the agent."""
+    from applyr.constants import FACT_CHECK_PASS_MIN
+    from applyr.pipeline_next import FACT_CHECK_PASS, READY_TO_SEND, review_verdict
+
+    assert FACT_CHECK_PASS_MIN == 100
+    assert review_verdict("fact_check", FACT_CHECK_PASS_MIN, CONFIG) == FACT_CHECK_PASS
+    assert review_verdict("fact_check", FACT_CHECK_PASS_MIN - 1, CONFIG) == "FAIL"
+    # A review score below READY still runs through the review bands.
+    assert review_verdict("cv_review", 100, CONFIG) == READY_TO_SEND
+
+
 def test_failing_verify_lists_the_claims():
     failing = {"passed": False, "unsupported": [{"category": "technology", "claim": "Kubernetes"}]}
-    step = _next(history=[BLIND, READY], verify=lambda: failing)
+    step = _next(history=[BLIND, READY, FACT_OK], verify=lambda: failing)
     assert step["state"] == "verify"
     assert step["failing"] == ["[technology] Kubernetes"]
 
 
 def test_unverifiable_cv_stays_in_verify():
-    step = _next(history=[BLIND, READY], verify=lambda: {"offer_id": 7, "unverifiable": "cv_master_missing"})
+    step = _next(history=[BLIND, READY, FACT_OK],
+                 verify=lambda: {"offer_id": 7, "unverifiable": "cv_master_missing"})
     assert step["state"] == "verify"
     assert step["failing"] == ["cv_master_missing"]
 
 
 def test_verified_cv_without_pdf_needs_pdf():
-    step = _next(history=[BLIND, READY])
+    step = _next(history=[BLIND, READY, FACT_OK])
     assert step["state"] == "pdf"
     assert step["command"] == "applyr cv pdf cv-x.md"
 
 
 def test_pdf_older_than_the_cv_is_treated_as_missing():
-    assert _next(history=[BLIND, READY], pdf_mtime=CV_MTIME - 1)["state"] == "pdf"
+    assert _next(history=[BLIND, READY, FACT_OK], pdf_mtime=CV_MTIME - 1)["state"] == "pdf"
 
 
 def test_fresh_pdf_leads_to_apply():
-    step = _next(history=[BLIND, READY], pdf_mtime=CV_MTIME + 20)
+    step = _next(history=[BLIND, READY, FACT_OK], pdf_mtime=CV_MTIME + 20)
     assert step["state"] == "apply"
     assert step["command"] == "applyr update 7 applied --canal <channel>"
     assert step["needs_user_confirmation"] is True
+
+
+def test_the_state_vocabulary_is_a_stable_contract():
+    """Consumers branch on these names — a rename has to fail a test first."""
+    failing_verify = {"passed": False, "unsupported": []}
+    states = {
+        _next(_offer(compatibility_pct=0), topics=0, verify=_must_not_verify)["state"],
+        _next(verify=_must_not_verify)["state"],
+        _next(history=[BLIND], cv=None, cv_mtime=None, plan=PlanStatus.MISSING,
+              verify=_must_not_verify)["state"],
+        _next(history=[BLIND], cv=None, cv_mtime=None, verify=_must_not_verify)["state"],
+        _next(history=[BLIND], verify=_must_not_verify)["state"],
+        _next(history=[BLIND, READY], verify=_must_not_verify)["state"],
+        _next(history=[BLIND, READY, FACT_OK])["state"],
+        _next(history=[BLIND, READY, FACT_OK], verify=lambda: failing_verify)["state"],
+        _next(history=[BLIND, READY, FACT_OK], pdf_mtime=CV_MTIME + 20)["state"],
+        _next(_offer(status="applied"), verify=_must_not_verify)["state"],
+    }
+    assert states == {"score", "decide", "plan", "generate", "cv_review", "fact_check",
+                      "verify", "pdf", "apply", "done"}
 
 
 # --- history ----------------------------------------------------------------
@@ -220,6 +275,31 @@ def test_record_cv_review_appends_and_counts(offer_db, tmp_path):
     history, iteration = _history(offer_db)
     assert [e["verdict"] for e in history] == ["NEEDS MAJOR REVISION", "READY TO SEND"]
     assert iteration == 2
+
+
+def test_record_fact_check_derives_the_verdict_and_skips_the_iteration(offer_db, tmp_path):
+    """AC-13/AC-17: PASS comes from the score, and the fact check is not a review iteration."""
+    from applyr.cv import cmd_cv_fact_check
+    cv = tmp_path / "cv-acme.md"
+    cv.write_text("---\noffer_id: 1\n---\n\n# Ana\n", encoding="utf-8")
+    cmd_cv_fact_check(str(cv), record="100")
+    cmd_cv_fact_check(str(cv), record="99")
+    history, iteration = _history(offer_db)
+    assert [(e["step"], e["score"], e["verdict"]) for e in history] == [
+        ("fact_check", 100, "PASS"), ("fact_check", 99, "FAIL")]
+    assert iteration == 0
+
+
+def test_fact_check_prints_the_packaged_role_file(tmp_path, capsys):
+    from applyr.agent_instructions import role_instructions
+    from applyr.cv import cmd_cv_fact_check
+
+    cv = tmp_path / "cv-acme.md"
+    cv.write_text("---\noffer_id: 1\n---\n\n# Ana\n", encoding="utf-8")
+    cmd_cv_fact_check(str(cv))
+    out = capsys.readouterr().out
+    assert role_instructions("fact-checker") in out
+    assert "--record" in out
 
 
 @pytest.mark.parametrize("raw", ["abc", "101", "-1"])

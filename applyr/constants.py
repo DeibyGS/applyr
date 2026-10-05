@@ -68,6 +68,12 @@ CV_REVIEW_MINOR_MIN = 60
 # `applyr next` moves on to verify instead of looping (ADR-015).
 CV_REVIEW_MAX_ITERATIONS = 3
 
+# `cv fact-check --record` pass band — the evidence density (0-100) the Fact
+# Checker reports: share of major claims free of P0/P1 issues. Every major
+# claim must be clean, so the verdict is derived from this constant and never
+# from a verdict the agent supplies (ADR-018, AC-13).
+FACT_CHECK_PASS_MIN = 100
+
 # Duplicate detection — minimum title similarity (0.0-1.0) to treat two offers
 # at the same company as the same role. Below this they are separate offers.
 DUPLICATE_SIMILARITY_THRESHOLD = 0.85

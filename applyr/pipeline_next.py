@@ -13,7 +13,12 @@ import json
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-from applyr.constants import CV_REVIEW_MAX_ITERATIONS, CV_REVIEW_MINOR_MIN, CV_REVIEW_READY_MIN
+from applyr.constants import (
+    CV_REVIEW_MAX_ITERATIONS,
+    CV_REVIEW_MINOR_MIN,
+    CV_REVIEW_READY_MIN,
+    FACT_CHECK_PASS_MIN,
+)
 from applyr.errors import die
 from applyr.eligibility import block_reason, load_stored
 from applyr.gates import PlanStatus
@@ -24,6 +29,7 @@ DONE_STATUSES = frozenset({"applied", "waiting", "in_process", "offer", "rejecte
 
 _BLIND_VERDICTS = {"apply": "STRONG_MATCH", "maybe": "CLOSE_MATCH", "low_match": "NO_MATCH"}
 READY_TO_SEND = "READY TO SEND"
+FACT_CHECK_PASS = "PASS"
 
 
 def read_history(raw: str | None, offer_id: int) -> list[dict]:
@@ -52,6 +58,8 @@ def review_verdict(step: str, score: int, config: dict) -> str:
     """Derive the verdict for a recorded score — never taken from the agent."""
     if step == "review_blind":
         return _BLIND_VERDICTS[recommendation_for(score, config)]
+    if step == "fact_check":
+        return FACT_CHECK_PASS if score >= FACT_CHECK_PASS_MIN else "FAIL"
     if score >= CV_REVIEW_READY_MIN:
         return READY_TO_SEND
     if score >= CV_REVIEW_MINOR_MIN:
@@ -199,7 +207,21 @@ def derive_next(
                          f"Last review: {latest['verdict']} ({latest['score']}). Edit the file applying its "
                          "fixes, then review again — re-reviewing an unedited file changes nothing.")
         warnings.append(f"Review limit reached ({CV_REVIEW_MAX_ITERATIONS}) with verdict "
-                        f"{latest['verdict']} — moving on to verify.")
+                        f"{latest['verdict']} — moving on to fact check.")
+
+    # A ready CV still ships only after an adversarial fact check (ADR-018):
+    # the review scores the document, this one scores its claims.
+    fc_cmd = f"applyr cv fact-check {cv_path}"
+    fresh_fc = fresh_since(history, "fact_check", cv_mtime)
+    if not fresh_fc or fresh_fc[-1]["verdict"] != FACT_CHECK_PASS:
+        last = fresh_fc[-1] if fresh_fc else None
+        detail = (f"Last fact check: {last['score']} ({last['verdict']}). "
+                  if last else "No fact check recorded since the CV was last edited. ")
+        return _step("fact_check", fc_cmd,
+                     f"CV review is ready. {detail}Run 'applyr cv fact-check {cv_path}', execute its "
+                     "adversarial prompt, then record the evidence density (0-100). "
+                     "'applyr cv gate' shows the whole checklist.",
+                     warnings=warnings)
 
     result = verify()
     if not result.get("passed"):

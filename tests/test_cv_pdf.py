@@ -1,5 +1,6 @@
 """`cv pdf` with Chrome faked: what reaches the browser, and what is left on disk."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -33,8 +34,8 @@ def chrome(monkeypatch):
 
 @pytest.fixture
 def fake_chrome(chrome, monkeypatch):
-    """Faked Chrome with the verify gate bypassed — for tests about rendering only."""
-    monkeypatch.setattr(cv_mod, "_check_pdf_gate", lambda _path, _force: (None, None))
+    """Faked Chrome with the gates bypassed — for tests about rendering only."""
+    monkeypatch.setattr(cv_mod, "_check_pdf_gate", lambda _path, _force: (None, []))
     return chrome
 
 
@@ -124,6 +125,14 @@ def _offer_row(db):
         conn.close()
 
 
+def _fact_check(_cv=None):
+    """Record a passing fact check on offer #1 — after the CV it must outlive."""
+    from applyr.config import load_config
+    from applyr.pipeline_next import record_review
+
+    record_review(1, "fact_check", 100, load_config())
+
+
 def _exit_code(capsys, fn):
     from applyr.errors import set_json_mode
     import json
@@ -139,6 +148,7 @@ def _exit_code(capsys, fn):
 
 def test_unverified_cv_is_refused_and_no_pdf_is_written(gated, tmp_path, chrome, capsys):
     cv = _cv(tmp_path, "# [FULL NAME]\n")
+    _fact_check()
     err = _exit_code(capsys, lambda: cv_mod.cmd_cv_pdf(str(cv)))
     assert err["code"] == "verify_required"
     assert err["details"]["unsupported"][0]["category"] == "placeholder"
@@ -147,7 +157,9 @@ def test_unverified_cv_is_refused_and_no_pdf_is_written(gated, tmp_path, chrome,
 
 
 def test_verified_cv_renders_without_touching_the_offer(gated, tmp_path, chrome):
-    cv_mod.cmd_cv_pdf(str(_cv(tmp_path, "# Ana\n")))
+    cv = _cv(tmp_path, "# Ana\n")
+    _fact_check()
+    cv_mod.cmd_cv_pdf(str(cv))
     assert (tmp_path / "cv-acme.pdf").exists()
     notes, evidence = _offer_row(gated)
     assert notes == "call Monday"
@@ -156,7 +168,9 @@ def test_verified_cv_renders_without_touching_the_offer(gated, tmp_path, chrome)
 
 def test_force_renders_and_appends_a_dated_note(gated, tmp_path, chrome, capsys):
     from datetime import date
-    cv_mod.cmd_cv_pdf(str(_cv(tmp_path, "# [FULL NAME]\n")), force=True)
+    cv = _cv(tmp_path, "# [FULL NAME]\n")
+    _fact_check()
+    cv_mod.cmd_cv_pdf(str(cv), force=True)
     assert (tmp_path / "cv-acme.pdf").exists()
     assert "--force" in capsys.readouterr().err
     notes, _ = _offer_row(gated)
@@ -181,7 +195,51 @@ def test_force_on_cv_without_offer_id_renders_and_writes_nothing(gated, tmp_path
 
 
 def test_force_renders_even_without_cv_master(gated, tmp_applyr, tmp_path, chrome):
+    cv = _cv(tmp_path, "# Ana\n")
+    _fact_check()
     (tmp_applyr / "cv-master.md").unlink()
-    cv_mod.cmd_cv_pdf(str(_cv(tmp_path, "# Ana\n")), force=True)
+    cv_mod.cmd_cv_pdf(str(cv), force=True)
     assert (tmp_path / "cv-acme.pdf").exists()
     assert _offer_row(gated)[0].endswith("verify skipped (cv-master.md not found)")
+
+
+# ---------------------------------------------------------------------------
+# Fact-check gate (ADR-018, AC-14/15): cv pdf needs a passing record
+# ---------------------------------------------------------------------------
+
+class TestFactCheckGate:
+    def test_cv_without_a_fact_check_is_refused_and_no_pdf(self, gated, tmp_path, chrome, capsys):
+        cv = _cv(tmp_path, "# Ana\n")  # passes verify — the fact check is what blocks
+        err = _exit_code(capsys, lambda: cv_mod.cmd_cv_pdf(str(cv)))
+        assert err["code"] == "fact_check_required"
+        assert err["details"]["offer_id"] == 1
+        assert not (tmp_path / "cv-acme.pdf").exists()
+        assert "uri" not in chrome
+
+    def test_fact_check_older_than_the_cv_is_refused(self, gated, tmp_path, chrome, capsys):
+        cv = _cv(tmp_path, "# Ana\n")
+        _fact_check()
+        st = cv.stat()
+        os.utime(cv, (st.st_atime, st.st_mtime + 5))  # edited after the fact check
+        err = _exit_code(capsys, lambda: cv_mod.cmd_cv_pdf(str(cv)))
+        assert err["code"] == "fact_check_required"
+        assert "last edited" in err["details"]["reason"]
+
+    def test_force_renders_and_notes_the_fact_check_bypass(self, gated, tmp_path, chrome):
+        from datetime import date
+        cv = _cv(tmp_path, "# Ana\n")
+        cv_mod.cmd_cv_pdf(str(cv), force=True)
+        assert (tmp_path / "cv-acme.pdf").exists()
+        notes, _ = _offer_row(gated)
+        assert (f"[{date.today().isoformat()}] cv pdf --force: fact check skipped "
+                "(no fact check recorded since the CV was last edited)") in notes
+        assert "--force" in notes  # the bypass is on the offer, not only in a warning
+
+    def test_force_still_notes_the_verify_bypass_too(self, gated, tmp_path, chrome):
+        from datetime import date
+        cv = _cv(tmp_path, "# [FULL NAME]\n")  # fails verify as well
+        cv_mod.cmd_cv_pdf(str(cv), force=True)
+        notes, _ = _offer_row(gated)
+        assert "fact check skipped" in notes
+        assert "cv pdf --force: verify skipped (1 unsupported claim(s))" in notes
+        assert f"[{date.today().isoformat()}]" in notes

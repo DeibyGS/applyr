@@ -168,6 +168,7 @@ class TestCvGate:
             "plan": "missing",
             "generate": "pending",
             "cv_review": "pending",
+            "fact_check": "pending",
             "verify": "pending",
             "pdf": "pending",
             "apply": "pending",
@@ -215,6 +216,29 @@ class TestCvGate:
         assert statuses["plan"] == "not_applicable"
         assert payload["state"] == "cv_review"
         assert statuses["cv_review"] == "missing"
+
+    def test_gate_reports_a_missing_fact_check_after_a_ready_review(
+            self, offer, tmp_applyr, capsys, run_cli, write_plan):
+        """AC-17: the fact check lives in the same history and shows up in the checklist."""
+        from applyr.cv import cmd_cv_fact_check, cmd_cv_generate, cmd_cv_review, cmd_cv_review_blind
+
+        cmd_cv_review_blind(offer, record="74")
+        write_plan("Fusuma", offer)
+        cmd_cv_generate(offer)
+        cv = _cv_files(tmp_applyr)[0]
+        cmd_cv_review(str(cv), record="88")
+        capsys.readouterr()
+
+        payload, err, code = _gate_json(capsys, run_cli, offer)
+        assert code == 1
+        assert _statuses(payload)["fact_check"] == "missing"
+        assert payload["state"] == "fact_check"
+        assert "fact_check" in payload["missing"]
+
+        cmd_cv_fact_check(str(cv), record="100")
+        capsys.readouterr()
+        payload, _, _ = _gate_json(capsys, run_cli, offer)
+        assert _statuses(payload)["fact_check"] == "ok"
 
     def test_human_report_names_the_artifacts_and_their_fix(
             self, offer, capsys, run_cli):

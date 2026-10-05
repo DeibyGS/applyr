@@ -35,7 +35,7 @@ from applyr.commands import (
     cmd_trends,
     cmd_update,
 )
-from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_review_blind, cmd_cv_verify, cmd_cv_ats_check, cmd_cv_keywords, cmd_cv_bullet_optimize, cmd_cv_cover_letter
+from applyr.cv import cmd_cv_generate, cmd_cv_pdf, cmd_cv_review, cmd_cv_review_blind, cmd_cv_verify, cmd_cv_ats_check, cmd_cv_keywords, cmd_cv_bullet_optimize, cmd_cv_cover_letter, cmd_cv_fact_check
 from applyr.analytics import compare_cvs, response_rate
 from applyr.db import init_db, VALID_STATUSES
 from applyr.errors import die, error, set_json_mode
@@ -423,6 +423,7 @@ def main():
             print("                                            Generate CV for offer")
             print("  applyr cv review <file>              Recruiter review prompt")
             print("  applyr cv review-blind <id>               Blind recruiter evaluation")
+            print("  applyr cv fact-check <file> [--record N]  Adversarial claim check (0-100)")
             print("  applyr cv verify <file>                   Deterministic claim-grounding gate")
             print("  applyr cv pdf <file> [--output f.pdf] [--force]  Verified CV (.md or .html) to PDF via Chrome")
             print("  applyr cv ats-check <file>           Check ATS compatibility")
@@ -457,6 +458,16 @@ def main():
                 _usage(usage)
             offer_id = _safe_int(args[2])
             cmd_cv_review_blind(offer_id, as_json=as_json, record=_get_flag(args, "--record"))
+        elif subcmd == "fact-check":
+            usage = ("Usage: applyr cv fact-check <file> [--record <score>]\n"
+                     "  Adversarial claim check: prints the Fact Checker prompt, "
+                     "--record stores the evidence density (0-100)")
+            if len(args) >= 3 and args[2] in ("--help", "-h"):
+                print(usage)
+                return
+            if len(args) < 3:
+                _usage(usage)
+            cmd_cv_fact_check(args[2], as_json=as_json, record=_get_flag(args, "--record"))
         elif subcmd == "verify":
             if len(args) < 3:
                 _usage("Usage: applyr cv verify <file>\n"
@@ -524,8 +535,8 @@ def main():
                 print(f"\n  {' '.join(result['recommendations'])}")
         else:
             die(f"Unknown cv subcommand: '{subcmd}'", code="invalid_value",
-                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "verify", "pdf", "ats-check", "keywords", "bullet-optimize", "cover-letter", "stats", "compare", "gate"]})
-            print("  Available: generate, review, review-blind, verify, pdf, ats-check, keywords, bullet-optimize, cover-letter, stats, compare, gate")
+                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "fact-check", "verify", "pdf", "ats-check", "keywords", "bullet-optimize", "cover-letter", "stats", "compare", "gate"]})
+            print("  Available: generate, review, review-blind, fact-check, verify, pdf, ats-check, keywords, bullet-optimize, cover-letter, stats, compare, gate")
 
     elif cmd in ("response-rate", "rr"):
         result = response_rate(as_json=as_json)
