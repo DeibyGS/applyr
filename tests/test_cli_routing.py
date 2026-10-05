@@ -96,6 +96,7 @@ class TestCommandDispatch:
         ["cv", "generate"],
         ["cv", "review"],
         ["cv", "pdf"],
+        ["cv", "gate"],
     ], ids=lambda a: "-".join(a))
     def test_command_missing_required_args_exits_nonzero(self, run_cli, capsys, tmp_db, args):
         out, err, code = _run(run_cli, capsys, args)
@@ -899,6 +900,7 @@ class TestMissingArgumentsFailButHelpDoesNot:
         ["compare"], ["compare", "1"], ["gaps", "save"],
         ["cv", "generate"], ["cv", "review"], ["cv", "pdf"],
         ["cv", "ats-check"], ["cv", "keywords"], ["cv", "cover-letter"],
+        ["cv", "gate"],
     ]
 
     @pytest.mark.parametrize("argv", MISSING, ids=lambda a: " ".join(a))
@@ -915,6 +917,7 @@ class TestMissingArgumentsFailButHelpDoesNot:
         ["delete", "--help"],
         ["cv", "generate", "--help"],
         ["cv", "review-blind", "--help"],
+        ["cv", "gate", "--help"],
     ], ids=lambda a: " ".join(a))
     def test_explicit_help_still_succeeds(self, run_cli, capsys, tmp_db, argv):
         out, err, code = _run(run_cli, capsys, argv)

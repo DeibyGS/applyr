@@ -7,6 +7,7 @@ from applyr import __version__
 from applyr.colors import init_colors
 from applyr.commands import (
     cmd_add,
+    cmd_cv_gate,
     cmd_cv_stats,
     cmd_compare,
     cmd_delete,
@@ -428,6 +429,7 @@ def main():
             print("  applyr cv keywords <id>                   Match keywords vs CV")
             print("  applyr cv bullet-optimize <file>     Optimize bullet points")
             print("  applyr cv cover-letter <id>               Generate cover letter")
+            print("  applyr cv gate <id>                       Pipeline checklist (exit 1 if incomplete)")
             return
         subcmd = args[1]
         if subcmd == "generate":
@@ -485,6 +487,16 @@ def main():
                 _usage("Usage: applyr cv cover-letter <offer-id>")
             offer_id = _safe_int(args[2])
             cmd_cv_cover_letter(offer_id, as_json=as_json)
+        elif subcmd == "gate":
+            usage = ("Usage: applyr cv gate <offer-id>\n"
+                     "  Checklist of every CV-pipeline step; exits 1 when a required artifact is missing")
+            if len(args) >= 3 and args[2] in ("--help", "-h"):
+                print(usage)
+                return
+            if len(args) < 3:
+                _usage(usage)
+            offer_id = _safe_int(args[2])
+            cmd_cv_gate(offer_id, as_json=as_json)
         elif subcmd == "stats":
             min_sample = 1
             raw = _get_flag(args, "--min-sample")
@@ -512,8 +524,8 @@ def main():
                 print(f"\n  {' '.join(result['recommendations'])}")
         else:
             die(f"Unknown cv subcommand: '{subcmd}'", code="invalid_value",
-                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "verify", "pdf", "ats-check", "keywords", "bullet-optimize", "cover-letter", "stats", "compare"]})
-            print("  Available: generate, review, review-blind, verify, pdf, ats-check, keywords, bullet-optimize, cover-letter, stats, compare")
+                details={"value": subcmd, "valid": ["generate", "review", "review-blind", "verify", "pdf", "ats-check", "keywords", "bullet-optimize", "cover-letter", "stats", "compare", "gate"]})
+            print("  Available: generate, review, review-blind, verify, pdf, ats-check, keywords, bullet-optimize, cover-letter, stats, compare, gate")
 
     elif cmd in ("response-rate", "rr"):
         result = response_rate(as_json=as_json)

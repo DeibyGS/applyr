@@ -125,3 +125,111 @@ class TestRetroCompatibility:
 
         cv_mod.cmd_cv_generate(offer)  # must not raise
         assert len(_cv_files(tmp_applyr)) == 1
+
+
+# --- `cv gate`: the checklist, not the barrier (T6-T9) -------------------------
+
+def _gate_json(capsys, run_cli, offer_id):
+    """Run `cv gate <id> --json` and return (payload, error, exit_code)."""
+    code = 0
+    try:
+        run_cli(["cv", "gate", str(offer_id), "--json"])
+    except SystemExit as exc:
+        code = exc.code or 1
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out) if captured.out.strip() else None
+    err = (json.loads(captured.err.strip().splitlines()[-1])["error"]
+           if captured.err.strip() else None)
+    return payload, err, code
+
+
+def _statuses(payload):
+    return {s["step"]: s["status"] for s in payload["steps"]}
+
+
+class TestCvGate:
+    def test_unknown_offer_reports_not_found(self, tmp_db, capsys, run_cli):
+        """AC-E3: same contract as every other cv subcommand."""
+        payload, err, code = _gate_json(capsys, run_cli, 999)
+        assert payload is None and code == 1
+        assert err["code"] == "not_found"
+
+    def test_offer_without_a_plan_reports_every_later_step_pending(
+            self, offer, capsys, run_cli):
+        """AC-E4: a blocked pipeline reads as pending, never as a crash."""
+        payload, err, code = _gate_json(capsys, run_cli, offer)
+        assert code == 1
+        assert err["code"] == "gates_incomplete"
+        assert set(payload) == {"offer_id", "ok", "state", "missing", "steps"}
+        assert payload["ok"] is False
+        assert _statuses(payload) == {
+            "score": "ok",
+            "decide": "missing",
+            "plan": "missing",
+            "generate": "pending",
+            "cv_review": "pending",
+            "verify": "pending",
+            "pdf": "pending",
+            "apply": "pending",
+        }
+        assert payload["missing"] == ["decide", "plan"]
+        assert payload["state"] == "decide"
+
+    def test_plan_and_a_recorded_review_clear_the_gate(
+            self, offer, capsys, run_cli, write_plan):
+        from applyr.cv import cmd_cv_review_blind
+
+        cmd_cv_review_blind(offer, record="74")
+        capsys.readouterr()
+        write_plan("Fusuma", offer)
+
+        payload, err, code = _gate_json(capsys, run_cli, offer)
+        assert code == 0 and err is None
+        assert payload["ok"] is True
+        assert payload["missing"] == []
+        assert payload["state"] == "generate"
+
+    def test_plan_for_another_offer_is_reported_invalid(
+            self, offer, capsys, run_cli, write_plan):
+        write_plan("Fusuma", 99)
+
+        payload, err, code = _gate_json(capsys, run_cli, offer)
+        assert code == 1
+        assert err["code"] == "gates_incomplete"
+        assert _statuses(payload)["plan"] == "invalid"
+        assert payload["missing"] == ["decide", "plan"]
+
+    def test_the_plan_step_disappears_once_a_cv_exists(
+            self, offer, capsys, run_cli, write_plan):
+        """AC-05: an offer that already generated a CV is never stranded at plan."""
+        from applyr.cv import cmd_cv_generate, cmd_cv_review_blind
+
+        cmd_cv_review_blind(offer, record="74")
+        write_plan("Fusuma", offer)
+        cmd_cv_generate(offer)
+        capsys.readouterr()
+
+        payload, err, code = _gate_json(capsys, run_cli, offer)
+        statuses = _statuses(payload)
+        assert code == 1
+        assert statuses["plan"] == "not_applicable"
+        assert payload["state"] == "cv_review"
+        assert statuses["cv_review"] == "missing"
+
+    def test_human_report_names_the_artifacts_and_their_fix(
+            self, offer, capsys, run_cli):
+        with pytest.raises(SystemExit) as exc:
+            run_cli(["cv", "gate", str(offer)])
+        out = capsys.readouterr().out
+        assert exc.value.code == 1
+        assert "Fusuma" in out
+        assert "MISSING" in out
+        assert "applyr role architect" in out
+        assert "applyr cv review-blind" in out
+        assert "required artifact(s) missing" in out
+
+    def test_gate_is_read_only(self, offer, tmp_db, capsys, run_cli):
+        """The checklist is diagnostic — it must never touch the database."""
+        before = open(tmp_db, "rb").read()
+        _gate_json(capsys, run_cli, offer)
+        assert open(tmp_db, "rb").read() == before

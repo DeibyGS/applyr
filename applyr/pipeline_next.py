@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from applyr.constants import CV_REVIEW_MAX_ITERATIONS, CV_REVIEW_MINOR_MIN, CV_REVIEW_READY_MIN
 from applyr.errors import die
 from applyr.eligibility import block_reason, load_stored
+from applyr.gates import PlanStatus
 from applyr.scoring import recommendation_for
 
 # Statuses past the point where there is a next pipeline step to take.
@@ -107,6 +108,18 @@ def _recorded_at(entry: dict) -> float:
     return datetime.fromisoformat(entry["at"]).timestamp()
 
 
+def fresh_since(history: list[dict], step: str, since: float | None) -> list[dict]:
+    """Records of `step` that are at least as new as `since` (the CV's mtime).
+
+    Freshness by time is ADR-015's staleness rule: a review or fact check
+    older than the file it judged does not count. Shared with `cv gate` so the
+    checklist and `next` cannot disagree about which record is current.
+    """
+    if since is None:
+        return [e for e in history if e.get("step") == step]
+    return [e for e in history if e.get("step") == step and _recorded_at(e) >= since]
+
+
 def _step(state: str, command: str | None, reason: str, **extra) -> dict:
     return {"state": state, "command": command, "reason": reason,
             "needs_user_confirmation": False, "warnings": [], **extra}
@@ -121,12 +134,18 @@ def derive_next(
     pdf_mtime: float | None,
     verify: Callable[[], dict],
     config: dict,
+    *,
+    plan_status: PlanStatus,
 ) -> dict:
     """Return the next pipeline step for one offer. No I/O of its own.
 
     `verify` is called only once every earlier step is satisfied, so the
     common early states never pay for a verify run. Freshness is by time:
     a review or PDF older than the CV's last edit does not count (ADR-015).
+
+    `plan_status` is computed by the caller (ADR-018) and only consulted on
+    the branch where no CV exists yet, so an offer that already generated one
+    is never sent back to plan.
     """
     offer_id = offer["id"]
 
@@ -154,11 +173,19 @@ def derive_next(
         return step
 
     if cv_path is None or cv_mtime is None:
+        if plan_status is not PlanStatus.VALID:
+            # The plan sits between the blind review and generation: without
+            # "what this CV must NOT say", generating is the silent skip
+            # ADR-018 exists to stop.
+            return _step("plan", "applyr role architect",
+                         "Blind review recorded, but this offer has no valid plan for the CV yet "
+                         "(Step 5.7). Run 'applyr role architect', save the strategy, then generate. "
+                         "'applyr cv gate' shows the whole checklist.")
         return _step("generate", f"applyr cv generate {offer_id}",
                      "Blind review recorded; no CV file exists for this offer yet.")
 
     reviews = [e for e in history if e.get("step") == "cv_review"]
-    fresh = [e for e in reviews if _recorded_at(e) >= cv_mtime]
+    fresh = fresh_since(history, "cv_review", cv_mtime)
     review_cmd = f"applyr cv review {cv_path} --record <score>"
     if not fresh:
         return _step("cv_review", review_cmd,
