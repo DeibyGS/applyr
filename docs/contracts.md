@@ -72,6 +72,10 @@ With `--json`, failures emit one JSON object on stderr
 | `chrome_not_found` | Chrome/Chromium missing, needed for PDF |
 | `history_corrupt` | An offer's `cv_iteration_history` is not a JSON list — `next` and `--record` refuse rather than overwrite it (ADR 015) |
 | `verify_required` | `cv pdf` refused a CV that does not pass `cv verify` right now — `details.unsupported` lists the claims; `--force` overrides and is noted on the offer (ADR 015) |
+| `fact_check_required` | `cv pdf` refused a CV with no fresh passing `fact_check` record — `details.reason`; `--force` overrides and is noted on the offer (ADR 018) |
+| `plan_required` | `cv generate` refused an offer with no Step 5.7 plan — `details.plan_path` names where it belongs, `details.state` is `missing` (ADR 018) |
+| `plan_invalid` | The plan exists but does not count: `details.state` is `wrong_offer`, `empty` or `unreadable` (ADR 018) |
+| `gates_incomplete` | `cv gate` exited 1 — at least one required artifact is missing; `details.missing` lists the steps (ADR 018) |
 | `unsupported_format` | File exists but isn't readable as text, e.g. a rendered PDF passed to `cv ats-check` |
 | `no_topics` | `rescore` target has no `offer_topics` rows and no stored eligibility requirements to recompute from |
 | `invalid_eligibility` | `add`'s `eligibility` block is malformed — `details.field` names the key; nothing is stored (ADR 017) |
@@ -129,6 +133,32 @@ Two rules hold together, and neither may be relaxed without the other:
 
 A stamp from a newer applyr counts as current. `doctor` reports drift as a
 `note`, not an `issue`: the setup still works, so it must not gate.
+
+## Step handoff gates (ADR-018)
+
+The CV pipeline is a chain of artifacts — one per step, each enforced
+before the next runs:
+
+| Step | Artifact | Enforced by |
+|------|----------|-------------|
+| Blind recruiter (Step 5) | `review_blind` record in `cv_iteration_history` | `cv generate`, `next` state `decide` |
+| Architect (Step 5.7) | `cv-<company>-plan.md` with `offer_id:` and forbidden claims | `cv generate` (`plan_required` / `plan_invalid`) |
+| Fact Checker (Step 6b) | `fact_check` record, verdict derived from the score | `cv pdf` (`fact_check_required`), `next` state `fact_check` |
+
+- A verdict is always **derived** by applyr (`review_verdict`) — a
+  PASS fact check means the recorded evidence density reached
+  `FACT_CHECK_PASS_MIN`, never that the agent said "PASS".
+- A record is **fresh** only while it is newer than the CV file it
+  judges (ADR-015's staleness rule, shared by `next` and `cv gate`).
+- `cv_iteration` counts `cv_review` records only.
+- Every `--force` bypass appends a dated line to the offer's `notes`
+  (visible in `show`) — a gate skipped always leaves a trace.
+- `cv gate <id>` is read-only and diagnostic: it reports every step as
+  `ok`, `missing`, `invalid`, `pending` or `not_applicable`, and exits
+  1 when `missing` or `invalid` is non-empty — exit 1 is a verdict,
+  like `doctor`'s, not a crash.
+- An offer that already generated a CV is never sent back to `plan`
+  (the gate stops the next first pass, not past ones).
 
 ## Invariants
 

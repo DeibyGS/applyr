@@ -53,7 +53,7 @@ def test_one_step_as_json(capsys):
     cmd_guide("verify", as_json=True)
     payload = json.loads(capsys.readouterr().out)
     assert payload["slug"] == "verify"
-    assert payload["title"] == "Step 6b — Verify grounding"
+    assert payload["title"] == "Step 6c — Verify grounding"
     assert payload["content"] == guide_section("verify")
 
 

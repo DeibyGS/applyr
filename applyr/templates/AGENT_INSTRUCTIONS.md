@@ -21,7 +21,7 @@ Each role's detailed instructions ship with the package — print them with `app
 - **Recruiter** (`applyr role recruiter`) — blind read of the profile against the offer (Step 5)
 - **CV Architect** (`applyr role architect`) — tailoring strategy (Step 5.7)
 - **CV Writer** (`applyr role writer`) — fill the CV skeleton from evidence (Step 6)
-- **Fact Checker** (`applyr role fact-checker`) — verify every claim against cv-master.md (Step 6b)
+- **Fact Checker** (`applyr role fact-checker`) — adversarial claim check (Step 6b)
 
 ## Privacy
 
@@ -64,12 +64,20 @@ threshold_maybe = 60    # Score >= this → MAYBE (below → LOW MATCH)
 When the user shares a job offer, follow this pipeline in order.
 
 **Lost your place? Ask applyr.** `applyr next <id>` (`--json` for agents) returns the
-next step for an offer — `score`, `decide`, `generate`, `cv_review`, `verify`, `pdf`,
-`apply` or `done` — with the exact command to run and why. It is derived from what
-applyr stores, read-only, and safe to call at any time. When it says
-`needs_user_confirmation: true`, stop and ask the user before running the command.
-It can only see the two review steps you execute yourself if you record them with
-`--record` (Steps 5 and 6).
+next step for an offer — `score`, `decide`, `plan`, `generate`, `cv_review`,
+`fact_check`, `verify`, `pdf`, `apply` or `done` — with the exact command to run
+and why. It is derived from what applyr stores, read-only, and safe to call at
+any time. When it says `needs_user_confirmation: true`, stop and ask the user
+before running the command. It can only see the review steps you execute
+yourself if you record them with `--record` (Steps 5 and 6) and the fact check
+if you record its evidence density (Step 6b).
+
+**Where am I in the pipeline?** `applyr cv gate <id>` (`--json` for agents)
+reports every step of this workflow for one offer — satisfied, missing, or
+blocked — with the command that unblocks each one. Run it before starting any
+role's work on an offer and stop if an earlier artifact is missing. It exits 1
+while anything required is missing, so `applyr cv gate <id> && ...` chains
+safely.
 
 ### Step 1 — Health check, then read profile
 
@@ -320,6 +328,13 @@ Save the strategy to a file the CV Writer will read:
 ~/Documents/applyr/cv/cv-<company>-plan.md
 ```
 
+The file is a pipeline artifact, not documentation: it must carry an
+`offer_id:` frontmatter line matching this offer and a list of
+**forbidden claims** (what the CV must NOT say). `applyr cv generate`
+refuses to run for an offer whose plan is missing, written for another
+offer, or has no forbidden claims (`plan_required` / `plan_invalid`) —
+check its state any time with `applyr cv gate <id>`.
+
 **Do NOT fill the CV yourself.** You plan. The Writer executes.
 
 ### Step 6 — Generate and review CV
@@ -346,6 +361,8 @@ Do **not** mark the offer `applied` yet — nothing has been sent. That happens 
 once the user confirms the application actually went out.
 
 This generates the CV skeleton with the auto-generated tailoring plan in YAML frontmatter.
+It refuses to run without the Architect's plan for this offer (Step 5.7) — if
+`applyr cv gate <id>` still reports the plan as missing, that is the step to run.
 
 **Now as the CV Writer** (`applyr role writer`): read the Architect's strategy from Step 5.7 (`cv-<company>-plan.md`), then fill all `[PLACEHOLDER]` values from cv-master.md following ATS rules (see below) AND the Architect's plan. The plan tells you:
 - Which experiences to highlight and what to emphasize in each
@@ -380,9 +397,42 @@ applying the three fixes the review named and re-running the same command scored
 agent that reads the verdict and moves on without editing, which fails silently since
 nothing forces the second call.
 
-### Step 6b — Verify grounding
+`applyr cv gate <id>` reports this step as satisfied only while the last
+recorded review is fresh (newer than the file) and READY TO SEND — edit,
+then review, then check the gate.
 
-Once `cv review` reaches READY TO SEND:
+### Step 6b — Fact check (adversarial)
+
+Once `cv review` reaches READY TO SEND, the CV still needs an adversarial
+pass before anything is verified or rendered:
+
+```bash
+applyr cv fact-check <path-to-file>
+```
+
+Execute the Fact Checker prompt it prints (`applyr role fact-checker`).
+The output is a list of issues with severities (P0/P1 block sending) and an
+evidence density — the share of major claims with no P0/P1 issue. Report that
+density as an integer 0-100 and record it:
+
+```bash
+applyr cv fact-check <path-to-file> --record <score>
+```
+
+applyr derives the verdict from the score — PASS only at 100, FAIL below —
+never from a verdict written in the prompt output. The record lives in the
+offer's review history; a record older than your last edit to the file does
+not count. Until a fresh record passes, `applyr cv pdf` refuses to render
+the CV (`fact_check_required`) and `applyr next` returns `fact_check`.
+
+| Verdict | Action |
+|---------|--------|
+| PASS | Proceed to Step 6c |
+| FAIL | Fix every P0/P1 issue, re-run the check and record again |
+
+### Step 6c — Verify grounding
+
+Once the fact check passes:
 
 ```bash
 applyr cv verify <path-to-file>
@@ -405,6 +455,18 @@ On PASS, applyr snapshots the verified claim texts onto the offer row
 (`cv_evidence_used`) — `applyr show <id> --json` can answer "what backed this CV" later
 without re-parsing anything.
 
+PASS may still print a **Framing** section: a technology the CV summary
+presents as experience that `cv-master.md` only lists under PROYECTOS,
+FORMACIÓN or skills. It is advisory — it never changes PASS, the exit code,
+or whether a PDF can be rendered — but it is usually worth reframing (project
+or course, not experience) before the user sends the CV. Framing never
+decides whether a claim is honest: that judgement belongs to the recorded
+Fact Checker (Step 6b).
+
+`applyr cv gate <id>` reports this step as satisfied only while every claim
+is grounded right now — it re-runs the same checks, so an edit after a PASS
+reopens it.
+
 ### Step 7 — Deliver
 
 Once `cv verify` reaches PASS, generate the PDF immediately:
@@ -414,8 +476,16 @@ applyr cv pdf <path-to-file>
 ```
 
 `cv pdf` re-runs the verify checks itself and refuses a CV that does not pass them
-(exit 1, error code `verify_required`) — no PDF is written. `--force` renders anyway,
-but the bypass is noted on the offer; use it only when the user explicitly asks.
+(exit 1, error code `verify_required`) — no PDF is written. It also refuses a CV
+with no fresh passing fact check (Step 6b, error code `fact_check_required`).
+`--force` renders anyway, but the bypass is noted on the offer; use it only when
+the user explicitly asks.
+
+**Bypasses must leave a trace.** Every `--force` (generation, PDF) appends a
+dated line to the offer's notes, and `applyr cv gate <id>` still reports the
+step as its unblocked state — so a human can always see which gate was skipped
+and when. Never suggest skipping a gate to unblock the pipeline; if a gate
+fails, the fix is the artifact it asks for.
 
 **Do not ask "should I generate the PDF now?" or "do you want the PDF or should we
 review another offer first?" before running this.** Reaching a verified, READY TO SEND
@@ -511,17 +581,23 @@ Agent (CV Architect — Step 5.7):
 User: "Yes, generate the CV"
 
 Agent (CV Writer — Step 6):
-9. applyr cv generate 42  → skeleton + auto-plan in YAML
-10. Read cv-acme-plan.md (Architect strategy)
-11. Fill skeleton from cv-master.md following the plan
-12. applyr cv review cv-acme-backend.md
+9. applyr cv gate 42 → all artifacts present
+10. applyr cv generate 42  → skeleton + auto-plan in YAML
+11. Read cv-acme-plan.md (Architect strategy)
+12. Fill skeleton from cv-master.md following the plan
+13. applyr cv review cv-acme-backend.md
     → READY TO SEND (ATS compatibility: 87/100)
 
 Agent (Fact Checker — Step 6b):
-13. applyr cv verify --json cv-acme-backend.md
+14. applyr cv fact-check cv-acme-backend.md
+    → Execute the adversarial prompt: 0 P0/P1 issues, density 100/100
+15. applyr cv fact-check cv-acme-backend.md --record 100 → PASS
+
+Step 6c — Verify grounding:
+16. applyr cv verify --json cv-acme-backend.md
     → PASS, 14/14 claims grounded, evidence_density: 0.92
-14. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
-15. applyr cv pdf cv-acme-backend.md → deliver the PDF with score and recommendations
+17. applyr gaps save 42 '{"gaps":[{"topic":"tech_stack","gap_detail":"Missing LangChain","severity":"medium"}]}'
+18. applyr cv pdf cv-acme-backend.md → deliver the PDF with score and recommendations
 
 User: "Sent it via LinkedIn"
 
@@ -554,6 +630,8 @@ User: "Sent it via LinkedIn"
 | Review CV | `applyr cv review <file>` |
 | Blind recruiter evaluation | `applyr cv review-blind <id>` |
 | Record a review score you executed | `applyr cv review-blind <id> --record N` / `applyr cv review <file> --record N` |
+| Record a fact-check score you executed | `applyr cv fact-check <file> --record N` |
+| Pipeline checklist for an offer | `applyr cv gate <id> [--json]` |
 | Next step for an offer | `applyr next <id> [--json]` |
 | Verify CV claims are grounded | `applyr cv verify <file>` |
 | Instructions for one agent role | `applyr role <matcher\|recruiter\|architect\|writer\|fact-checker>` |
@@ -574,6 +652,9 @@ User: "Sent it via LinkedIn"
 | Offer not found | Run `applyr list` to check IDs. |
 | `cv verify` returns BLOCKED | Remove or rewrite each unsupported claim it lists, then re-run — do not deliver the CV as-is. |
 | `cv pdf` fails with `verify_required` | Same fix as BLOCKED: run `applyr cv verify <file>`, fix what it lists. Do not reach for `--force` on your own. |
+| `cv generate` fails with `plan_required` / `plan_invalid` | Run `applyr role architect` and save the strategy to `~/Documents/applyr/cv/cv-<company>-plan.md` (Step 5.7) with an `offer_id:` line and forbidden claims. |
+| `cv pdf` fails with `fact_check_required` | Run `applyr cv fact-check <file>`, fix the P0/P1 issues, then record the density: `applyr cv fact-check <file> --record 100`. |
+| `cv gate` exits 1 (`gates_incomplete`) | Read the missing steps and their commands; run them in order. |
 | `history_corrupt` | The offer's review history is damaged — tell the user; do not try to repair it by hand. |
 
 ## ATS CV rules

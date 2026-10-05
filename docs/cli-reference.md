@@ -221,6 +221,12 @@ applyr salary --category engineering
 
 Generate markdown CV from your profile with YAML frontmatter.
 
+Refuses to run while the offer has no valid Step 5.7 plan
+(`applyr role architect`) — `plan_required` / `plan_invalid`
+— so the CV is never filled without a strategy and a list of
+forbidden claims. `--force` generates anyway and records the
+bypass on the offer.
+
 ```bash
 applyr cv generate 1
 applyr cv generate 1 --template ats
@@ -238,12 +244,43 @@ applyr cv review cv.md --json
 applyr cv review cv.html  # Legacy HTML files still work
 ```
 
+### `applyr cv fact-check <file> [--record <0-100>]`
+
+Print the adversarial Fact Checker prompt (the packaged role
+instructions plus the recording appendix). With `--record`, store
+the evidence density you computed — the verdict (PASS at 100,
+FAIL below) is derived from the score, never from the prompt
+output. `cv pdf` refuses a CV without a fresh passing record.
+
+```bash
+applyr cv fact-check cv.md
+applyr cv fact-check cv.md --record 100
+applyr cv fact-check cv.md --json
+```
+
+### `applyr cv gate <id> [--json]`
+
+Pipeline checklist for one offer — where it stands and what is
+missing: every step (score, decide, plan, generate, cv_review,
+fact_check, verify, pdf, apply) as ok / missing / invalid /
+pending / not_applicable, with the command that unblocks each
+one. Read-only; exits 1 while a required artifact is missing
+(`gates_incomplete`), like `applyr doctor`.
+
+```bash
+applyr cv gate 1
+applyr cv gate 1 --json   # {"offer_id", "ok", "state", "missing", "steps"}
+```
+
 ### `applyr cv pdf <file> [--output file.pdf]`
 
 Convert CV to PDF via Chrome headless. Accepts `.md` or `.html` files.
 
 For `.md` files: renders markdown → ATS-safe HTML → PDF in one invocation.
 For `.html` files: renders directly to PDF (legacy support).
+Refuses a CV that fails `cv verify` (`verify_required`) or has no
+fresh passing fact check (`fact_check_required`) — `--force` renders
+anyway and notes each skipped gate on the offer.
 
 ```bash
 applyr cv pdf cv.md
@@ -261,8 +298,8 @@ Works before `applyr init`.
 
 ```bash
 applyr guide                 # List steps: principles, setup, health, duplicates, score,
-                             # decide, recruiter, plan, architect, generate, verify,
-                             # deliver, response-format, example, commands, errors, ats-rules …
+                             # decide, recruiter, plan, architect, generate, fact-check,
+                             # verify, deliver, response-format, example, commands, errors, ats-rules …
 applyr guide score           # Scoring rubric + add JSON template
 applyr guide verify --json   # {"slug", "title", "content"}
 ```

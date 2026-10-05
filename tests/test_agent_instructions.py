@@ -339,3 +339,45 @@ class TestDoctorReportsDrift:
             cmd_doctor()
         except SystemExit as e:
             pytest.fail(f"a stale copy must not gate — doctor exited {e.code}")
+
+
+class TestStepHandoffGates:
+    """ADR-018: the instructions must teach the gated pipeline order."""
+
+    def test_steps_are_named_in_pipeline_order(self):
+        text = packaged_instructions()
+        positions = [text.index(marker) for marker in (
+            "### Step 5.7", "### Step 6 —", "### Step 6b — Fact check",
+            "### Step 6c — Verify grounding", "### Step 7 — Deliver")]
+        assert positions == sorted(positions)
+
+    def test_the_plan_is_named_as_an_artifact_with_its_error(self):
+        text = packaged_instructions()
+        assert "cv-<company>-plan.md" in text
+        assert "plan_required" in text
+
+    def test_the_fact_check_and_its_recording_are_documented(self):
+        text = packaged_instructions()
+        assert "applyr cv fact-check" in text
+        assert "--record" in text
+        assert "fact_check_required" in text
+
+    def test_the_checklist_command_and_its_error_are_documented(self):
+        text = packaged_instructions()
+        assert "applyr cv gate" in text
+        assert "gates_incomplete" in text
+
+    def test_bypasses_must_leave_a_trace(self):
+        assert "Bypasses must leave a trace" in packaged_instructions()
+
+    @pytest.mark.parametrize(
+        "role",
+        ["matcher", "recruiter", "architect", "writer", "fact-checker"],
+    )
+    def test_every_role_starts_with_the_checklist(self, role):
+        """AC-23: no role starts blind — the checklist comes first."""
+        from applyr.agent_instructions import role_instructions
+
+        instructions = role_instructions(role)
+        assert instructions is not None
+        assert "applyr cv gate" in instructions[:500]

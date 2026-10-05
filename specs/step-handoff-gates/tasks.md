@@ -74,16 +74,16 @@ PR split keeps each PR under the 400-line budget.
 
 ## PR E — Instructions, roles and docs
 
-- [ ] **T16 [MUST][impl] `applyr/templates/AGENT_INSTRUCTIONS.md`** · M · deps: PR A-C
+- [x] **T16 [MUST][impl] `applyr/templates/AGENT_INSTRUCTIONS.md`** · M · deps: PR A-C
   Step 5.7 names the plan artifact + gate; new Step 6c (fact check) between review and
   verify; Steps 6/6b/7 reference `cv gate`; bypass-leaves-a-trace rule. AC-22, AC-24.
-- [ ] **T17 [MUST][test] `tests/test_agent_instructions.py`** · S · deps: T16
+- [x] **T17 [MUST][test] `tests/test_agent_instructions.py`** · S · deps: T16
   Asserts the packaged instructions carry the new steps and that each of the five role
   files starts with the checklist instruction. Covers AC-22, AC-23.
-- [ ] **T18 [MUST][impl] `applyr/templates/agents/*.md` (5 files)** · S · deps: T17
+- [x] **T18 [MUST][impl] `applyr/templates/agents/*.md` (5 files)** · S · deps: T17
   First instruction of each role: run `applyr cv gate <id>` and stop if an earlier
   artifact is missing. AC-23.
-- [ ] **T19 [SHOULD][impl] `docs/contracts.md`, `docs/cli-reference.md`, `CHANGELOG.md`** · S · deps: PR A-D
+- [x] **T19 [SHOULD][impl] `docs/contracts.md`, `docs/cli-reference.md`, `CHANGELOG.md`** · S · deps: PR A-D
   New commands, new states, new error codes, `[Unreleased]` entry, behaviour changes
   for `cv generate` and `cv pdf`.
 
