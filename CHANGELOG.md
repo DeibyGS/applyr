@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **Step handoff gates (ADR-018)** — one artifact per CV-pipeline step, enforced
+  in order, so an agent can no longer silently skip a step:
+  - `applyr cv generate` refuses an offer with no valid Step 5.7 plan for it
+    (`plan_required` / `plan_invalid`, `--force` renders anyway and records a
+    dated bypass note on the offer).
+  - `applyr role architect` is now a real pipeline state: `applyr next` returns
+    `plan` between `decide` and `generate` with the exact command.
+  - `applyr cv gate <id>` — one-call checklist of every step
+    (score, decide, plan, generate, cv_review, fact_check, verify, pdf, apply)
+    as ok / missing / invalid / pending / not_applicable, with the command that
+    unblocks each one. Exits 1 while anything required is missing, like
+    `applyr doctor`. `--json` payload keys: `offer_id`, `ok`, `state`,
+    `missing`, `steps`.
+  - `applyr cv fact-check <file.md>` prints the packaged Fact Checker prompt;
+    `--record <0-100>` appends a `fact_check` record to the existing review
+    history with a verdict **derived** from the score (PASS iff 100,
+    `FACT_CHECK_PASS_MIN`) — never one supplied by the agent. `cv_iteration`
+    is not incremented.
+  - `applyr next` returns `fact_check` after a ready-to-send review and does
+    not advance to verify on a failing or stale record.
+  - `applyr cv pdf` refuses (`fact_check_required`) a CV with no passing
+    fact-check record newer than the file; `--force` renders and appends a
+    dated bypass note (one per skipped gate). CVs without an embedded offer id
+    are unaffected.
+  - `applyr cv verify` reports a `framing` array (and a printed `Framing`
+    section): technologies the CV summary presents as experience that
+    cv-master only lists under PROYECTOS / FORMACIÓN / skills. Advisory only —
+    it never changes `passed`, the exit code, or whether a PDF can be rendered.
+
+### Changed
+
+- `applyr next` state list gains `plan` (after `decide`) and `fact_check`
+  (after `cv_review`) — additive only.
+- `_check_pdf_gate` (internal) now checks both gates and names which one
+  was bypassed in the dated note.
+
 ## [1.19.0] — 2026-10-04
 
 ### Added
