@@ -89,7 +89,7 @@ PR split keeps each PR under the 400-line budget.
 
 ## Final
 
-- [ ] **T20 [MUST] Full validation** · M · deps: all
+- [x] **T20 [MUST] Full validation** · M · deps: all
   `pytest` green · `pylint applyr/ --disable=C0114,C0115,C0116,R0913,R0914,R0801
   --fail-under=7.0` · manual demo of the whole flow on a fresh offer · traceability
   matrix (every `[MUST]` AC → test + implementation) before the PRs are opened.
