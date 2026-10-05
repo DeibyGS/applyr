@@ -96,6 +96,7 @@ class TestCommandDispatch:
         ["cv", "generate"],
         ["cv", "review"],
         ["cv", "pdf"],
+        ["cv", "fact-check"],
         ["cv", "gate"],
     ], ids=lambda a: "-".join(a))
     def test_command_missing_required_args_exits_nonzero(self, run_cli, capsys, tmp_db, args):
@@ -900,6 +901,7 @@ class TestMissingArgumentsFailButHelpDoesNot:
         ["compare"], ["compare", "1"], ["gaps", "save"],
         ["cv", "generate"], ["cv", "review"], ["cv", "pdf"],
         ["cv", "ats-check"], ["cv", "keywords"], ["cv", "cover-letter"],
+        ["cv", "fact-check"],
         ["cv", "gate"],
     ]
 

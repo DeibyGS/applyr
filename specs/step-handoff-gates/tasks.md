@@ -46,19 +46,19 @@ PR split keeps each PR under the 400-line budget.
 
 ## PR C — Fact Checker as a recorded step
 
-- [ ] **T10 [MUST][test] fact-check record + `next`** · S · deps: —
+- [x] **T10 [MUST][test] fact-check record + `next`** · S · deps: —
   `--record` appends `fact_check` with a **derived** verdict (`PASS` iff
   score ≥ `FACT_CHECK_PASS_MIN`); `cv_iteration` does not increment; `next` returns
   `fact_check` after a ready review and does not advance on a failing record.
   Covers AC-12, AC-13, AC-16, AC-17.
-- [ ] **T11 [MUST][impl] `pipeline_next.py` + `cv.py` + `cli.py`** · M · deps: T10
+- [x] **T11 [MUST][impl] `pipeline_next.py` + `cv.py` + `cli.py`** · M · deps: T10
   `review_verdict` branch for `fact_check`; `cmd_cv_fact_check` printing the packaged
   role file plus the recording appendix; routing for `cv fact-check`.
-- [ ] **T12 [MUST][test] `cv pdf` fact-check gate** · S · deps: T10
+- [x] **T12 [MUST][test] `cv pdf` fact-check gate** · S · deps: T10
   No fresh passing fact check → exit 1 `fact_check_required`, no PDF; `--force` → PDF
   plus dated note; CV without embedded offer id → behaviour unchanged.
   Covers AC-14, AC-15, AC-E5.
-- [ ] **T13 [MUST][impl] `applyr/cv.py` — `_check_pdf_gate`** · S · deps: T12
+- [x] **T13 [MUST][impl] `applyr/cv.py` — `_check_pdf_gate`** · S · deps: T12
   Return the failing code alongside the reason so the caller can raise
   `verify_required` or `fact_check_required`; keep the existing verify logic intact.
 
