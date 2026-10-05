@@ -8,39 +8,39 @@ PR split keeps each PR under the 400-line budget.
 
 ## PR A — Plan artifact gate
 
-- [ ] **T1 [MUST][test] `tests/test_gates.py` — plan validation** · S · deps: —
+- [x] **T1 [MUST][test] `tests/test_gates.py` — plan validation** · S · deps: —
   Five states (`missing`, `wrong_offer`, `empty`, `unreadable`, `valid`), Spanish +
   English heading aliases, `offer_id` mismatch, empty forbidden list = missing.
   Covers AC-03, AC-05, AC-06, AC-E1, AC-E2.
-- [ ] **T2 [MUST][impl] `applyr/gates.py` + `applyr/constants.py`** · M · deps: T1
+- [x] **T2 [MUST][impl] `applyr/gates.py` + `applyr/constants.py`** · M · deps: T1
   `plan_path_for`, `validate_plan`, `PlanStatus` enum; error codes `plan_required` /
   `plan_invalid`, heading aliases, section display labels.
-- [ ] **T3 [MUST][test] `tests/test_gates_cli.py` — generation gate** · S · deps: —
+- [x] **T3 [MUST][test] `tests/test_gates_cli.py` — generation gate** · S · deps: —
   No plan → exit 1 `plan_required` and **no file written**; valid plan → generated;
   `--force` → generated **and** note appended (visible in `show`); malformed plan →
   `plan_invalid`. Covers AC-01, AC-02, AC-04, AC-E1.
-- [ ] **T4 [MUST][impl] `applyr/cv.py` — `cmd_cv_generate` gate** · M · deps: T2, T3
+- [x] **T4 [MUST][impl] `applyr/cv.py` — `cmd_cv_generate` gate** · M · deps: T2, T3
   Call `validate_plan` after the offer row is loaded; extract the notes-append SQL out
   of `_note_forced_pdf` into a shared `_append_note(offer_id, line)` used by both.
-- [ ] **T5 [MUST][test] retro-compat** · S · deps: T2
+- [x] **T5 [MUST][test] retro-compat** · S · deps: T2
   Offer with `cv_used` and no plan → generation of the *next* CV is not required to
   retro-approve, and nothing in `gates.py` reports `plan` as `missing` for it.
   Covers AC-05.
 
 ## PR B — Visibility: `next --plan` and `cv gate`
 
-- [ ] **T6 [MUST][test] `tests/test_gates_cli.py` — states** · S · deps: PR A
+- [x] **T6 [MUST][test] `tests/test_gates_cli.py` — states** · S · deps: PR A
   `next` returns `plan` after a recorded blind review with no CV; returns `generate`
   once a valid plan exists; never returns `plan` for an offer that already has a CV.
   Covers AC-09, AC-10, AC-05.
-- [ ] **T7 [MUST][impl] `applyr/pipeline_next.py` + `applyr/commands/workflow.py`** · M ·
+- [x] **T7 [MUST][impl] `applyr/pipeline_next.py` + `applyr/commands/workflow.py`** · M ·
   deps: T6
   `derive_next(..., plan_status=...)` keyword-only param returning the `plan` state
   between `decide` and `generate`; `cmd_next` computes it. Keeps `derive_next` I/O-free.
-- [ ] **T8 [MUST][test] `tests/test_gates_cli.py` — `cv gate`** · S · deps: T6
+- [x] **T8 [MUST][test] `tests/test_gates_cli.py` — `cv gate`** · S · deps: T6
   Human and `--json` shapes (status vocabulary, `state`, `missing`, exit codes),
   AC-E3 unknown offer, AC-E4 no CV linked. Covers AC-07, AC-08, AC-11, AC-E3, AC-E4.
-- [ ] **T9 [MUST][impl] `applyr/commands/workflow.py` + `applyr/cli.py`** · M · deps: T7, T8
+- [x] **T9 [MUST][impl] `applyr/commands/workflow.py` + `applyr/cli.py`** · M · deps: T7, T8
   `cmd_cv_gate` (derives `state` by calling `derive_next`, layers artifact detail),
   routes `cv gate`, adds it to the valid-subcommand list and the help text.
 

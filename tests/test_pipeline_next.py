@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from applyr.gates import PlanStatus
 from applyr.pipeline_next import derive_next, read_history
 
 CONFIG = {"general": {"threshold_apply": 80, "threshold_maybe": 60}}
@@ -28,8 +29,9 @@ PASS = {"passed": True, "unsupported": []}
 
 
 def _next(offer=None, topics=3, history=(), cv="cv-x.md", cv_mtime=CV_MTIME,
-          pdf_mtime=None, verify=lambda: PASS):
-    return derive_next(offer or _offer(), topics, list(history), cv, cv_mtime, pdf_mtime, verify, CONFIG)
+          pdf_mtime=None, verify=lambda: PASS, plan=PlanStatus.VALID):
+    return derive_next(offer or _offer(), topics, list(history), cv, cv_mtime, pdf_mtime,
+                       verify, CONFIG, plan_status=plan)
 
 
 def _must_not_verify():
@@ -70,6 +72,30 @@ def test_generate_after_blind_review_whatever_the_verdict():
     step = _next(history=[no_match], cv=None, cv_mtime=None, verify=_must_not_verify)
     assert step["state"] == "generate"
     assert step["command"] == "applyr cv generate 7"
+
+
+def test_missing_plan_blocks_generation():
+    step = _next(history=[BLIND], cv=None, cv_mtime=None, plan=PlanStatus.MISSING,
+                 verify=_must_not_verify)
+    assert step["state"] == "plan"
+    assert step["command"] == "applyr role architect"
+    # The architect step is agent-runnable: confirmation is reserved for the
+    # human decision at `decide`.
+    assert step["needs_user_confirmation"] is False
+
+
+def test_plan_wrong_for_this_offer_blocks_generation():
+    step = _next(history=[BLIND], cv=None, cv_mtime=None, plan=PlanStatus.WRONG_OFFER,
+                 verify=_must_not_verify)
+    assert step["state"] == "plan"
+    assert step["command"] == "applyr role architect"
+
+
+def test_existing_cv_is_never_sent_back_to_the_plan():
+    # AC-05: an offer that already generated a CV is judged on its artifacts,
+    # so a stale/foreign plan status must not strand it at "plan".
+    step = _next(history=[BLIND], plan=PlanStatus.MISSING, verify=_must_not_verify)
+    assert step["state"] == "cv_review"
 
 
 def test_cv_without_a_review_needs_review():
@@ -234,10 +260,24 @@ def test_next_json_is_read_only(offer_db, capsys):
     assert open(offer_db, "rb").read() == before
 
 
-def test_next_follows_a_recorded_blind_review(offer_db, capsys):
+def test_next_returns_plan_after_a_blind_review_when_the_plan_is_missing(offer_db, capsys):
+    """AC-09: the plan step sits between decide and generate."""
     from applyr.commands.workflow import cmd_next
     from applyr.cv import cmd_cv_review_blind
     cmd_cv_review_blind(1, record="85")
+    capsys.readouterr()
+    cmd_next(1, as_json=True)
+    step = json.loads(capsys.readouterr().out)
+    assert step["state"] == "plan"
+    assert step["command"] == "applyr role architect"
+
+
+def test_next_skips_the_plan_when_one_already_exists(offer_db, capsys, write_plan):
+    """AC-10: a valid plan for this offer restores "generate"."""
+    from applyr.commands.workflow import cmd_next
+    from applyr.cv import cmd_cv_review_blind
+    cmd_cv_review_blind(1, record="85")
+    write_plan("Acme", 1)
     capsys.readouterr()
     cmd_next(1, as_json=True)
     assert json.loads(capsys.readouterr().out)["state"] == "generate"

@@ -511,6 +511,7 @@ def cmd_next(offer_id: int, as_json: bool = False) -> None:
     `derive_next`, so the state can never drift from what applyr stores.
     """
     from applyr.cv import _verify_cv, find_cv_for_offer
+    from applyr.gates import PlanStatus, check_plan
     from applyr.pipeline_next import DONE_STATUSES, derive_next, read_history
 
     conn = get_conn()
@@ -529,6 +530,11 @@ def cmd_next(offer_id: int, as_json: bool = False) -> None:
     history = [] if offer["status"] in DONE_STATUSES else read_history(offer["cv_iteration_history"], offer_id)
     cv_path = find_cv_for_offer(offer_id, offer["cv_used"])
     pdf_path = cv_path.with_suffix(".pdf") if cv_path else None
+    # The plan only matters where no CV exists yet, so an offer that already
+    # generated one is never asked to justify it (AC-05).
+    plan_status = PlanStatus.VALID
+    if cv_path is None:
+        plan_status, _plan_file = check_plan(offer["company"], offer_id)
     step = derive_next(
         offer, topic_count, history,
         cv_path=str(cv_path) if cv_path else None,
@@ -536,6 +542,7 @@ def cmd_next(offer_id: int, as_json: bool = False) -> None:
         pdf_mtime=pdf_path.stat().st_mtime if pdf_path and pdf_path.exists() else None,
         verify=lambda: _verify_cv(cv_path),
         config=load_config(),
+        plan_status=plan_status,
     )
     step = {"offer_id": offer_id, **step}
 
@@ -552,3 +559,170 @@ def cmd_next(offer_id: int, as_json: bool = False) -> None:
         print(f"  Fail : {claim}")
     for warning in step["warnings"]:
         print(f"  Warn : {warning}")
+
+
+def cmd_cv_gate(offer_id: int, as_json: bool = False) -> None:
+    """Checklist of every CV-pipeline step for one offer (ADR-018).
+
+    Answers "where am I and what is missing" in one read-only call: the same
+    artifacts `cv generate` and `cv pdf` enforce, reported instead of
+    enforced. The report is data and stays on stdout in both modes; the exit
+    code carries the verdict (like `doctor`), so `applyr cv gate 3 && ...`
+    works. Only offers past generation are exempt: one that never generated a
+    CV is exactly what this gate exists to catch.
+    """
+    from applyr.cv import _verify_cv, find_cv_for_offer
+    from applyr.gates import PlanStatus, check_plan, plan_hint
+    from applyr.pipeline_next import (DONE_STATUSES, READY_TO_SEND, derive_next,
+                                      fresh_since, read_history)
+
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM offers WHERE id = ?", (offer_id,)).fetchone()
+        if not row:
+            die(f"Error: offer #{offer_id} not found.", code="not_found",
+                details={"offer_id": offer_id})
+        topic_count = conn.execute(
+            "SELECT COUNT(*) FROM offer_topics WHERE offer_id = ?", (offer_id,)).fetchone()[0]
+    finally:
+        conn.close()
+
+    offer = dict(row)
+    done = offer["status"] in DONE_STATUSES
+    history = [] if done else read_history(offer["cv_iteration_history"], offer_id)
+    cv_path = find_cv_for_offer(offer_id, offer["cv_used"])
+    pdf_path = cv_path.with_suffix(".pdf") if cv_path else None
+    cv_mtime = cv_path.stat().st_mtime if cv_path else None
+    pdf_mtime = pdf_path.stat().st_mtime if pdf_path and pdf_path.exists() else None
+    plan_status, plan_file = PlanStatus.VALID, None
+    if cv_path is None:
+        plan_status, plan_file = check_plan(offer["company"], offer_id)
+
+    steps: list[dict] = []
+
+    def add(step: str, status: str, detail: str, command: str | None = None) -> None:
+        steps.append({"step": step, "status": status, "detail": detail, "command": command})
+
+    if topic_count or offer["compatibility_pct"]:
+        add("score", "ok", f"{topic_count} topic(s) scored")
+    else:
+        add("score", "missing", "Offer has no score", "applyr role matcher")
+
+    blind = [e for e in history if e.get("step") == "review_blind"]
+    if blind:
+        add("decide", "ok", f"Blind review recorded ({blind[-1].get('score')})")
+    else:
+        add("decide", "missing", "No blind review recorded",
+            f"applyr cv review-blind {offer_id} --record <score>")
+
+    if cv_path is not None:
+        # AC-05: an offer that already generated a CV never plans retroactively.
+        add("plan", "not_applicable", "Offer already generated a CV")
+    elif plan_status.ok:
+        add("plan", "ok", f"Valid plan for offer #{offer_id}")
+    else:
+        add("plan", "missing" if plan_status is PlanStatus.MISSING else "invalid",
+            f"{plan_hint(plan_status)}: {plan_file}", "applyr role architect")
+
+    # AC-E4: with no CV file the later steps are pending, never a crash.
+    if cv_path is not None:
+        add("generate", "ok", cv_path.name)
+    else:
+        add("generate", "pending", "Plan blocks it" if not plan_status.ok else "No CV file yet")
+
+    if cv_path is None:
+        add("cv_review", "pending", "No CV file yet")
+    else:
+        fresh = fresh_since(history, "cv_review", cv_mtime)
+        latest = fresh[-1] if fresh else None
+        if latest and latest["verdict"] == READY_TO_SEND:
+            add("cv_review", "ok", f"Latest review: {latest['score']} ({latest['verdict']})")
+        elif latest:
+            add("cv_review", "missing",
+                f"Latest review: {latest['score']} ({latest['verdict']}) — apply its fixes first",
+                f"applyr cv review {cv_path} --record <score>")
+        else:
+            add("cv_review", "missing", "No review recorded since the CV was last edited",
+                f"applyr cv review {cv_path} --record <score>")
+
+    review_ok = steps[-1]["status"] == "ok"
+    verify_result: dict = {}
+    if cv_path is None:
+        add("verify", "pending", "No CV file yet")
+    elif not review_ok:
+        add("verify", "pending", "Blocked by: cv_review")
+    elif done:
+        add("verify", "not_applicable", f"Offer status is '{offer['status']}'")
+    else:
+        verify_result = _verify_cv(cv_path)
+        if verify_result.get("unverifiable"):
+            add("verify", "missing", f"Cannot verify: {verify_result['unverifiable']}",
+                f"applyr cv verify {cv_path}")
+        elif verify_result.get("passed"):
+            add("verify", "ok", "Every checked claim is grounded in cv-master.md")
+        else:
+            add("verify", "missing",
+                f"{len(verify_result.get('unsupported', []))} unsupported claim(s)",
+                f"applyr cv verify {cv_path}")
+
+    verify_ok = steps[-1]["status"] == "ok"
+    if cv_path is None:
+        add("pdf", "pending", "No CV file yet")
+    elif not verify_ok:
+        add("pdf", "pending", "Blocked by: verify")
+    elif pdf_mtime is None or pdf_mtime < cv_mtime:
+        add("pdf", "missing", "No PDF newer than the CV", f"applyr cv pdf {cv_path}")
+    else:
+        add("pdf", "ok", pdf_path.name)
+
+    pdf_ok = steps[-1]["status"] == "ok"
+    if done:
+        add("apply", "ok", f"Offer status is '{offer['status']}'")
+    elif not pdf_ok:
+        add("apply", "pending", "Blocked by: pdf")
+    else:
+        add("apply", "missing", "Application not recorded yet",
+            f"applyr update {offer_id} applied --canal <channel>")
+
+    if done:
+        # A finished offer is judged by its status, not by artifacts it may
+        # never have produced — a rejected offer must not fail the checklist.
+        for s in steps:
+            if s["status"] not in ("ok", "not_applicable"):
+                s["status"] = "not_applicable"
+                s["detail"] = f"Offer status is '{offer['status']}'"
+                s["command"] = None
+
+    missing = [s["step"] for s in steps if s["status"] in ("missing", "invalid")]
+    state = derive_next(
+        offer, topic_count, history,
+        cv_path=str(cv_path) if cv_path else None,
+        cv_mtime=cv_mtime, pdf_mtime=pdf_mtime,
+        verify=lambda: verify_result,
+        config=load_config(),
+        plan_status=plan_status,
+    )["state"]
+
+    if as_json:
+        print(json.dumps({"offer_id": offer_id, "ok": not missing, "state": state,
+                          "missing": missing, "steps": steps}, ensure_ascii=False))
+    else:
+        print(f"CV pipeline gate — offer #{offer_id} — {offer['company'] or '?'}")
+        print(f"  Next : {state}")
+        print()
+        marks = {"ok": "ok", "missing": "MISSING", "invalid": "INVALID",
+                 "pending": "pending", "not_applicable": "n/a"}
+        for s in steps:
+            print(f"  {s['step']:<10} {marks[s['status']]:<8} {s['detail']}")
+            if s["command"] and s["status"] != "ok":
+                print(f"  {'':<10} {'':<8} -> {s['command']}")
+        print()
+        if missing:
+            print(f"{len(missing)} required artifact(s) missing: {', '.join(missing)}")
+        else:
+            print("All required artifacts present.")
+
+    if missing:
+        die(f"Error: {len(missing)} required artifact(s) missing for offer #{offer_id}.",
+            code="gates_incomplete", details={"offer_id": offer_id, "missing": missing},
+            text="")
