@@ -40,7 +40,7 @@ class TestGeneratedSkeletonLanguage:
     """The headings that reach the file the agent fills in."""
 
     @pytest.fixture
-    def spanish_offer(self, tmp_applyr, tmp_db):
+    def spanish_offer(self, tmp_applyr, tmp_db, write_plan):
         from applyr.commands.core import cmd_add
 
         (tmp_applyr / "cv-master.md").write_text(
@@ -49,9 +49,11 @@ class TestGeneratedSkeletonLanguage:
         cmd_add('{"title": "Programador Junior", "company": "Acme", "language": "es"}')
         conn = get_conn()
         try:
-            return conn.execute("SELECT MAX(id) AS id FROM offers").fetchone()["id"]
+            offer = conn.execute("SELECT MAX(id) AS id FROM offers").fetchone()["id"]
         finally:
             conn.close()
+        write_plan("Acme", offer)
+        return offer
 
     def test_spanish_offer_gets_spanish_headings(self, spanish_offer, tmp_applyr):
         from applyr.cv import cmd_cv_generate

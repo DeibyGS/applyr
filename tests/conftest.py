@@ -68,6 +68,29 @@ def run_cli(tmp_applyr, monkeypatch):
     return _run
 
 
+@pytest.fixture
+def write_plan(tmp_applyr):
+    """Write a valid Step 5.7 plan, as `cv generate` now requires (ADR-018).
+
+    Returns the path so a test can tamper with it (wrong offer id, no claims).
+    """
+    def _write(company, offer_id,
+               claims=("Do not present RAG or LangChain as professional experience.",),
+               heading="## Forbidden claims"):
+        from applyr.gates import plan_path_for
+
+        path = plan_path_for(company)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        bullets = "\n".join(f"- {claim}" for claim in claims)
+        path.write_text(
+            f'---\noffer_id: {offer_id}\n---\n\n{heading}\n{bullets}\n',
+            encoding="utf-8",
+        )
+        return path
+
+    return _write
+
+
 @pytest.fixture(autouse=True)
 def reset_json_mode():
     """Keep `applyr.errors._json_mode` from leaking between tests.
