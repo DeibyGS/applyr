@@ -181,3 +181,21 @@ LANGUAGE_ALIASES = {
     "portuguese": "portuguese", "portugues": "portuguese",
     "catalan": "catalan",
 }
+
+# ---------------------------------------------------------------------------
+# Step handoff gates (ADR-018) — artifacts between CV pipeline steps
+# ---------------------------------------------------------------------------
+
+# `cv generate` refuses a plan with fewer forbidden claims than this: a plan
+# that forbids nothing is the artifact in name only, so it counts as missing.
+PLAN_MIN_FORBIDDEN_CLAIMS = 1
+
+# Headings an Architect's plan may use for its forbidden-claims list — the
+# project ships bilingual agents (see evidence._SECTION_MAP), so a Spanish plan
+# written from the Spanish instructions must pass the same gate.
+PLAN_HEADING_ALIASES = (
+    "forbidden claims",
+    "claims prohibidas",
+    "prohibited claims",
+    "restricciones",
+)

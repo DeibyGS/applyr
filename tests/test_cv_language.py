@@ -40,7 +40,7 @@ class TestGeneratedSkeletonLanguage:
     """The headings that reach the file the agent fills in."""
 
     @pytest.fixture
-    def spanish_offer(self, tmp_applyr, tmp_db):
+    def spanish_offer(self, tmp_applyr, tmp_db, write_plan):
         from applyr.commands.core import cmd_add
 
         (tmp_applyr / "cv-master.md").write_text(
@@ -49,15 +49,17 @@ class TestGeneratedSkeletonLanguage:
         cmd_add('{"title": "Programador Junior", "company": "Acme", "language": "es"}')
         conn = get_conn()
         try:
-            return conn.execute("SELECT MAX(id) AS id FROM offers").fetchone()["id"]
+            offer = conn.execute("SELECT MAX(id) AS id FROM offers").fetchone()["id"]
         finally:
             conn.close()
+        write_plan("Acme", offer)
+        return offer
 
     def test_spanish_offer_gets_spanish_headings(self, spanish_offer, tmp_applyr):
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(spanish_offer)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-acme.md").read_text()
         assert "## Experiencia Profesional" in md
         assert "## Formación" in md
         assert "## Habilidades Técnicas" in md
@@ -67,7 +69,7 @@ class TestGeneratedSkeletonLanguage:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(spanish_offer)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-acme.md").read_text()
         for english in ("## Work Experience", "## Education", "## Technical Skills",
                         "## Professional Summary", "## Certifications"):
             assert english not in md
@@ -77,7 +79,7 @@ class TestGeneratedSkeletonLanguage:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(spanish_offer)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-acme.md").read_text()
         assert "write every line of this CV in Spanish" in md
         assert 'language: "es"' in md
 

@@ -4,13 +4,14 @@ Every test here pins a bug found while generating a real CV end to end.
 """
 
 import json
+import shutil
 
 import pytest
 
 from applyr.cv import (
     _ATS_CSS,
     _count_pdf_pages,
-    _make_slug,
+    make_slug,
     _page_limit_for,
     _strip_html_tags,
 )
@@ -25,22 +26,22 @@ class TestMakeSlug:
     """
 
     def test_strips_parentheses(self):
-        assert _make_slug("Fusuma (Spain)") == "fusuma-spain"
+        assert make_slug("Fusuma (Spain)") == "fusuma-spain"
 
     def test_strips_accents_and_symbols(self):
-        slug = _make_slug("Acme & Co.")
+        slug = make_slug("Acme & Co.")
         assert all(c.isalnum() or c == "-" for c in slug)
 
     def test_no_leading_or_trailing_dash(self):
-        slug = _make_slug("(Acme)")
+        slug = make_slug("(Acme)")
         assert not slug.startswith("-")
         assert not slug.endswith("-")
 
     def test_missing_company_falls_back(self):
-        assert _make_slug(None) == "unknown"
+        assert make_slug(None) == "unknown"
 
     def test_never_returns_empty(self):
-        assert _make_slug("!!!") == "cv"
+        assert make_slug("!!!") == "cv"
 
 
 class TestAtsCss:
@@ -79,8 +80,9 @@ class TestStripHtmlTags:
 
 
 @pytest.fixture
-def offer_id(tmp_db, tmp_applyr):
-    """Register one scored offer and a usable cv-master."""
+def offer_id(tmp_db, tmp_applyr, write_plan):
+    """Register one scored offer, a usable cv-master, and its Step 5.7 plan —
+    `cv generate` refuses without the plan since ADR-018."""
     from applyr.commands.core import cmd_add
 
     (tmp_applyr / "cv-master.md").write_text(
@@ -92,6 +94,7 @@ def offer_id(tmp_db, tmp_applyr):
         "tech_stack": "Python",
         "topics": {"experience": {"score": 20, "detail": "no professional experience"}},
     }))
+    write_plan("Fusuma", 1)
     return 1
 
 
@@ -139,11 +142,11 @@ class TestCvGenerate:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(offer_id)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-fusuma.md").read_text()
         assert "no professional experience" not in md
         assert "Topic Scores" not in md
 
-    def test_second_offer_at_same_company_gets_id_suffix(self, offer_id, tmp_applyr):
+    def test_second_offer_at_same_company_gets_id_suffix(self, offer_id, tmp_applyr, write_plan):
         """Applying to a second role at the same company is normal (see
         duplicates.py) — the second CV must get its own file, not collide
         with or overwrite the first one."""
@@ -157,6 +160,7 @@ class TestCvGenerate:
             "company": "Fusuma",
             "topics": {"experience": {"score": 80, "detail": "5 years"}},
         }))
+        write_plan("Fusuma", 2)  # a second offer plans its own CV (ADR-018)
         cmd_cv_generate(2)  # must not raise: different offer, same company
 
         cv_dir = tmp_applyr / "cv"
@@ -168,7 +172,7 @@ class TestCvGenerate:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(offer_id)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-fusuma.md").read_text()
         assert f"offer_id: {offer_id}" in md
 
 
@@ -197,7 +201,7 @@ class TestCvKeywords:
         assert "not found" not in err
         assert "No CV found" in err
 
-    def test_finds_cv_when_output_dir_differs_from_applyr_dir(self, offer_id, tmp_applyr, monkeypatch, tmp_path):
+    def test_finds_cv_when_output_dir_differs_from_applyr_dir(self, offer_id, tmp_applyr, monkeypatch, tmp_path, write_plan):
         """The lookup hardcoded APPLYR_DIR / "cv" instead of reading the
         configured output_dir, so it stopped finding CVs the moment CV_HOME
         diverged from APPLYR_DIR — exactly the setup generated CVs now default
@@ -212,6 +216,10 @@ class TestCvKeywords:
         other_dir.mkdir()
         (other_dir / "cv-master.md").write_text((tmp_applyr / "cv-master.md").read_text())
         monkeypatch.setattr(cfg, "CV_HOME", other_dir)
+        # The plan lives next to the CVs, so it moves with CV_HOME too — and
+        # the fixture's copy must go, or this test would pass on its leftovers.
+        shutil.rmtree(tmp_applyr / "cv", ignore_errors=True)
+        write_plan("Fusuma", offer_id)
 
         cmd_cv_generate(offer_id)
         assert not (tmp_applyr / "cv").exists()
@@ -227,7 +235,8 @@ class TestCvKeywords:
         from applyr.cv import cmd_cv_generate, cmd_cv_keywords
 
         cmd_cv_generate(offer_id)
-        cv_path = next((tmp_applyr / "cv").glob("*.md"))
+        # Not a glob: the Step 5.7 plan lives beside the CV (ADR-018).
+        cv_path = tmp_applyr / "cv" / "cv-fusuma.md"
         cv_path.write_bytes(b"\xff\xfe not valid utf-8")
 
         with pytest.raises(SystemExit):
@@ -349,7 +358,7 @@ class TestCvCoverLetter:
     outside the folder `applyr cv keywords` and the user were both looking in
     the moment output_dir diverged from APPLYR_DIR."""
 
-    def test_writes_to_configured_output_dir(self, offer_id, tmp_applyr, monkeypatch, tmp_path):
+    def test_writes_to_configured_output_dir(self, offer_id, tmp_applyr, monkeypatch, tmp_path, write_plan):
         import applyr.config as cfg
         from applyr.db import get_conn
         from applyr.cv import cmd_cv_cover_letter
@@ -365,6 +374,8 @@ class TestCvCoverLetter:
         other_dir.mkdir()
         (other_dir / "cv-master.md").write_text((tmp_applyr / "cv-master.md").read_text())
         monkeypatch.setattr(cfg, "CV_HOME", other_dir)
+        shutil.rmtree(tmp_applyr / "cv", ignore_errors=True)  # fixture's plan copy
+        write_plan("Fusuma", offer_id)  # the plan is looked up next to the CVs
 
         cmd_cv_cover_letter(offer_id)
 

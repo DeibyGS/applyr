@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import (
@@ -16,6 +17,9 @@ from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
 from applyr.evidence import fold_accents, is_evidenced, parse_evidence
 from applyr.scoring import build_tailoring_plan, tailoring_plan_to_json
+
+if TYPE_CHECKING:  # import kept type-only: applyr.gates reads back into this module
+    from applyr.gates import PlanStatus
 
 
 def _die_chrome(message: str, result) -> None:
@@ -129,7 +133,7 @@ def resolve_cv_language(offer_language: str | None) -> str:
     return configured if configured in CV_HEADINGS else "en"
 
 
-def _make_slug(company: str | None) -> str:
+def make_slug(company: str | None) -> str:
     """Create a filesystem-safe slug from a company name.
 
     Company only, not title: a CV file is named after who it's going to, not
@@ -137,6 +141,10 @@ def _make_slug(company: str | None) -> str:
     dashes so names like "Acme (Spain)" don't produce filenames that need
     shell quoting. A second offer at the same company gets an id suffix
     instead of colliding — see cmd_cv_generate.
+
+    Public (not `_make_slug`) because applyr.gates derives the plan filename
+    from the same slug — two spellings of one naming rule would let a plan and
+    its CV live under different names.
     """
     raw = (company or "unknown").lower()
     cleaned = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
@@ -149,11 +157,16 @@ def get_cv_master_path() -> Path:
     return Path(os.path.expanduser(config["cv"]["cv_master"]))
 
 
-def get_output_dir() -> Path:
-    """Return the CV output directory, creating it if needed."""
+def get_output_dir(create: bool = True) -> Path:
+    """Return the CV output directory, creating it if needed.
+
+    `create=False` is for callers that only compute a path — a plan lookup
+    must not leave an empty `cv/` directory behind just for asking.
+    """
     config = load_config()
     output_dir = Path(os.path.expanduser(config["cv"]["output_dir"]))
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if create:
+        output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
 
@@ -329,13 +342,10 @@ def _check_pdf_gate(cv_path: Path, force: bool) -> tuple[int | None, str | None]
     return (None if unverifiable == "not_found" else verdict["offer_id"]), reason
 
 
-def _note_forced_pdf(offer_id: int, reason: str) -> None:
-    """Append a dated `cv pdf --force` line to the offer's notes, keeping existing ones."""
-    from datetime import date
-
+def _append_note(offer_id: int, line: str) -> None:
+    """Append one line to the offer's notes, keeping whatever is already there."""
     from applyr.db import get_conn
 
-    line = f"[{date.today().isoformat()}] cv pdf --force: verify skipped ({reason})"
     conn = get_conn()
     try:
         conn.execute(
@@ -346,6 +356,42 @@ def _note_forced_pdf(offer_id: int, reason: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _note_forced_pdf(offer_id: int, reason: str) -> None:
+    """Append a dated `cv pdf --force` line to the offer's notes."""
+    _append_dated_note(offer_id, f"cv pdf --force: verify skipped ({reason})")
+
+
+def _append_dated_note(offer_id: int, text: str) -> None:
+    """Append `text` to the offer's notes prefixed with today's date."""
+    from datetime import date
+
+    _append_note(offer_id, f"[{date.today().isoformat()}] {text}")
+
+
+def _report_plan_gate(status: "PlanStatus", plan_file: Path, offer_id: int, force: bool) -> None:
+    """Refuse generation without a valid Step 5.7 plan, or record a bypass (ADR-018).
+
+    Both paths leave a trace: the refusal names the file the plan belongs in,
+    and a forced bypass appends a dated line to the offer's notes so "this CV
+    shipped without a plan" stays auditable instead of becoming invisible.
+    """
+    from applyr.gates import plan_hint
+
+    if force:
+        warn(f"Warning: generating without a valid plan (--force): {plan_hint(status)}.")
+        _append_dated_note(offer_id, f"cv generate --force: plan skipped ({status.value})")
+        return
+
+    error(f"Error: CV plan for offer #{offer_id} is {status.value}: {plan_file}")
+    error(f"  {plan_hint(status)}.")
+    die(f"Error: CV plan is {status.value} for offer #{offer_id}.",
+        code=status.error_code,
+        details={"offer_id": offer_id, "plan_path": str(plan_file), "state": status.value},
+        text="  Run 'applyr role architect' and save the strategy to that path (Step 5.7), "
+             "then re-run 'applyr cv generate'.\n"
+             "  Pass --force to generate anyway (the bypass is recorded on the offer).")
 
 
 def cmd_cv_pdf(cv_file: str, output: str | None = None, force: bool = False) -> None:
@@ -498,7 +544,7 @@ def cmd_cv_generate(offer_id: int, template: str = "ats", force: bool = False) -
                      "content_words": report.content_words},
             text=f"  Fill {cv_master} with your profile before generating a CV.")
     output_dir = get_output_dir()
-    slug = _make_slug(row["company"])
+    slug = make_slug(row["company"])
     md_path = output_dir / f"cv-{slug}.md"
 
     # A CV for the same company already sitting on disk from a DIFFERENT
@@ -656,6 +702,18 @@ Include both acronyms and full terms.]
             details={"path": str(md_path), "offer_id": offer_id},
             text="  It would be overwritten with an empty skeleton.\n"
                  "  Pass --force to replace it, or rename the existing file first.")
+
+    # ADR-018: no plan, no CV. The Architect's plan (Step 5.7) is the only
+    # place "what this CV must NOT say" is written down, so generating without
+    # it is precisely the silent skip that lets an inflated profile reach the
+    # recruiter. An offer that already generated a CV (cv_used set) never has
+    # to justify one retroactively — the plan is a gate on the first pass only.
+    if not row["cv_used"]:
+        from applyr.gates import check_plan
+
+        status, plan_file = check_plan(row["company"], offer_id)
+        if not status.ok:
+            _report_plan_gate(status, plan_file, offer_id, force)
 
     # Explicit UTF-8: the skeleton now carries accented headings ("Formación"),
     # so relying on the platform's default encoding would corrupt or fail to
