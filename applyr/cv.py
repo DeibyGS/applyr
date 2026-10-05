@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING
 from applyr.config import APPLYR_DIR, load_config
 from applyr.constants import (
     CHROME_STDERR_SNIPPET, CHROME_TIMEOUT_SECONDS, FACT_CHECK_PASS_MIN, PROTECTED_FACT_ALIASES,
-    TOPIC_PARTIAL_MIN, TOPIC_STRONG_MIN,
+    SUMMARY_HEADING_ALIASES, TOPIC_PARTIAL_MIN, TOPIC_STRONG_MIN,
 )
 from applyr.cv_master import inspect_cv_master
 from applyr.errors import die, error, read_text_or_die, warn
-from applyr.evidence import fold_accents, is_evidenced, parse_evidence
+from applyr.evidence import fold_accents, is_evidenced, parse_evidence, section_headings
 from applyr.scoring import build_tailoring_plan, tailoring_plan_to_json
 
 if TYPE_CHECKING:  # import kept type-only: applyr.gates reads back into this module
@@ -1442,6 +1442,52 @@ def _check_employer_claim(heading: str, claims: list) -> bool:
     return False
 
 
+_CV_HEADING_RE = re.compile(r"^#{1,3}\s+(.+?)\s*$", re.MULTILINE)
+
+
+def _summary_section(body: str) -> str:
+    """The CV's professional-summary body, or "" when there is no such section."""
+    headings = list(_CV_HEADING_RE.finditer(body))
+    for i, match in enumerate(headings):
+        if fold_accents(match.group(1)).strip().lower() in SUMMARY_HEADING_ALIASES:
+            end = headings[i + 1].start() if i + 1 < len(headings) else len(body)
+            return body[match.end():end]
+    return ""
+
+
+def _framing_warnings(body: str, claims: list, vocabulary: set[str],
+                      profile_text: str) -> list[dict]:
+    """Technologies the CV summary presents as experience that the profile does not.
+
+    Advisory only (ADR-018 AC-18/19/21): it never touches `passed`, never
+    decides whether a claim is honest — the recorded Fact Checker does that —
+    and only looks at the technology vocabulary, so project names, employers
+    and credentials are out of scope by construction (AC-20).
+    """
+    if not any(claim.section == "experience" for claim in claims):
+        # Nothing in the profile is experience, so nothing can be reframed.
+        return []
+    summary = _summary_section(body)
+    if not summary:
+        return []
+    labels = section_headings(profile_text)
+    warnings = []
+    for term in sorted(_extract_tech_claims(summary, vocabulary)):
+        matching = [claim for claim in claims if is_evidenced(term, [claim])]
+        if not matching or any(claim.section == "experience" for claim in matching):
+            continue
+        sections = sorted({claim.section for claim in matching})
+        found = ", ".join(heading for section in sections
+                          for heading in labels.get(section, [section.upper()]))
+        warnings.append({
+            "term": term,
+            "sections": sections,
+            "detail": f"'{term}' is in the CV summary but cv-master only has it under "
+                      f"{found} — reframe as project/course, not experience.",
+        })
+    return warnings
+
+
 def _verify_cv(cv_path: Path) -> dict:
     """Run the deterministic claim checks on a CV file, with no side effects.
 
@@ -1450,7 +1496,8 @@ def _verify_cv(cv_path: Path) -> dict:
     {"offer_id", "unverifiable": <error code>} — "no_offer_id", "not_found" or
     "cv_master_missing" — and the caller decides whether that is fatal (it is
     for `cv verify`, not for `cv pdf --force`). Otherwise it returns
-    {"offer_id", "results", "unsupported", "passed"}.
+    {"offer_id", "results", "unsupported", "passed", "framing"} — framing is
+    advisory and never part of `passed` (ADR-018 AC-19).
     """
     from applyr.db import get_conn
 
@@ -1476,7 +1523,8 @@ def _verify_cv(cv_path: Path) -> dict:
     cv_master = get_cv_master_path()
     if not cv_master.exists():
         return {"offer_id": offer_id, "unverifiable": "cv_master_missing"}
-    claims = parse_evidence(cv_master.read_text(encoding="utf-8"))
+    profile_text = cv_master.read_text(encoding="utf-8")
+    claims = parse_evidence(profile_text)
 
     vocabulary = _build_tech_vocabulary(claims, offer["tech_stack"])
     no_comments = _strip_html_comments(content)
@@ -1503,7 +1551,10 @@ def _verify_cv(cv_path: Path) -> dict:
         })
 
     unsupported = [r for r in results if not r["supported"]]
-    return {"offer_id": offer_id, "results": results, "unsupported": unsupported, "passed": not unsupported}
+    framing = (_framing_warnings(body, claims, vocabulary, profile_text)
+               if cv_path.suffix == ".md" else [])
+    return {"offer_id": offer_id, "results": results, "unsupported": unsupported,
+            "passed": not unsupported, "framing": framing}
 
 
 def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
@@ -1534,6 +1585,7 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
     if unverifiable == "cv_master_missing":
         die("Error: cv-master.md not found. Run 'applyr init' first.", code="cv_master_missing")
     results, unsupported, passed = verdict["results"], verdict["unsupported"], verdict["passed"]
+    framing = verdict.get("framing", [])
 
     # Calculate evidence density
     total_claims = len(results)
@@ -1574,6 +1626,7 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
             "status": "PASS" if passed else "FAIL",
             "passed": passed,
             "offer_id": offer_id,
+            "framing": framing,
             "claims": results,
             "unsupported": unsupported,
             "issues": issues,
@@ -1598,6 +1651,12 @@ def cmd_cv_verify(cv_file: str, as_json: bool = False) -> None:
             print("\n  >> BLOCKED — remove or ground these claims in cv-master.md before sending this CV.")
         else:
             print("\n  >> PASS — every checked claim is grounded in cv-master.md.")
+        if framing:
+            # Advisory: never part of `passed`, never a judgement about honesty
+            # (AC-19/AC-21) — the recorded Fact Checker owns that.
+            print("\n  Framing:")
+            for warning in framing:
+                print(f"    ! {warning['detail']}")
 
     if not passed:
         sys.exit(1)

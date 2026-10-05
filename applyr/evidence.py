@@ -184,6 +184,21 @@ def parse_evidence(profile_text: str) -> list[EvidenceClaim]:
     return claims
 
 
+def section_headings(profile_text: str) -> dict[str, list[str]]:
+    """The raw heading text each section was found under, e.g. project -> ["PROYECTOS"].
+
+    `parse_evidence` normalises headings to section ids; the framing warning
+    has to name the section as the reader of that profile will find it.
+    """
+    headings: dict[str, list[str]] = {}
+    for match in _HEADING_RE.finditer(profile_text):
+        heading = match.group(1).strip()
+        section = _SECTION_MAP.get(heading.lower())
+        if section:
+            headings.setdefault(section, []).append(heading)
+    return headings
+
+
 def _parse_table_entries(lines: list[str], prefix: str, section: str) -> tuple[list[EvidenceClaim], set[int], int]:
     """One entry per data row of a GFM table (header row + separator row + data rows).
 
