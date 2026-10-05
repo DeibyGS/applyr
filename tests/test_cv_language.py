@@ -59,7 +59,7 @@ class TestGeneratedSkeletonLanguage:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(spanish_offer)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-acme.md").read_text()
         assert "## Experiencia Profesional" in md
         assert "## Formación" in md
         assert "## Habilidades Técnicas" in md
@@ -69,7 +69,7 @@ class TestGeneratedSkeletonLanguage:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(spanish_offer)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-acme.md").read_text()
         for english in ("## Work Experience", "## Education", "## Technical Skills",
                         "## Professional Summary", "## Certifications"):
             assert english not in md
@@ -79,7 +79,7 @@ class TestGeneratedSkeletonLanguage:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(spanish_offer)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-acme.md").read_text()
         assert "write every line of this CV in Spanish" in md
         assert 'language: "es"' in md
 

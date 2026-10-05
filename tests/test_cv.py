@@ -142,7 +142,7 @@ class TestCvGenerate:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(offer_id)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-fusuma.md").read_text()
         assert "no professional experience" not in md
         assert "Topic Scores" not in md
 
@@ -172,7 +172,7 @@ class TestCvGenerate:
         from applyr.cv import cmd_cv_generate
 
         cmd_cv_generate(offer_id)
-        md = next((tmp_applyr / "cv").glob("*.md")).read_text()
+        md = (tmp_applyr / "cv" / "cv-fusuma.md").read_text()
         assert f"offer_id: {offer_id}" in md
 
 
@@ -235,7 +235,8 @@ class TestCvKeywords:
         from applyr.cv import cmd_cv_generate, cmd_cv_keywords
 
         cmd_cv_generate(offer_id)
-        cv_path = next((tmp_applyr / "cv").glob("*.md"))
+        # Not a glob: the Step 5.7 plan lives beside the CV (ADR-018).
+        cv_path = tmp_applyr / "cv" / "cv-fusuma.md"
         cv_path.write_bytes(b"\xff\xfe not valid utf-8")
 
         with pytest.raises(SystemExit):
