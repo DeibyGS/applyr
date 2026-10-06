@@ -119,6 +119,13 @@ an ADR in `docs/adr/`:
 
 Full rules, invariants and safe extension points: **[`docs/contracts.md`](docs/contracts.md)**.
 
+### User data folders — never delete or move
+
+`~/Documents/applyr/` is the user-facing output folder (generated CVs, cover
+letters, `cv-master.md`). It is intentionally visible, NOT a duplicate of this
+repo despite the shared name. Never delete or move it. (An automated audit once
+mistook it for a stray copy of the repository.)
+
 ## Running Tests
 
 ```bash
