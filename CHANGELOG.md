@@ -352,6 +352,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   place rather than appending a new copy behind it, so repeated `--force` runs across
   releases never accumulate more than one block.
 
+## [1.13.1] — 2026-09-02
+
+### Fixed
+
+- **`templates/agents/*.md`** (the Matcher/Recruiter/CV Architect/Fact Checker role
+  instruction files `AGENT_INSTRUCTIONS.md` points agents to) **never shipped in the
+  published PyPI wheel** — `pyproject.toml`'s `package-data` glob (`templates/*`) was
+  not recursive, so the `agents/` subdirectory was silently excluded from every build.
+  Fixed to `templates/**/*`.
+- **`_parse_tech_stack` didn't split a job offer's `tech_stack` field on `/`**, so
+  slash-phrased alternatives ("React/Vue/Next.js", "Node.js/Python/Go") were checked
+  verbatim against `cv-master.md` and reported as entirely missing evidence in the
+  auto-generated CV tailoring plan, even when the candidate profile had several of the
+  listed technologies individually. Fixed to also split on top-level `/`, with guards
+  so parenthetical groupings and known conventional compounds (CI/CD, TCP/IP, I/O,
+  A/B testing, UI/UX) stay intact instead of being split into meaningless halves.
+
+## [1.13.0] — 2026-09-01
+
+### Added
+
+- **CV tailoring plan with a 5-role pipeline** (Matcher → Recruiter → CV Architect →
+  Writer → Fact Checker). `cv generate` now builds a structured tailoring plan from the
+  offer and the evidence found in `cv-master.md`, saves it on the offer, and injects it
+  into the generated skeleton as context. `AGENT_INSTRUCTIONS.md` gains the CV Architect
+  step and an explicit stop for user confirmation before generating, plus per-role
+  instruction files under `templates/agents/`.
+- **`cv verify --json`** returns `status`, `issues` and `evidence_density`.
+- Schema v14: `cv_tailoring_plan`, `evidence_map`, `cv_iteration` and
+  `cv_iteration_history` columns on `offers`.
+
+### Fixed
+
+- **`cv verify` credited a fabricated `### heading` to a real certification** — the
+  employer check scanned every claim's `entry_context` with no section filter, so a
+  certification like "AWS Certified Solutions Architect — Amazon Web Services" could
+  ground an invented "Cloud Engineer - AWS" heading. Certifications are now excluded
+  from that check; they never render as headings.
+- `_parse_tech_stack` broke comma splitting on parenthesized phrases such as
+  "LLMs (agentes, prompting)".
+- The summary strategy printed a literal `None` when the offer had no seniority level.
+- `cv verify` parsed "100%" as a metric claim (false positive).
+
 ## [1.12.2] — 2026-08-27
 
 ### Fixed
