@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listIntake, type IntakeRow } from "@/api/intake";
 import { listJobs, type JobSummary } from "@/api/jobs";
+import { useApplyrEvents } from "@/hooks/useApplyrEvents";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -29,6 +30,23 @@ export function useIntakeAndJobs() {
     const id = setInterval(refresh, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);
+
+  // ADR-014: refresh immediately on a job state transition instead of
+  // waiting up to POLL_INTERVAL_MS. The poll above stays as a recovery net
+  // (page reload, a missed SSE event) — this just makes live updates feel
+  // instant instead of laggy for the one thing that changes fast: intake
+  // rows moving through the pipeline.
+  const { subscribe, unsubscribe } = useApplyrEvents({ autoConnect: true });
+  useEffect(() => {
+    const id = subscribe(
+      () => refresh(),
+      // ApplyrEvent only models agent/handoff/pipeline events; the backend
+      // also sends this flat job event over the same stream (no agent_id),
+      // so widen to a plain string before comparing.
+      (event) => (event as { type: string }).type === "job.state_changed",
+    );
+    return () => unsubscribe(id);
+  }, [subscribe, unsubscribe]);
 
   return { pendingIntake, jobs, loaded, refresh };
 }

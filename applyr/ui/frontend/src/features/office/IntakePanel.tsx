@@ -6,7 +6,13 @@ import { IntakeForm } from "@/features/intake/IntakeForm";
 import { PendingIntakeList } from "@/features/intake/PendingIntakeList";
 import type { IntakeRow } from "@/api/intake";
 
-export function IntakePanel({ rows, onCreated }: { rows: IntakeRow[]; onCreated: () => void }) {
+type IntakePanelProps = {
+  rows: IntakeRow[];
+  onCreated: () => void;
+  onRetried?: () => void;
+};
+
+export function IntakePanel({ rows, onCreated, onRetried }: IntakePanelProps) {
   const [open, setOpen] = useState(false);
   const buttonText = rows.length > 0 ? `Paste offer (${rows.length})` : "Paste offer";
 
@@ -31,7 +37,7 @@ export function IntakePanel({ rows, onCreated }: { rows: IntakeRow[]; onCreated:
           </DialogHeader>
           <DialogBody>
             <IntakeForm onCreated={() => { onCreated(); setOpen(false); }} />
-            {rows.length > 0 && <PendingIntakeList rows={rows} />}
+            {rows.length > 0 && <PendingIntakeList rows={rows} onRetried={onRetried} />}
           </DialogBody>
         </DialogContent>
       </Dialog>

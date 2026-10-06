@@ -12,6 +12,7 @@ function intakeRow(overrides: Partial<IntakeRow> = {}): IntakeRow {
     offer_id: null,
     created_at: "2026-08-23 10:00:00",
     promoted_at: null,
+    job: null,
     ...overrides,
   };
 }

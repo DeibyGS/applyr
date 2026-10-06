@@ -15,7 +15,7 @@ export default function OfficePage() {
     <div className="office-bg relative flex flex-col gap-6 rounded-lg p-6">
       <OfficeHeader stats={stats} />
       <AgentFlowDiagram statuses={agentStatuses} />
-      <IntakePanel rows={pendingIntake} onCreated={refresh} />
+      <IntakePanel rows={pendingIntake} onCreated={refresh} onRetried={refresh} />
     </div>
   );
 }

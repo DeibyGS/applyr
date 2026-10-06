@@ -12,6 +12,7 @@ function intakeRow(id: number): IntakeRow {
     offer_id: null,
     created_at: "2026-08-28T00:00:00Z",
     promoted_at: null,
+    job: null,
   };
 }
 
